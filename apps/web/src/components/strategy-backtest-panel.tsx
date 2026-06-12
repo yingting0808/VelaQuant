@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getLatestBacktest,
   getStrategyCatalog,
@@ -32,26 +32,40 @@ export function StrategyBacktestPanel() {
   const [strategies, setStrategies] = useState<StrategyDefinitionPayload[]>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState("moving_average_cross");
   const [result, setResult] = useState<BacktestResultPayload | null>(null);
+  const [isCatalogLoaded, setIsCatalogLoaded] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let active = true;
-    getStrategyCatalog().then((payload) => {
-      if (!active) {
+    mountedRef.current = true;
+    getStrategyCatalog()
+      .then((payload) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setStrategies(payload.strategies);
+        if (payload.strategies[0]) {
+          setSelectedStrategyId(payload.strategies[0].id);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) {
+          setStrategies([]);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setIsCatalogLoaded(true);
+        }
+      });
+    getLatestBacktest().then((payload) => {
+      if (!mountedRef.current) {
         return;
       }
-      setStrategies(payload.strategies);
-      if (payload.strategies[0]) {
-        setSelectedStrategyId(payload.strategies[0].id);
-      }
-    });
-    getLatestBacktest().then((payload) => {
-      if (active) {
-        setResult(payload.latest);
-      }
+      setResult(payload.latest);
     });
     return () => {
-      active = false;
+      mountedRef.current = false;
     };
   }, []);
 
@@ -65,10 +79,22 @@ export function StrategyBacktestPanel() {
       return;
     }
     setIsRunning(true);
-    const payload = await runStrategyBacktest(selectedStrategy.id);
-    setResult(payload);
-    setIsRunning(false);
+    try {
+      const payload = await runStrategyBacktest(selectedStrategy.id);
+      if (mountedRef.current) {
+        setResult(payload);
+      }
+    } catch {
+      // runStrategyBacktest normally returns a failed payload; this keeps the UI recoverable if it throws.
+    } finally {
+      if (mountedRef.current) {
+        setIsRunning(false);
+      }
+    }
   }
+
+  const hasEmptyCatalog = isCatalogLoaded && strategies.length === 0;
+  const resultMessage = result?.message ?? (hasEmptyCatalog ? "策略目录为空，无法运行回测。" : "选择策略后点击运行回测。");
 
   return (
     <section className="data-panel backtest-panel" aria-label="LEAN 回测">
@@ -78,14 +104,21 @@ export function StrategyBacktestPanel() {
           <p>运行白名单内置策略，结果仅用于研究验证</p>
         </div>
         <button className="primary-action" type="button" disabled={isRunning || !selectedStrategy} onClick={handleRun}>
-          {isRunning ? "运行中" : "运行回测"}
+          {isRunning ? "运行回测中" : "运行回测"}
         </button>
       </div>
 
       <div className="strategy-grid">
         <div className="strategy-list" aria-label="策略列表">
+          {hasEmptyCatalog ? (
+            <div className="strategy-empty">
+              <strong>暂无可用策略</strong>
+              <p>请检查策略目录配置。</p>
+            </div>
+          ) : null}
           {strategies.map((strategy) => (
             <button
+              aria-pressed={strategy.id === selectedStrategyId}
               className={strategy.id === selectedStrategyId ? "strategy-option active" : "strategy-option"}
               key={strategy.id}
               type="button"
@@ -107,15 +140,18 @@ export function StrategyBacktestPanel() {
               <strong>{result ? statusLabel[result.status] : "尚未运行回测"}</strong>
             </div>
             {result ? (
-              <span className={result.status === "success" ? "status-pill success" : "status-pill warning"}>
-                {result.status}
+              <span
+                className={result.status === "success" ? "status-pill success" : "status-pill warning"}
+                title={result.status}
+              >
+                {statusLabel[result.status]}
               </span>
             ) : (
               <span className="status-pill neutral">等待</span>
             )}
           </div>
 
-          <p className="result-message">{result?.message ?? "选择策略后点击运行回测。"}</p>
+          <p className="result-message">{resultMessage}</p>
 
           <div className="backtest-metrics">
             {metricRows(result).map(([label, value]) => (

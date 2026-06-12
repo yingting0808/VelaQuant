@@ -377,6 +377,11 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   });
 
   await page.goto("/strategy-lab");
+  const panel = page.getByRole("region", { name: "LEAN 回测" });
+  await expect(panel.getByLabel("策略列表").getByRole("button", { name: /MovingAverageCross/ })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await page.getByRole("button", { name: "运行回测" }).click();
 
   await expect(page.getByText("MovingAverageCross")).toBeVisible();
@@ -384,6 +389,7 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   await expect(page.getByText("12.34%")).toBeVisible();
   await expect(page.getByText("Sharpe")).toBeVisible();
   await expect(page.getByText("TRACE:: Backtest completed")).toBeVisible();
+  await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("回测完成");
 });
 
 test("strategy lab displays LEAN backtest failures", async ({ page }) => {
@@ -449,10 +455,41 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
   });
 
   await page.goto("/strategy-lab");
+  const panel = page.getByRole("region", { name: "LEAN 回测" });
   await page.getByRole("button", { name: "运行回测" }).click();
 
-  await expect(page.getByText("环境未就绪")).toBeVisible();
-  await expect(page.getByLabel("回测日志").getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+  await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("环境未就绪");
+  await expect(panel.getByLabel("回测日志").getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+});
+
+test("strategy lab shows an empty state when no strategies are cataloged", async ({ page }) => {
+  await page.route("**/api/mvp/strategy-lab/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        can_run_backtests: true,
+        summary: "Docker and LEAN are ready for local backtest preparation.",
+        tools: [{ name: "LEAN CLI", available: true, version: "lean, version 1.0.200", message: "LEAN CLI is available." }]
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/strategies", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: { strategies: [] }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { latest: null } });
+  });
+
+  await page.goto("/strategy-lab");
+
+  const panel = page.getByRole("region", { name: "LEAN 回测" });
+  await expect(panel.getByText("暂无可用策略")).toBeVisible();
+  await expect(panel.getByText("请检查策略目录配置。")).toBeVisible();
+  await expect(panel.getByText("策略目录为空，无法运行回测。")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "运行回测" })).toBeDisabled();
 });
 
 test("strategy backtest client preserves HTTP error detail", async () => {

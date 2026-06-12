@@ -615,8 +615,10 @@ tbody tr:last-child td {
   border-radius: 7px;
   color: #ffffff;
   cursor: pointer;
+  flex: 0 0 auto;
   min-height: 36px;
   padding: 7px 12px;
+  white-space: nowrap;
 }
 
 .primary-action:disabled {
@@ -648,6 +650,16 @@ tbody tr:last-child td {
   text-align: left;
 }
 
+.strategy-empty {
+  background: #ffffff;
+  border: 1px dashed #d9dee7;
+  border-radius: 8px;
+  color: #172033;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
 .strategy-option.active {
   border-color: #182235;
   box-shadow: inset 3px 0 0 #182235;
@@ -656,6 +668,8 @@ tbody tr:last-child td {
 .strategy-option strong,
 .strategy-option p,
 .strategy-option span,
+.strategy-empty strong,
+.strategy-empty p,
 .result-message,
 .log-box p {
   margin: 0;
@@ -663,6 +677,7 @@ tbody tr:last-child td {
 
 .strategy-option span,
 .strategy-option p,
+.strategy-empty p,
 .result-message {
   color: #667085;
   font-size: 0.86rem;
@@ -722,5 +737,17 @@ tbody tr:last-child td {
   .strategy-grid,
   .backtest-metrics {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .backtest-panel .panel-heading {
+    align-items: stretch;
+    display: grid;
+    gap: 12px;
+  }
+
+  .backtest-panel .primary-action {
+    justify-self: start;
   }
 }
