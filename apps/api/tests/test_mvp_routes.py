@@ -7,6 +7,8 @@ from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
+from app.services.lean_backtest import BacktestResult, BacktestStatistics
+from app.services.strategy_catalog import StrategyDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 
 
@@ -247,3 +249,88 @@ def test_mvp_market_quote_normalizes_arbitrary_ticker():
 
     assert response.status_code == 200
     assert response.json()["ticker"] == "TSLA"
+
+
+def test_mvp_strategy_lab_strategies_route_returns_catalog(monkeypatch):
+    def fake_list_strategies():
+        return [
+            StrategyDefinition(
+                id="moving_average_cross",
+                name="MovingAverageCross",
+                description="fixture strategy",
+                language="Python",
+                asset_class="US Equity",
+                default_symbol="AAPL",
+                resolution="Daily",
+                project_path="MovingAverageCross",
+                enabled=True,
+            )
+        ]
+
+    monkeypatch.setattr(mvp, "load_enabled_strategies", fake_list_strategies)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/strategies")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategies"][0]["id"] == "moving_average_cross"
+    assert "project_path" not in payload["strategies"][0]
+
+
+def test_mvp_strategy_lab_latest_backtest_route_returns_null_initially(monkeypatch):
+    monkeypatch.setattr(mvp, "read_latest_backtest", lambda: None)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/backtests/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {"latest": None}
+
+
+def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
+    result = BacktestResult(
+        run_id="20260612T101500Z-moving_average_cross",
+        strategy_id="moving_average_cross",
+        status="success",
+        started_at="2026-06-12T10:15:00Z",
+        completed_at="2026-06-12T10:16:15Z",
+        duration_seconds=75.0,
+        message="Backtest completed.",
+        statistics=BacktestStatistics(total_net_profit="12.34%", sharpe_ratio="0.72"),
+        equity=[],
+        logs=["TRACE:: Backtest completed"],
+        output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
+    )
+
+    def fake_run(strategy_id: str) -> BacktestResult:
+        assert strategy_id == "moving_average_cross"
+        return result
+
+    monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/backtests",
+        json={"strategy_id": "moving_average_cross"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["statistics"]["total_net_profit"] == "12.34%"
+
+
+def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
+    def fake_run(strategy_id: str) -> BacktestResult:
+        raise ValueError("Unknown strategy_id: missing")
+
+    monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/strategy-lab/backtests",
+        json={"strategy_id": "missing"},
+    )
+
+    assert response.status_code == 404

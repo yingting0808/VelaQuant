@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
@@ -10,7 +10,9 @@ from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.services.alerts import AlertCandidate, generate_event_alerts
+from app.services.lean_backtest import read_latest_backtest, run_lean_backtest
 from app.services.portfolio import PositionInput, calculate_exposure
+from app.services.strategy_catalog import load_enabled_strategies
 from app.services.strategy_lab import get_strategy_lab_status
 
 router = APIRouter(prefix="/api/mvp", tags=["mvp"])
@@ -23,6 +25,18 @@ class ResearchBody(BaseModel):
     @field_validator("ticker", "question")
     @classmethod
     def strip_required_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
+class BacktestBody(BaseModel):
+    strategy_id: str = Field(min_length=1)
+
+    @field_validator("strategy_id")
+    @classmethod
+    def strip_strategy_id(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")
@@ -85,6 +99,26 @@ def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_p
 @router.get("/strategy-lab/status")
 def strategy_lab_status() -> dict:
     return get_strategy_lab_status().model_dump()
+
+
+@router.get("/strategy-lab/strategies")
+def strategy_lab_strategies() -> dict:
+    return {"strategies": [strategy.public_payload() for strategy in load_enabled_strategies()]}
+
+
+@router.post("/strategy-lab/backtests")
+def strategy_lab_run_backtest(body: BacktestBody) -> dict:
+    try:
+        result = run_lean_backtest(body.strategy_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return result.model_dump()
+
+
+@router.get("/strategy-lab/backtests/latest")
+def strategy_lab_latest_backtest() -> dict:
+    latest = read_latest_backtest()
+    return {"latest": latest.model_dump() if latest is not None else None}
 
 
 def _normalize_path_ticker(ticker: str) -> str:
