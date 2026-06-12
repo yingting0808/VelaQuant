@@ -527,3 +527,94 @@ tbody tr:last-child td {
   color: #9a3412;
   font-weight: 700;
 }
+
+.market-heading {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ticker-form {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(86px, 120px) auto;
+}
+
+.ticker-form label {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 700;
+  grid-column: 1 / -1;
+}
+
+.ticker-form input {
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  min-height: 34px;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
+.ticker-form button,
+.ticker-strip button {
+  background: #182235;
+  border: 1px solid #182235;
+  border-radius: 7px;
+  color: #ffffff;
+  cursor: pointer;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.ticker-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+
+.market-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 14px 16px;
+}
+
+.market-card {
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.market-card strong {
+  color: #111827;
+  font-size: 1.25rem;
+}
+
+.market-card p,
+.market-label {
+  color: #667085;
+  margin: 0;
+}
+
+.market-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.compact-history {
+  border-top: 1px solid #edf0f4;
+}
+
+@media (max-width: 760px) {
+  .market-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-heading {
+    display: grid;
+  }
+}

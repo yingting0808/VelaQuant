@@ -31,7 +31,7 @@ test("navigation links route to module workspaces", async ({ page }) => {
   await expect(page.getByRole("link", { name: "自选股" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("当前模块：自选股")).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "自选股" })).toBeVisible();
-  await expect(page.getByText("NVDA")).toBeVisible();
+  await expect(page.locator(".module-view").getByText("NVDA", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "主组合" })).not.toBeVisible();
 });
 
@@ -210,12 +210,14 @@ test("watchlist renders market snapshot from API", async ({ page }) => {
 
   await page.goto("/watchlist");
 
+  const panel = page.getByRole("region", { name: "市场快照" });
+  const quoteCard = panel.locator(".market-card").first();
   await expect(page.getByRole("heading", { name: "市场快照" })).toBeVisible();
-  await expect(page.getByText("NVDA", { exact: true })).toBeVisible();
-  await expect(page.getByText("$125.75")).toBeVisible();
-  await expect(page.getByText("openbb_yfinance")).toBeVisible();
-  await expect(page.getByText("Market Cap")).toBeVisible();
-  await expect(page.getByText("3.50T")).toBeVisible();
+  await expect(quoteCard.getByText("NVDA", { exact: true })).toBeVisible();
+  await expect(quoteCard.getByText("$125.75")).toBeVisible();
+  await expect(quoteCard.getByText("openbb_yfinance")).toBeVisible();
+  await expect(panel.getByText("Market Cap")).toBeVisible();
+  await expect(panel.getByText("3.50T")).toBeVisible();
 });
 
 test("watchlist can query an arbitrary ticker and show unavailable fallback", async ({ page }) => {
