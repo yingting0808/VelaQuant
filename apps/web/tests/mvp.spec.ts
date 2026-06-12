@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { runStrategyBacktest } from "../src/lib/client-api";
 
 async function gotoDashboard(page: Page) {
   await page.goto("/");
@@ -347,6 +348,9 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
     await route.fulfill({ contentType: "application/json", json: { latest: null } });
   });
   await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    const requestBody = route.request().postDataJSON() as { strategy_id?: unknown };
+    expect(requestBody.strategy_id).toBe("moving_average_cross");
     await route.fulfill({
       contentType: "application/json",
       json: {
@@ -416,6 +420,9 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
     await route.fulfill({ contentType: "application/json", json: { latest: null } });
   });
   await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    const requestBody = route.request().postDataJSON() as { strategy_id?: unknown };
+    expect(requestBody.strategy_id).toBe("moving_average_cross");
     await route.fulfill({
       contentType: "application/json",
       json: {
@@ -446,4 +453,49 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
 
   await expect(page.getByText("环境未就绪")).toBeVisible();
   await expect(page.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+});
+
+test("strategy backtest client preserves HTTP error detail", async () => {
+  const originalFetch = globalThis.fetch;
+  let postedStrategyId: string | null = null;
+  globalThis.fetch = async (_input, init) => {
+    postedStrategyId = JSON.parse(String(init?.body)).strategy_id;
+    return new Response(JSON.stringify({ detail: "Unknown strategy_id: missing" }), {
+      headers: { "Content-Type": "application/json" },
+      status: 404
+    });
+  };
+
+  try {
+    const result = await runStrategyBacktest("  missing  ");
+
+    expect(postedStrategyId).toBe("missing");
+    expect(result.strategy_id).toBe("missing");
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("请求失败（404）：Unknown strategy_id: missing");
+    expect(result.logs).toContain("请求失败（404）：Unknown strategy_id: missing");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("strategy backtest client rejects blank strategy id without request", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const result = await runStrategyBacktest("   ");
+
+    expect(fetchCalled).toBe(false);
+    expect(result.strategy_id).toBe("");
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("请选择策略后再运行回测。");
+    expect(result.logs).toContain("请选择策略后再运行回测。");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

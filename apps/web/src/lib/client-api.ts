@@ -474,6 +474,14 @@ export type LatestBacktestPayload = {
   latest: BacktestResultPayload | null;
 };
 
+const backtestResultStatuses: BacktestResultPayload["status"][] = [
+  "success",
+  "unavailable",
+  "failed",
+  "timeout",
+  "malformed_result"
+];
+
 const fallbackStrategies: StrategyListPayload = {
   strategies: [
     {
@@ -511,6 +519,61 @@ function fallbackBacktestResult(strategyId: string): BacktestResultPayload {
     logs: ["请确认后端 API、Docker 和 LEAN CLI 状态。"],
     output_directory: "local"
   };
+}
+
+function failedBacktestResult(strategyId: string, message: string): BacktestResultPayload {
+  const now = new Date().toISOString();
+  return {
+    run_id: `failed-${strategyId || "strategy"}`,
+    strategy_id: strategyId,
+    status: "failed",
+    started_at: now,
+    completed_at: now,
+    duration_seconds: 0,
+    message,
+    statistics: {
+      total_net_profit: null,
+      compounding_annual_return: null,
+      sharpe_ratio: null,
+      drawdown: null,
+      win_rate: null,
+      total_trades: null
+    },
+    equity: [],
+    logs: [message],
+    output_directory: "local"
+  };
+}
+
+function stringifyErrorDetail(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return "后端未返回错误详情。";
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function readResponseErrorDetail(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.clone().json();
+    if (isRecord(payload) && "detail" in payload) {
+      return stringifyErrorDetail(payload.detail);
+    }
+    return stringifyErrorDetail(payload);
+  } catch {
+    try {
+      const text = await response.text();
+      return text.trim() || response.statusText || "后端未返回错误详情。";
+    } catch {
+      return response.statusText || "后端未返回错误详情。";
+    }
+  }
 }
 
 function isStrategyDefinition(value: unknown): value is StrategyDefinitionPayload {
@@ -552,7 +615,8 @@ function isBacktestResultPayload(value: unknown): value is BacktestResultPayload
     isRecord(value) &&
     typeof value.run_id === "string" &&
     typeof value.strategy_id === "string" &&
-    ["success", "unavailable", "failed", "timeout", "malformed_result"].includes(String(value.status)) &&
+    typeof value.status === "string" &&
+    backtestResultStatuses.includes(value.status as BacktestResultPayload["status"]) &&
     typeof value.started_at === "string" &&
     typeof value.completed_at === "string" &&
     typeof value.duration_seconds === "number" &&
@@ -601,18 +665,25 @@ export async function getLatestBacktest(): Promise<LatestBacktestPayload> {
 }
 
 export async function runStrategyBacktest(strategyId: string): Promise<BacktestResultPayload> {
+  const normalizedStrategyId = strategyId.trim();
+  if (!normalizedStrategyId) {
+    return failedBacktestResult("", "请选择策略后再运行回测。");
+  }
+
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/backtests`, {
-      body: JSON.stringify({ strategy_id: strategyId }),
+      body: JSON.stringify({ strategy_id: normalizedStrategyId }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
     if (!response.ok) {
-      return fallbackBacktestResult(strategyId);
+      const detail = await readResponseErrorDetail(response);
+      const message = `请求失败（${response.status}）：${detail}`;
+      return failedBacktestResult(normalizedStrategyId, message);
     }
     const payload: unknown = await response.json();
-    return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(strategyId);
+    return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(normalizedStrategyId);
   } catch {
-    return fallbackBacktestResult(strategyId);
+    return fallbackBacktestResult(normalizedStrategyId);
   }
 }
