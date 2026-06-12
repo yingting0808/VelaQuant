@@ -9,6 +9,12 @@ from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
 from app.services import strategy_catalog
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
+from app.services.paper_trading import (
+    PaperAccountPayload,
+    PaperCandidatePayload,
+    PaperReviewPayload,
+    PaperTradingSummary,
+)
 from app.services.research_notebook import ResearchNoteCreate, ResearchNotePayload
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
@@ -660,3 +666,78 @@ def test_mvp_research_note_route_rejects_malformed_result():
     )
 
     assert response.status_code == 422
+
+
+def _paper_trading_summary_payload() -> PaperTradingSummary:
+    return PaperTradingSummary(
+        account=PaperAccountPayload(
+            id="00000000-0000-0000-0000-000000000010",
+            name="默认模拟盘",
+            mode="paper",
+            starting_cash=100000,
+            cash=100000,
+            realized_pnl=0,
+            unrealized_pnl=0,
+            equity=100000,
+            updated_at="2026-06-13T00:00:00Z",
+        ),
+        candidates=[
+            PaperCandidatePayload(
+                id="00000000-0000-0000-0000-000000000011",
+                ticker="NVDA",
+                action="buy",
+                rank=1,
+                confidence=0.9,
+                thesis="NVDA 候选买入：3 条证据支持继续跟踪 NVDA。",
+                risk_notes="模拟结果不能直接代表实盘。",
+                evidence_summary="3 条证据支持继续跟踪 NVDA",
+                proposed_quantity=40,
+                status="proposed",
+                created_at="2026-06-13T00:00:00Z",
+            )
+        ],
+        orders=[],
+        positions=[],
+        latest_review=PaperReviewPayload(
+            id="00000000-0000-0000-0000-000000000012",
+            trading_day="2026-06-13",
+            equity=100000,
+            cash=100000,
+            realized_pnl=0,
+            unrealized_pnl=0,
+            trade_count=0,
+            win_rate=0,
+            average_win=0,
+            average_loss=0,
+            expectancy=0,
+            readiness="collecting",
+            notes="正在收集模拟盘样本。",
+            created_at="2026-06-13T00:00:00Z",
+        ),
+    )
+
+
+def test_mvp_paper_trading_summary_route_returns_sections(monkeypatch):
+    monkeypatch.setattr(mvp, "get_paper_trading_summary", lambda session, provider: _paper_trading_summary_payload(), raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["account"]["name"] == "默认模拟盘"
+    assert payload["account"]["mode"] == "paper"
+    assert payload["candidates"][0]["ticker"] == "NVDA"
+    assert payload["latest_review"]["readiness"] == "collecting"
+
+
+def test_mvp_paper_trading_daily_run_route_generates_candidates(monkeypatch):
+    monkeypatch.setattr(mvp, "run_daily_paper_trading_loop", lambda session, provider: _paper_trading_summary_payload(), raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/daily-run")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["candidates"][0]["action"] == "buy"
+    assert "证据" in payload["candidates"][0]["thesis"]

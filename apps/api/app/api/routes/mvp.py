@@ -18,6 +18,12 @@ from app.services.lean_backtest import (
     read_latest_backtest,
     run_lean_backtest,
 )
+from app.services.paper_trading import (
+    PaperOrderCreate,
+    get_paper_trading_summary,
+    run_daily_paper_trading_loop,
+    submit_paper_order,
+)
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
@@ -199,6 +205,35 @@ def notes_create(body: NoteCreate, session: Session = Depends(get_session)) -> d
 @router.post("/research/notes")
 def research_note_create(body: ResearchNoteCreate, session: Session = Depends(get_session)) -> dict:
     return save_research_result_as_note(session, body).model_dump()
+
+
+@router.get("/paper-trading/summary")
+def paper_trading_summary(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    return get_paper_trading_summary(session, provider).model_dump()
+
+
+@router.post("/paper-trading/daily-run")
+def paper_trading_daily_run(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    return run_daily_paper_trading_loop(session, provider).model_dump()
+
+
+@router.post("/paper-trading/orders")
+def paper_trading_order(
+    body: PaperOrderCreate,
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        order = submit_paper_order(session, provider, body)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return order.model_dump()
 
 
 @router.get("/strategy-lab/status")
