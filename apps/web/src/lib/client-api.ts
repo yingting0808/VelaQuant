@@ -426,3 +426,193 @@ export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshotP
     return fallbackMarketSnapshot(normalizedTicker);
   }
 }
+
+export type StrategyDefinitionPayload = {
+  id: string;
+  name: string;
+  description: string;
+  language: string;
+  asset_class: string;
+  default_symbol: string;
+  resolution: string;
+  enabled: boolean;
+};
+
+export type StrategyListPayload = {
+  strategies: StrategyDefinitionPayload[];
+};
+
+export type BacktestStatisticsPayload = {
+  total_net_profit: string | null;
+  compounding_annual_return: string | null;
+  sharpe_ratio: string | null;
+  drawdown: string | null;
+  win_rate: string | null;
+  total_trades: string | null;
+};
+
+export type EquityPointPayload = {
+  time: string;
+  value: number;
+};
+
+export type BacktestResultPayload = {
+  run_id: string;
+  strategy_id: string;
+  status: "success" | "unavailable" | "failed" | "timeout" | "malformed_result";
+  started_at: string;
+  completed_at: string;
+  duration_seconds: number;
+  message: string;
+  statistics: BacktestStatisticsPayload;
+  equity: EquityPointPayload[];
+  logs: string[];
+  output_directory: string;
+};
+
+export type LatestBacktestPayload = {
+  latest: BacktestResultPayload | null;
+};
+
+const fallbackStrategies: StrategyListPayload = {
+  strategies: [
+    {
+      id: "moving_average_cross",
+      name: "MovingAverageCross",
+      description: "AAPL daily moving average crossover sample for local LEAN validation.",
+      language: "Python",
+      asset_class: "US Equity",
+      default_symbol: "AAPL",
+      resolution: "Daily",
+      enabled: true
+    }
+  ]
+};
+
+function fallbackBacktestResult(strategyId: string): BacktestResultPayload {
+  const now = new Date().toISOString();
+  return {
+    run_id: `offline-${strategyId}`,
+    strategy_id: strategyId,
+    status: "unavailable",
+    started_at: now,
+    completed_at: now,
+    duration_seconds: 0,
+    message: "后端 API 暂不可用，无法运行 LEAN 回测。",
+    statistics: {
+      total_net_profit: null,
+      compounding_annual_return: null,
+      sharpe_ratio: null,
+      drawdown: null,
+      win_rate: null,
+      total_trades: null
+    },
+    equity: [],
+    logs: ["请确认后端 API、Docker 和 LEAN CLI 状态。"],
+    output_directory: "local"
+  };
+}
+
+function isStrategyDefinition(value: unknown): value is StrategyDefinitionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    typeof value.language === "string" &&
+    typeof value.asset_class === "string" &&
+    typeof value.default_symbol === "string" &&
+    typeof value.resolution === "string" &&
+    typeof value.enabled === "boolean"
+  );
+}
+
+function isStrategyListPayload(value: unknown): value is StrategyListPayload {
+  return isRecord(value) && Array.isArray(value.strategies) && value.strategies.every(isStrategyDefinition);
+}
+
+function isBacktestStatistics(value: unknown): value is BacktestStatisticsPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.total_net_profit === "string" || value.total_net_profit === null) &&
+    (typeof value.compounding_annual_return === "string" || value.compounding_annual_return === null) &&
+    (typeof value.sharpe_ratio === "string" || value.sharpe_ratio === null) &&
+    (typeof value.drawdown === "string" || value.drawdown === null) &&
+    (typeof value.win_rate === "string" || value.win_rate === null) &&
+    (typeof value.total_trades === "string" || value.total_trades === null)
+  );
+}
+
+function isEquityPoint(value: unknown): value is EquityPointPayload {
+  return isRecord(value) && typeof value.time === "string" && typeof value.value === "number";
+}
+
+function isBacktestResultPayload(value: unknown): value is BacktestResultPayload {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.strategy_id === "string" &&
+    ["success", "unavailable", "failed", "timeout", "malformed_result"].includes(String(value.status)) &&
+    typeof value.started_at === "string" &&
+    typeof value.completed_at === "string" &&
+    typeof value.duration_seconds === "number" &&
+    typeof value.message === "string" &&
+    isBacktestStatistics(value.statistics) &&
+    Array.isArray(value.equity) &&
+    value.equity.every(isEquityPoint) &&
+    Array.isArray(value.logs) &&
+    value.logs.every((item) => typeof item === "string") &&
+    typeof value.output_directory === "string"
+  );
+}
+
+function isLatestBacktestPayload(value: unknown): value is LatestBacktestPayload {
+  return isRecord(value) && (value.latest === null || isBacktestResultPayload(value.latest));
+}
+
+export async function getStrategyCatalog(): Promise<StrategyListPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/strategies`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategies;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyListPayload(payload) ? payload : fallbackStrategies;
+  } catch {
+    return fallbackStrategies;
+  }
+}
+
+export async function getLatestBacktest(): Promise<LatestBacktestPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/backtests/latest`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return { latest: null };
+    }
+    const payload: unknown = await response.json();
+    return isLatestBacktestPayload(payload) ? payload : { latest: null };
+  } catch {
+    return { latest: null };
+  }
+}
+
+export async function runStrategyBacktest(strategyId: string): Promise<BacktestResultPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/backtests`, {
+      body: JSON.stringify({ strategy_id: strategyId }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return fallbackBacktestResult(strategyId);
+    }
+    const payload: unknown = await response.json();
+    return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(strategyId);
+  } catch {
+    return fallbackBacktestResult(strategyId);
+  }
+}

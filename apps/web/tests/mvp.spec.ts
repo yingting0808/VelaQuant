@@ -309,3 +309,141 @@ test("watchlist can query an arbitrary ticker and show unavailable fallback", as
   await expect(page.getByText("TSLA", { exact: true })).toBeVisible();
   await expect(page.getByText("Ticker not found.")).toBeVisible();
 });
+
+test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
+  await page.route("**/api/mvp/strategy-lab/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        can_run_backtests: true,
+        summary: "Docker and LEAN are ready for local backtest preparation.",
+        tools: [
+          { name: "Docker CLI", available: true, version: "Docker version 29.5.3", message: "Docker CLI is available." },
+          { name: "LEAN CLI", available: true, version: "lean, version 1.0.200", message: "LEAN CLI is available." }
+        ]
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/strategies", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategies: [
+          {
+            id: "moving_average_cross",
+            name: "MovingAverageCross",
+            description: "AAPL daily moving average crossover sample for local LEAN validation.",
+            language: "Python",
+            asset_class: "US Equity",
+            default_symbol: "AAPL",
+            resolution: "Daily",
+            enabled: true
+          }
+        ]
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { latest: null } });
+  });
+  await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        run_id: "20260612T101500Z-moving_average_cross",
+        strategy_id: "moving_average_cross",
+        status: "success",
+        started_at: "2026-06-12T10:15:00Z",
+        completed_at: "2026-06-12T10:16:15Z",
+        duration_seconds: 75,
+        message: "Backtest completed.",
+        statistics: {
+          total_net_profit: "12.34%",
+          compounding_annual_return: "8.10%",
+          sharpe_ratio: "0.72",
+          drawdown: "15.20%",
+          win_rate: "48%",
+          total_trades: "24"
+        },
+        equity: [{ time: "2020-01-01", value: 100000 }],
+        logs: ["TRACE:: Backtest completed"],
+        output_directory: "apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross"
+      }
+    });
+  });
+
+  await page.goto("/strategy-lab");
+  await page.getByRole("button", { name: "运行回测" }).click();
+
+  await expect(page.getByText("MovingAverageCross")).toBeVisible();
+  await expect(page.getByText("Backtest completed.")).toBeVisible();
+  await expect(page.getByText("12.34%")).toBeVisible();
+  await expect(page.getByText("Sharpe")).toBeVisible();
+  await expect(page.getByText("TRACE:: Backtest completed")).toBeVisible();
+});
+
+test("strategy lab displays LEAN backtest failures", async ({ page }) => {
+  await page.route("**/api/mvp/strategy-lab/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        can_run_backtests: false,
+        summary: "Strategy Lab is partially configured.",
+        tools: [{ name: "LEAN CLI", available: false, version: null, message: "LEAN CLI is not installed or is not on PATH." }]
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/strategies", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategies: [
+          {
+            id: "moving_average_cross",
+            name: "MovingAverageCross",
+            description: "AAPL daily moving average crossover sample for local LEAN validation.",
+            language: "Python",
+            asset_class: "US Equity",
+            default_symbol: "AAPL",
+            resolution: "Daily",
+            enabled: true
+          }
+        ]
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { latest: null } });
+  });
+  await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        run_id: "20260612T101500Z-moving_average_cross",
+        strategy_id: "moving_average_cross",
+        status: "unavailable",
+        started_at: "2026-06-12T10:15:00Z",
+        completed_at: "2026-06-12T10:15:01Z",
+        duration_seconds: 1,
+        message: "Strategy Lab is partially configured.",
+        statistics: {
+          total_net_profit: null,
+          compounding_annual_return: null,
+          sharpe_ratio: null,
+          drawdown: null,
+          win_rate: null,
+          total_trades: null
+        },
+        equity: [],
+        logs: ["LEAN CLI is not installed or is not on PATH."],
+        output_directory: "apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross"
+      }
+    });
+  });
+
+  await page.goto("/strategy-lab");
+  await page.getByRole("button", { name: "运行回测" }).click();
+
+  await expect(page.getByText("环境未就绪")).toBeVisible();
+  await expect(page.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+});
