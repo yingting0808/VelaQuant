@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,16 @@ class UnknownStrategyError(ValueError):
     pass
 
 
+class StrategyParameterDefinition(BaseModel):
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    kind: Literal["ticker", "date", "integer", "number"]
+    default: str = Field(min_length=1)
+    min: float | None = None
+    max: float | None = None
+    required: bool = True
+
+
 class StrategyDefinition(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -23,6 +34,7 @@ class StrategyDefinition(BaseModel):
     resolution: str = Field(min_length=1)
     project_path: Path
     enabled: bool = True
+    parameters: list[StrategyParameterDefinition] = Field(default_factory=list)
 
     def public_payload(self) -> dict:
         return {
@@ -34,6 +46,7 @@ class StrategyDefinition(BaseModel):
             "default_symbol": self.default_symbol,
             "resolution": self.resolution,
             "enabled": self.enabled,
+            "parameters": [parameter.model_dump() for parameter in self.parameters],
         }
 
 

@@ -22,6 +22,16 @@ def test_load_enabled_strategies_returns_checked_in_moving_average_strategy():
     assert strategy.default_symbol == "AAPL"
     assert strategy.enabled is True
     assert strategy.project_path.name == "MovingAverageCross"
+    assert [parameter.name for parameter in strategy.parameters] == [
+        "symbol",
+        "start_date",
+        "end_date",
+        "cash",
+        "fast_period",
+        "slow_period",
+    ]
+    assert strategy.parameters[0].kind == "ticker"
+    assert strategy.parameters[0].default == "AAPL"
 
 
 def test_get_strategy_by_id_rejects_unknown_strategy():
@@ -37,8 +47,12 @@ def test_get_strategy_by_id_strips_strategy_id_whitespace():
 
 def test_public_payload_omits_project_path():
     strategy = load_enabled_strategies()[0]
+    payload = strategy.public_payload()
 
-    assert "project_path" not in strategy.public_payload()
+    assert "project_path" not in payload
+    assert payload["parameters"][0]["name"] == "symbol"
+    assert payload["parameters"][0]["label"] == "Ticker"
+    assert payload["parameters"][0]["required"] is True
 
 
 def test_catalog_filters_disabled_strategies(tmp_path: Path):

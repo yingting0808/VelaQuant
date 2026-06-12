@@ -1,5 +1,12 @@
 {
   "algorithm-language": "Python",
-  "parameters": {},
+  "parameters": {
+    "symbol": "AAPL",
+    "start_date": "2020-01-01",
+    "end_date": "2021-01-01",
+    "cash": "100000",
+    "fast_period": "20",
+    "slow_period": "50"
+  },
   "description": "AAPL daily moving average crossover sample for local LEAN validation."
 }

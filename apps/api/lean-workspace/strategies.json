@@ -9,7 +9,57 @@
       "default_symbol": "AAPL",
       "resolution": "Daily",
       "project_path": "MovingAverageCross",
-      "enabled": true
+      "enabled": true,
+      "parameters": [
+        {
+          "name": "symbol",
+          "label": "Ticker",
+          "kind": "ticker",
+          "default": "AAPL",
+          "required": true
+        },
+        {
+          "name": "start_date",
+          "label": "Start Date",
+          "kind": "date",
+          "default": "2020-01-01",
+          "required": true
+        },
+        {
+          "name": "end_date",
+          "label": "End Date",
+          "kind": "date",
+          "default": "2021-01-01",
+          "required": true
+        },
+        {
+          "name": "cash",
+          "label": "Initial Cash",
+          "kind": "number",
+          "default": "100000",
+          "min": 1000,
+          "max": 1000000000,
+          "required": true
+        },
+        {
+          "name": "fast_period",
+          "label": "Fast SMA",
+          "kind": "integer",
+          "default": "20",
+          "min": 2,
+          "max": 400,
+          "required": true
+        },
+        {
+          "name": "slow_period",
+          "label": "Slow SMA",
+          "kind": "integer",
+          "default": "50",
+          "min": 3,
+          "max": 600,
+          "required": true
+        }
+      ]
     }
   ]
 }
