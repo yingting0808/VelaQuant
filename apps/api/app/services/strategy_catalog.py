@@ -35,13 +35,15 @@ class StrategyDefinition(BaseModel):
 
 def load_enabled_strategies(catalog_path: Path = DEFAULT_CATALOG_PATH) -> list[StrategyDefinition]:
     payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog_root = catalog_path.parent.resolve()
     strategies: list[StrategyDefinition] = []
     for item in payload.get("strategies", []):
-        strategy = StrategyDefinition(**item)
-        if strategy.enabled:
-            if not strategy.project_path.is_absolute():
-                strategy.project_path = catalog_path.parent / strategy.project_path
-            strategies.append(strategy)
+        if not item.get("enabled", True):
+            continue
+
+        strategy_payload = item.copy()
+        strategy_payload["project_path"] = _resolve_project_path(strategy_payload["project_path"], catalog_root)
+        strategies.append(StrategyDefinition(**strategy_payload))
     return strategies
 
 
@@ -51,3 +53,20 @@ def get_strategy_by_id(strategy_id: str, catalog_path: Path = DEFAULT_CATALOG_PA
         if strategy.id == normalized:
             return strategy
     raise ValueError(f"Unknown strategy_id: {normalized}")
+
+
+def _resolve_project_path(raw_project_path: str, catalog_root: Path) -> Path:
+    project_path = Path(raw_project_path)
+    if project_path.is_absolute():
+        raise ValueError(f"Invalid project_path: absolute paths are not allowed ({raw_project_path})")
+
+    candidate = (catalog_root / project_path).resolve()
+    try:
+        candidate.relative_to(catalog_root)
+    except ValueError as error:
+        raise ValueError(f"Invalid project_path: path escapes catalog root ({raw_project_path})") from error
+
+    if not candidate.is_dir():
+        raise ValueError(f"Invalid project_path: directory does not exist ({raw_project_path})")
+
+    return candidate
