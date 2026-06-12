@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { runStrategyBacktest, type PositionPayload } from "../src/lib/client-api";
+import { runStrategyBacktest, type PaperTradingSummaryPayload, type PositionPayload } from "../src/lib/client-api";
 
 const movingAverageParameters = [
   { name: "symbol", label: "Ticker", kind: "ticker", default: "AAPL", required: true },
@@ -59,6 +59,127 @@ test("navigation links route to module workspaces", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 2, name: "自选股" })).toBeVisible();
   await expect(page.getByRole("region", { name: "自选股工作区" }).getByText("NVDA", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "主组合" })).not.toBeVisible();
+});
+
+test("paper trading workbench runs daily loop and simulates a buy", async ({ page }) => {
+  const baseSummary: PaperTradingSummaryPayload = {
+    account: {
+      id: "paper-account",
+      name: "默认模拟盘",
+      mode: "paper",
+      starting_cash: 100000,
+      cash: 100000,
+      realized_pnl: 0,
+      unrealized_pnl: 0,
+      equity: 100000,
+      updated_at: "2026-06-13T00:00:00Z"
+    },
+    candidates: [],
+    orders: [],
+    positions: [],
+    latest_review: null
+  };
+  const candidate = {
+    id: "paper-candidate-nvda",
+    ticker: "NVDA",
+    action: "buy",
+    rank: 1,
+    confidence: 0.9,
+    thesis: "NVDA 候选买入：3 条证据支持继续跟踪 NVDA。",
+    risk_notes: "模拟结果不能直接代表实盘。",
+    evidence_summary: "3 条证据支持继续跟踪 NVDA",
+    proposed_quantity: 40,
+    status: "proposed",
+    created_at: "2026-06-13T00:00:00Z"
+  };
+  const dailySummary: PaperTradingSummaryPayload = {
+    ...baseSummary,
+    candidates: [candidate],
+    latest_review: {
+      id: "paper-review",
+      trading_day: "2026-06-13",
+      equity: 100000,
+      cash: 100000,
+      realized_pnl: 0,
+      unrealized_pnl: 0,
+      trade_count: 0,
+      win_rate: 0,
+      average_win: 0,
+      average_loss: 0,
+      expectancy: 0,
+      readiness: "collecting",
+      notes: "正在收集模拟盘样本。",
+      created_at: "2026-06-13T00:00:00Z"
+    }
+  };
+  const filledSummary: PaperTradingSummaryPayload = {
+    ...dailySummary,
+    account: { ...dailySummary.account, cash: 98000, equity: 100000 },
+    orders: [
+      {
+        id: "paper-order-nvda",
+        ticker: "NVDA",
+        side: "buy",
+        order_type: "market",
+        quantity: 40,
+        status: "filled",
+        fill_price: 50,
+        realized_pnl: 0,
+        rejection_reason: null,
+        submitted_at: "2026-06-13T00:01:00Z",
+        filled_at: "2026-06-13T00:01:00Z"
+      }
+    ],
+    positions: [
+      {
+        id: "paper-position-nvda",
+        ticker: "NVDA",
+        quantity: 40,
+        average_cost: 50,
+        last_price: 50,
+        market_value: 2000,
+        unrealized_pnl: 0,
+        realized_pnl: 0,
+        updated_at: "2026-06-13T00:01:00Z"
+      }
+    ]
+  };
+  let summary = baseSummary;
+
+  await page.route("**/api/mvp/paper-trading/summary", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: summary });
+  });
+  await page.route("**/api/mvp/paper-trading/daily-run", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    summary = dailySummary;
+    await route.fulfill({ contentType: "application/json", json: dailySummary });
+  });
+  await page.route("**/api/mvp/paper-trading/orders", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    const payload = route.request().postDataJSON() as { quantity?: number; side?: string; ticker?: string };
+    expect(payload).toEqual({ order_type: "market", quantity: 40, side: "buy", ticker: "NVDA" });
+    summary = filledSummary;
+    await route.fulfill({ contentType: "application/json", json: filledSummary.orders[0] });
+  });
+
+  await gotoDashboard(page);
+  await page.getByRole("link", { name: "模拟盘" }).click();
+
+  await expect(page).toHaveURL("/paper-trading");
+  await expect(page.getByRole("heading", { level: 2, name: "模拟盘" })).toBeVisible();
+  await expect(page.getByText("默认模拟盘")).toBeVisible();
+
+  await page.getByRole("button", { name: "运行今日模拟" }).click();
+
+  await expect(page.getByRole("region", { name: "候选池" }).getByText("NVDA", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 条证据支持继续跟踪 NVDA")).toBeVisible();
+  await expect(page.getByText("正在收集模拟盘样本。")).toBeVisible();
+
+  await page.getByRole("button", { name: "模拟买入 NVDA" }).click();
+
+  await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
+  await expect(page.getByRole("region", { name: "模拟订单" }).getByText("filled")).toBeVisible();
+  await expect(page.getByRole("region", { name: "模拟持仓" }).getByText("NVDA", { exact: true })).toBeVisible();
 });
 
 test("AI prompts return a visible research result after click", async ({ page }) => {

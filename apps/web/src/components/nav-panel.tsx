@@ -8,6 +8,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   ListChecks,
+  ReceiptText,
   Settings,
   Star
 } from "lucide-react";
@@ -20,6 +21,7 @@ const navItems = [
   { label: "组合", href: "/portfolio", icon: ChartNoAxesCombined },
   { label: "预警", href: "/alerts", icon: Bell },
   { label: "研究笔记", href: "/notes", icon: BookOpenText },
+  { label: "模拟盘", href: "/paper-trading", icon: ReceiptText },
   { label: "策略实验室", href: "/strategy-lab", icon: FlaskConical },
   { label: "数据导入", href: "/imports", icon: Database },
   { label: "设置", href: "/settings", icon: Settings }

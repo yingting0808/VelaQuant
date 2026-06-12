@@ -40,6 +40,90 @@ export type StrategyLabStatusPayload = {
   tools: StrategyToolStatusPayload[];
 };
 
+export type PaperAccountPayload = {
+  id: string;
+  name: string;
+  mode: string;
+  starting_cash: number;
+  cash: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  equity: number;
+  updated_at: string;
+};
+
+export type PaperCandidatePayload = {
+  id: string;
+  ticker: string;
+  action: string;
+  rank: number;
+  confidence: number;
+  thesis: string;
+  risk_notes: string;
+  evidence_summary: string;
+  proposed_quantity: number;
+  status: string;
+  created_at: string;
+};
+
+export type PaperOrderPayload = {
+  id: string;
+  ticker: string;
+  side: string;
+  order_type: string;
+  quantity: number;
+  status: string;
+  fill_price: number | null;
+  realized_pnl: number;
+  rejection_reason: string | null;
+  submitted_at: string;
+  filled_at: string | null;
+};
+
+export type PaperPositionPayload = {
+  id: string;
+  ticker: string;
+  quantity: number;
+  average_cost: number;
+  last_price: number | null;
+  market_value: number;
+  unrealized_pnl: number;
+  realized_pnl: number;
+  updated_at: string;
+};
+
+export type PaperReviewPayload = {
+  id: string;
+  trading_day: string;
+  equity: number;
+  cash: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  trade_count: number;
+  win_rate: number;
+  average_win: number;
+  average_loss: number;
+  expectancy: number;
+  readiness: string;
+  notes: string;
+  created_at: string;
+};
+
+export type PaperTradingSummaryPayload = {
+  account: PaperAccountPayload;
+  candidates: PaperCandidatePayload[];
+  orders: PaperOrderPayload[];
+  positions: PaperPositionPayload[];
+  latest_review: PaperReviewPayload | null;
+};
+
+export type PaperOrderInputPayload = {
+  ticker: string;
+  side: "buy" | "sell";
+  quantity: number;
+  order_type: "market";
+};
+
 function getPublicApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
@@ -120,6 +204,24 @@ const fallbackStrategyLabStatus: StrategyLabStatusPayload = {
       message: "状态未确认。"
     }
   ]
+};
+
+const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
+  account: {
+    id: "offline-paper-account",
+    name: "默认模拟盘",
+    mode: "paper",
+    starting_cash: 100000,
+    cash: 100000,
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    equity: 100000,
+    updated_at: "local"
+  },
+  candidates: [],
+  orders: [],
+  positions: [],
+  latest_review: null
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -957,6 +1059,104 @@ function isResearchNotePayload(value: unknown): value is ResearchNotePayload {
   return isRecord(value) && typeof value.ai_run_id === "string" && isNotePayload(value.note);
 }
 
+function isPaperAccountPayload(value: unknown): value is PaperAccountPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.mode === "string" &&
+    typeof value.starting_cash === "number" &&
+    typeof value.cash === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.equity === "number" &&
+    typeof value.updated_at === "string"
+  );
+}
+
+function isPaperCandidatePayload(value: unknown): value is PaperCandidatePayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.ticker === "string" &&
+    typeof value.action === "string" &&
+    typeof value.rank === "number" &&
+    typeof value.confidence === "number" &&
+    typeof value.thesis === "string" &&
+    typeof value.risk_notes === "string" &&
+    typeof value.evidence_summary === "string" &&
+    typeof value.proposed_quantity === "number" &&
+    typeof value.status === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isPaperOrderPayload(value: unknown): value is PaperOrderPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.ticker === "string" &&
+    typeof value.side === "string" &&
+    typeof value.order_type === "string" &&
+    typeof value.quantity === "number" &&
+    typeof value.status === "string" &&
+    (typeof value.fill_price === "number" || value.fill_price === null) &&
+    typeof value.realized_pnl === "number" &&
+    (typeof value.rejection_reason === "string" || value.rejection_reason === null) &&
+    typeof value.submitted_at === "string" &&
+    (typeof value.filled_at === "string" || value.filled_at === null)
+  );
+}
+
+function isPaperPositionPayload(value: unknown): value is PaperPositionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.ticker === "string" &&
+    typeof value.quantity === "number" &&
+    typeof value.average_cost === "number" &&
+    (typeof value.last_price === "number" || value.last_price === null) &&
+    typeof value.market_value === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.updated_at === "string"
+  );
+}
+
+function isPaperReviewPayload(value: unknown): value is PaperReviewPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.equity === "number" &&
+    typeof value.cash === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.trade_count === "number" &&
+    typeof value.win_rate === "number" &&
+    typeof value.average_win === "number" &&
+    typeof value.average_loss === "number" &&
+    typeof value.expectancy === "number" &&
+    typeof value.readiness === "string" &&
+    typeof value.notes === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isPaperTradingSummaryPayload(value: unknown): value is PaperTradingSummaryPayload {
+  return (
+    isRecord(value) &&
+    isPaperAccountPayload(value.account) &&
+    Array.isArray(value.candidates) &&
+    value.candidates.every(isPaperCandidatePayload) &&
+    Array.isArray(value.orders) &&
+    value.orders.every(isPaperOrderPayload) &&
+    Array.isArray(value.positions) &&
+    value.positions.every(isPaperPositionPayload) &&
+    (value.latest_review === null || isPaperReviewPayload(value.latest_review))
+  );
+}
+
 export async function getPortfolio(): Promise<PortfolioPayload> {
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/portfolio`, { cache: "no-store" });
@@ -1102,6 +1302,51 @@ export async function saveResearchResultAsNote(
     }
     const payload: unknown = await response.json();
     return isResearchNotePayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getPaperTradingSummary(): Promise<PaperTradingSummaryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/summary`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperTradingSummary;
+    }
+    const payload: unknown = await response.json();
+    return isPaperTradingSummaryPayload(payload) ? payload : fallbackPaperTradingSummary;
+  } catch {
+    return fallbackPaperTradingSummary;
+  }
+}
+
+export async function runPaperTradingDailyLoop(): Promise<PaperTradingSummaryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/daily-run`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return fallbackPaperTradingSummary;
+    }
+    const payload: unknown = await response.json();
+    return isPaperTradingSummaryPayload(payload) ? payload : fallbackPaperTradingSummary;
+  } catch {
+    return fallbackPaperTradingSummary;
+  }
+}
+
+export async function submitPaperOrder(input: PaperOrderInputPayload): Promise<PaperOrderPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/orders`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isPaperOrderPayload(payload) ? payload : null;
   } catch {
     return null;
   }

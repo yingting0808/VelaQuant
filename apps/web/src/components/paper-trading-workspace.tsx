@@ -1,0 +1,322 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Play, ShoppingCart } from "lucide-react";
+import {
+  getPaperTradingSummary,
+  runPaperTradingDailyLoop,
+  submitPaperOrder,
+  type PaperCandidatePayload,
+  type PaperTradingSummaryPayload
+} from "@/lib/client-api";
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+  style: "currency"
+});
+
+const numberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 4
+});
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 1,
+  style: "percent"
+});
+
+const readinessLabels: Record<string, string> = {
+  collecting: "收集样本",
+  negative_expectancy: "期望不达标",
+  paper_ready: "模拟盘达标",
+  watch: "继续观察"
+};
+
+function formatCurrency(value: number): string {
+  return currencyFormatter.format(value);
+}
+
+function formatNumber(value: number): string {
+  return numberFormatter.format(value);
+}
+
+function readinessLabel(value: string | undefined): string {
+  if (!value) {
+    return "未复盘";
+  }
+  return readinessLabels[value] ?? value;
+}
+
+export function PaperTradingWorkspace() {
+  const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
+  const [message, setMessage] = useState("正在读取模拟盘。");
+  const [isRunning, setIsRunning] = useState(false);
+  const [orderingTicker, setOrderingTicker] = useState<string | null>(null);
+
+  async function refreshSummary(nextMessage?: string) {
+    const payload = await getPaperTradingSummary();
+    setSummary(payload);
+    setMessage(nextMessage ?? "模拟盘已同步。");
+  }
+
+  useEffect(() => {
+    let active = true;
+    getPaperTradingSummary().then((payload) => {
+      if (!active) {
+        return;
+      }
+      setSummary(payload);
+      setMessage("模拟盘已同步。");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleDailyRun() {
+    setIsRunning(true);
+    setMessage("正在运行今日模拟。");
+    try {
+      const payload = await runPaperTradingDailyLoop();
+      setSummary(payload);
+      setMessage("今日模拟已完成。");
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+  async function handleBuy(candidate: PaperCandidatePayload) {
+    setOrderingTicker(candidate.ticker);
+    setMessage(`正在模拟买入 ${candidate.ticker}。`);
+    try {
+      const order = await submitPaperOrder({
+        order_type: "market",
+        quantity: candidate.proposed_quantity,
+        side: "buy",
+        ticker: candidate.ticker
+      });
+      if (!order) {
+        setMessage(`模拟买入 ${candidate.ticker} 失败，请检查现金或报价。`);
+        return;
+      }
+      await refreshSummary(`已模拟买入 ${candidate.ticker}。`);
+    } finally {
+      setOrderingTicker(null);
+    }
+  }
+
+  const account = summary?.account;
+  const review = summary?.latest_review;
+  const candidates = summary?.candidates ?? [];
+  const orders = summary?.orders ?? [];
+  const positions = summary?.positions ?? [];
+
+  return (
+    <div className="module-view">
+      <header className="page-header">
+        <div>
+          <p>候选、解释、纸面成交、PnL 与复盘</p>
+          <h2>模拟盘</h2>
+        </div>
+        <div className="status-pill neutral">{readinessLabel(review?.readiness)}</div>
+      </header>
+
+      <section className="metric-grid" aria-label="模拟盘指标">
+        <div className="metric-card">
+          <div className="metric-label">账户权益</div>
+          <strong>{formatCurrency(account?.equity ?? 0)}</strong>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">现金</div>
+          <strong>{formatCurrency(account?.cash ?? 0)}</strong>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">期望值</div>
+          <strong>{formatCurrency(review?.expectancy ?? 0)}</strong>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="模拟盘控制台">
+        <div className="panel-heading">
+          <div>
+            <h3>{account?.name ?? "默认模拟盘"}</h3>
+            <p>默认 paper-only；净期望未稳定前不进入实盘。</p>
+          </div>
+          <button className="primary-action" type="button" onClick={handleDailyRun} disabled={isRunning}>
+            <Play size={15} aria-hidden="true" />
+            {isRunning ? "运行中" : "运行今日模拟"}
+          </button>
+        </div>
+        <p className="workspace-message" aria-live="polite">
+          {message}
+        </p>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="候选池">
+        <div className="panel-heading">
+          <div>
+            <h3>候选池</h3>
+            <p>按证据、报价可用性和组合分散度排序</p>
+          </div>
+          <span className="status-pill neutral">{candidates.length} 个候选</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Ticker</th>
+                <th scope="col">动作</th>
+                <th className="numeric" scope="col">
+                  置信度
+                </th>
+                <th className="numeric" scope="col">
+                  数量
+                </th>
+                <th scope="col">原因</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((candidate) => (
+                <tr key={candidate.id}>
+                  <td>
+                    <span className="ticker-chip">{candidate.ticker}</span>
+                  </td>
+                  <td>{candidate.action}</td>
+                  <td className="numeric">{percentFormatter.format(candidate.confidence)}</td>
+                  <td className="numeric">{formatNumber(candidate.proposed_quantity)}</td>
+                  <td>
+                    <strong>{candidate.evidence_summary}</strong>
+                    <p className="table-note">{candidate.risk_notes}</p>
+                  </td>
+                  <td>
+                    <button
+                      className="ghost-action"
+                      type="button"
+                      onClick={() => handleBuy(candidate)}
+                      disabled={orderingTicker === candidate.ticker}
+                    >
+                      <ShoppingCart size={14} aria-hidden="true" />
+                      模拟买入 {candidate.ticker}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!candidates.length ? (
+                <tr>
+                  <td colSpan={6}>点击运行今日模拟生成候选。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="模拟订单">
+        <div className="panel-heading">
+          <div>
+            <h3>模拟订单</h3>
+            <p>同步市价模拟成交，不触达券商接口</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Ticker</th>
+                <th scope="col">方向</th>
+                <th className="numeric" scope="col">
+                  数量
+                </th>
+                <th className="numeric" scope="col">
+                  成交价
+                </th>
+                <th scope="col">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td>{order.ticker}</td>
+                  <td>{order.side}</td>
+                  <td className="numeric">{formatNumber(order.quantity)}</td>
+                  <td className="numeric">{order.fill_price === null ? "-" : formatCurrency(order.fill_price)}</td>
+                  <td>{order.status}</td>
+                </tr>
+              ))}
+              {!orders.length ? (
+                <tr>
+                  <td colSpan={5}>暂无模拟订单。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="模拟持仓">
+        <div className="panel-heading">
+          <div>
+            <h3>模拟持仓</h3>
+            <p>按最新报价估算市值和未实现 PnL</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Ticker</th>
+                <th className="numeric" scope="col">
+                  数量
+                </th>
+                <th className="numeric" scope="col">
+                  平均成本
+                </th>
+                <th className="numeric" scope="col">
+                  市值
+                </th>
+                <th className="numeric" scope="col">
+                  未实现 PnL
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((position) => (
+                <tr key={position.id}>
+                  <td>{position.ticker}</td>
+                  <td className="numeric">{formatNumber(position.quantity)}</td>
+                  <td className="numeric">{formatCurrency(position.average_cost)}</td>
+                  <td className="numeric">{formatCurrency(position.market_value)}</td>
+                  <td className="numeric">{formatCurrency(position.unrealized_pnl)}</td>
+                </tr>
+              ))}
+              {!positions.length ? (
+                <tr>
+                  <td colSpan={5}>暂无模拟持仓。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="复盘策略">
+        <div className="panel-heading">
+          <div>
+            <h3>复盘策略</h3>
+            <p>{review ? `${review.trading_day} · ${readinessLabel(review.readiness)}` : "尚未生成复盘"}</p>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>{review?.notes ?? "运行今日模拟后生成复盘。"}</strong>
+          <p>
+            已关闭交易 {review?.trade_count ?? 0} 笔 · 胜率 {percentFormatter.format(review?.win_rate ?? 0)} · 已实现 PnL{" "}
+            {formatCurrency(account?.realized_pnl ?? 0)} · 未实现 PnL {formatCurrency(account?.unrealized_pnl ?? 0)}
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
