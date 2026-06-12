@@ -1,8 +1,8 @@
 "use client";
 
-import { Bot, ChevronRight, Sparkles } from "lucide-react";
+import { Bot, ChevronRight, Save, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { runResearchPrompt, type ResearchResultPayload } from "@/lib/client-api";
+import { runResearchPrompt, saveResearchResultAsNote, type ResearchResultPayload } from "@/lib/client-api";
 
 type AiSidecarProps = {
   prompts: string[];
@@ -22,15 +22,36 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResultPayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedTitle, setSavedTitle] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handlePromptClick(prompt: string) {
     setActivePrompt(prompt);
     setIsLoading(true);
     setResult(null);
+    setSavedTitle(null);
+    setSaveError(null);
 
     const nextResult = await runResearchPrompt(prompt);
     setResult(nextResult);
     setIsLoading(false);
+  }
+
+  async function handleSaveResult() {
+    if (!result) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+    const saved = await saveResearchResultAsNote(activePrompt ?? "AI 研究", result);
+    if (saved) {
+      setSavedTitle(saved.note.title);
+    } else {
+      setSaveError("保存失败，请检查后端 API。");
+    }
+    setIsSaving(false);
   }
 
   return (
@@ -80,6 +101,17 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
               <dt>风控提示</dt>
               <dd>{result.trade_plan_draft.risk_notes.join(" ")}</dd>
             </dl>
+            <button className="primary-action sidecar-save" type="button" disabled={isSaving} onClick={handleSaveResult}>
+              <Save size={15} aria-hidden="true" />
+              {isSaving ? "保存中" : "保存为笔记"}
+            </button>
+            {savedTitle ? (
+              <div className="save-feedback">
+                <strong>已保存到研究笔记</strong>
+                <p>{savedTitle}</p>
+              </div>
+            ) : null}
+            {saveError ? <p className="save-feedback error">{saveError}</p> : null}
           </>
         ) : (
           <p>选择一个研究动作后，结果会在这里更新。</p>

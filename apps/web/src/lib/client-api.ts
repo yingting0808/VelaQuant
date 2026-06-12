@@ -868,6 +868,11 @@ export type NoteInputPayload = {
   body: string;
 };
 
+export type ResearchNotePayload = {
+  ai_run_id: string;
+  note: NotePayload;
+};
+
 const fallbackPortfolio: PortfolioPayload = {
   id: "offline-portfolio",
   name: "主组合",
@@ -946,6 +951,10 @@ function isNotePayload(value: unknown): value is NotePayload {
 
 function isNotesPayload(value: unknown): value is NotesPayload {
   return isRecord(value) && Array.isArray(value.notes) && value.notes.every(isNotePayload);
+}
+
+function isResearchNotePayload(value: unknown): value is ResearchNotePayload {
+  return isRecord(value) && typeof value.ai_run_id === "string" && isNotePayload(value.note);
 }
 
 export async function getPortfolio(): Promise<PortfolioPayload> {
@@ -1073,6 +1082,26 @@ export async function createNote(input: NoteInputPayload): Promise<NotePayload |
     }
     const payload: unknown = await response.json();
     return isNotePayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveResearchResultAsNote(
+  prompt: string,
+  result: ResearchResultPayload
+): Promise<ResearchNotePayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/research/notes`, {
+      body: JSON.stringify({ prompt, result }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isResearchNotePayload(payload) ? payload : null;
   } catch {
     return null;
   }

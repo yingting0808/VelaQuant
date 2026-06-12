@@ -403,6 +403,39 @@ tbody tr:last-child td {
   font-size: 0.86rem;
 }
 
+.sidecar-save {
+  background: #6ee7b7;
+  border-color: #6ee7b7;
+  color: #102016;
+  justify-self: start;
+}
+
+.save-feedback {
+  background: #10251e;
+  border: 1px solid #2b7058;
+  border-radius: 8px;
+  color: #d7fbe9;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+}
+
+.save-feedback strong,
+.save-feedback p {
+  margin: 0;
+}
+
+.save-feedback p {
+  color: #b9e7d0;
+  font-size: 0.82rem;
+}
+
+.save-feedback.error {
+  background: #321c1c;
+  border-color: #7f3535;
+  color: #fecaca;
+}
+
 .ticker-chip.dark {
   background: #253149;
   border-color: #435169;

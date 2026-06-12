@@ -92,6 +92,55 @@ test("AI prompts return a visible research result after click", async ({ page })
   await expect(page.getByText("风控提示", { exact: true })).toBeVisible();
 });
 
+test("AI research result can be saved as a note", async ({ page }) => {
+  const savedRequest: { prompt?: string; result?: { ticker?: string } } = {};
+  await page.route("**/api/mvp/research", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ticker: "AAPL",
+        status: "complete",
+        summary: "AAPL: 模拟组合风险研究结果。",
+        bull_case: "服务收入韧性支持多头观点。",
+        bear_case: "估值压缩仍是主要风险。",
+        watch_items: ["复核 filing 趋势"],
+        evidence_count: 2,
+        trade_plan_draft: {
+          entry_condition: "人工复核确认投资假设。",
+          invalidation_condition: "新的 filing 与证据相矛盾。",
+          risk_notes: ["必须经过人工审批。"],
+          requires_human_review: true
+        }
+      }
+    });
+  });
+  await page.route("**/api/mvp/research/notes", async (route) => {
+    Object.assign(savedRequest, route.request().postDataJSON() as { prompt?: string; result?: { ticker?: string } });
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ai_run_id: "run-aapl",
+        note: {
+          id: "note-aapl",
+          ticker: "AAPL",
+          title: "AI 研究 - AAPL - 识别组合风险",
+          body: "AAPL: 模拟组合风险研究结果。",
+          created_at: "2026-06-13T00:00:00Z"
+        }
+      }
+    });
+  });
+
+  await gotoDashboard(page);
+  await page.getByRole("button", { name: "识别组合风险" }).click();
+  await page.getByRole("button", { name: "保存为笔记" }).click();
+
+  expect(savedRequest.prompt).toBe("识别组合风险");
+  expect(savedRequest.result?.ticker).toBe("AAPL");
+  await expect(page.getByText("已保存到研究笔记")).toBeVisible();
+  await expect(page.getByText("AI 研究 - AAPL - 识别组合风险")).toBeVisible();
+});
+
 test("AI prompts fall back when the research API fails", async ({ page }) => {
   await page.route("**/api/mvp/research", async (route) => {
     await route.abort();
