@@ -125,7 +125,8 @@ def parse_submission_evidence(ticker: str, cik: str, payload: dict[str, Any]) ->
     observed_at = _utc_now()
     evidence: list[EvidenceItem] = []
 
-    for index, accession_number in enumerate(accession_numbers[:5]):
+    for index, _ in enumerate(accession_numbers[:5]):
+        accession_number = _value_at(accession_numbers, index)
         form = _value_at(forms, index)
         filing_date = _value_at(filing_dates, index)
         primary_document = _value_at(primary_documents, index)

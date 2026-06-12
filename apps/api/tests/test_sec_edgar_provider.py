@@ -170,6 +170,25 @@ def test_parse_submission_evidence_returns_empty_for_malformed_recent_fields():
         assert parse_submission_evidence("AAPL", "0000320193", payload) == []
 
 
+def test_parse_submission_evidence_normalizes_non_string_accession_number():
+    payload = {
+        "filings": {
+            "recent": {
+                "accessionNumber": [123],
+                "filingDate": ["2025-10-31"],
+                "form": ["10-K"],
+                "primaryDocument": ["aapl-20250927.htm"],
+            }
+        }
+    }
+
+    evidence = parse_submission_evidence("AAPL", "0000320193", payload)
+
+    assert len(evidence) == 1
+    assert evidence[0].accession_number == "123"
+    assert evidence[0].source_url == "https://www.sec.gov/Archives/edgar/data/320193/123/aapl-20250927.htm"
+
+
 def test_sec_provider_context_manager_closes_only_owned_clients():
     with SecEdgarProvider(
         user_agent="VelaQuant tests contact@example.com",
