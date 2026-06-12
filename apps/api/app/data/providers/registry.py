@@ -1,7 +1,15 @@
 from typing import Protocol
 
 from app.core.config import Settings, get_settings
-from app.data.providers.base import EvidenceItem, MarketDataProvider, ProviderStatus, Quote
+from app.data.providers.base import (
+    EvidenceItem,
+    FundamentalSnapshot,
+    MarketDataProvider,
+    MarketSnapshot,
+    PriceHistoryBar,
+    ProviderStatus,
+    Quote,
+)
 from app.data.providers.mock import MockMarketDataProvider
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers.sec_edgar import SecEdgarProvider
@@ -30,7 +38,46 @@ class HybridMarketDataProvider:
         self.include_mock_evidence = include_mock_evidence
 
     def get_quote(self, ticker: str) -> Quote:
+        quote = self.openbb_provider.get_quote(ticker)
+        if quote.price is not None:
+            return quote
         return self.mock_provider.get_quote(ticker)
+
+    def get_price_history(
+        self,
+        ticker: str,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        interval: str = "1d",
+    ) -> list[PriceHistoryBar]:
+        history = self.openbb_provider.get_price_history(
+            ticker,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+        return history or self.mock_provider.get_price_history(
+            ticker,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+
+    def get_fundamentals(self, ticker: str) -> FundamentalSnapshot:
+        fundamentals = self.openbb_provider.get_fundamentals(ticker)
+        if fundamentals.market_cap is not None or fundamentals.pe_ratio is not None or fundamentals.eps is not None:
+            return fundamentals
+        return self.mock_provider.get_fundamentals(ticker)
+
+    def get_market_snapshot(self, ticker: str) -> MarketSnapshot:
+        normalized = ticker.strip().upper()
+        return MarketSnapshot(
+            ticker=normalized,
+            quote=self.get_quote(normalized),
+            fundamentals=self.get_fundamentals(normalized),
+            history=self.get_price_history(normalized),
+        )
 
     def get_research_evidence(self, ticker: str) -> list[EvidenceItem]:
         evidence: list[EvidenceItem] = []

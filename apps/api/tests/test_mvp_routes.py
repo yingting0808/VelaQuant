@@ -215,3 +215,35 @@ def test_mvp_research_cors_preflight_allows_loopback_web_origin():
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
+
+
+def test_mvp_market_snapshot_route_returns_quote_fundamentals_and_sources():
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/market/snapshot/nvda")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticker"] == "NVDA"
+    assert "quote" in payload
+    assert "fundamentals" in payload
+    assert "history" in payload
+    assert payload["provider_mode"] == "hybrid"
+    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+
+
+def test_mvp_market_history_rejects_unsupported_interval():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.get("/api/mvp/market/history/AAPL?interval=5m")
+
+    assert response.status_code == 422
+
+
+def test_mvp_market_quote_normalizes_arbitrary_ticker():
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/market/quote/tsla")
+
+    assert response.status_code == 200
+    assert response.json()["ticker"] == "TSLA"

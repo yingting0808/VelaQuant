@@ -1,6 +1,7 @@
 from collections.abc import Iterator
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
@@ -84,6 +85,69 @@ def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_p
 @router.get("/strategy-lab/status")
 def strategy_lab_status() -> dict:
     return get_strategy_lab_status().model_dump()
+
+
+def _normalize_path_ticker(ticker: str) -> str:
+    normalized = ticker.strip().upper()
+    if not normalized:
+        raise ValueError("ticker must not be empty")
+    return normalized
+
+
+@router.get("/market/quote/{ticker}")
+def market_quote(
+    ticker: str = Path(min_length=1),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> dict:
+    normalized = _normalize_path_ticker(ticker)
+    return provider.get_quote(normalized).model_dump()
+
+
+@router.get("/market/history/{ticker}")
+def market_history(
+    ticker: str = Path(min_length=1),
+    interval: Literal["1d", "1W", "1M"] = "1d",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> list[dict]:
+    normalized = _normalize_path_ticker(ticker)
+    return [
+        bar.model_dump()
+        for bar in provider.get_price_history(
+            normalized,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+    ]
+
+
+@router.get("/market/fundamentals/{ticker}")
+def market_fundamentals(
+    ticker: str = Path(min_length=1),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> dict:
+    normalized = _normalize_path_ticker(ticker)
+    return provider.get_fundamentals(normalized).model_dump()
+
+
+@router.get("/market/snapshot/{ticker}")
+def market_snapshot(
+    ticker: str = Path(min_length=1),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> dict:
+    settings = get_settings()
+    normalized = _normalize_path_ticker(ticker)
+    snapshot = provider.get_market_snapshot(normalized)
+    return {
+        "ticker": snapshot.ticker,
+        "quote": snapshot.quote.model_dump(),
+        "fundamentals": snapshot.fundamentals.model_dump(),
+        "history": [bar.model_dump() for bar in snapshot.history],
+        "provider_mode": settings.data_mode,
+        "data_sources": [status.model_dump() for status in provider.get_statuses()],
+    }
 
 
 @router.post("/research")
