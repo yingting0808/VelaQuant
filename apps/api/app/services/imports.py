@@ -39,7 +39,7 @@ def parse_positions_csv(content: str) -> ImportResult:
         ticker = (row.get("ticker") or "").strip().upper()
         quantity_raw = (row.get("quantity") or "").strip()
         average_cost_raw = (row.get("average_cost") or "").strip()
-        currency = (row.get("currency") or "USD").strip().upper()
+        currency = (row.get("currency") or "").strip().upper() or "USD"
 
         row_errors_before = len(errors)
         if not ticker:
