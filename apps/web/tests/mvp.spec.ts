@@ -452,7 +452,7 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
   await page.getByRole("button", { name: "运行回测" }).click();
 
   await expect(page.getByText("环境未就绪")).toBeVisible();
-  await expect(page.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+  await expect(page.getByLabel("回测日志").getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
 });
 
 test("strategy backtest client preserves HTTP error detail", async () => {

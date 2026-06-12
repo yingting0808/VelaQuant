@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell";
+import { StrategyBacktestPanel } from "@/components/strategy-backtest-panel";
 import { StrategyLabStatusPanel } from "@/components/strategy-lab-status-panel";
 import { sampleDashboard } from "@/lib/sample-data";
 
@@ -15,6 +16,7 @@ export default function StrategyLabPage() {
         </header>
 
         <StrategyLabStatusPanel />
+        <StrategyBacktestPanel />
       </div>
     </AppShell>
   );
