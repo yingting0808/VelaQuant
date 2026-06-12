@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.mvp import router as mvp_router
 from app.core.config import get_settings
 
 
@@ -14,6 +15,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(mvp_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
