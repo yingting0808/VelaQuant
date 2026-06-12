@@ -19,6 +19,7 @@ from app.services.lean_backtest import (
     run_lean_backtest,
 )
 from app.services.portfolio import PositionInput, calculate_exposure
+from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
 from app.services.strategy_lab import get_strategy_lab_status
 from app.services.workspace import (
@@ -193,6 +194,11 @@ def notes_workspace(session: Session = Depends(get_session)) -> dict:
 @router.post("/notes")
 def notes_create(body: NoteCreate, session: Session = Depends(get_session)) -> dict:
     return create_note(session, body).model_dump()
+
+
+@router.post("/research/notes")
+def research_note_create(body: ResearchNoteCreate, session: Session = Depends(get_session)) -> dict:
+    return save_research_result_as_note(session, body).model_dump()
 
 
 @router.get("/strategy-lab/status")

@@ -9,6 +9,7 @@ from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
 from app.services import strategy_catalog
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
+from app.services.research_notebook import ResearchNoteCreate, ResearchNotePayload
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 from app.services.workspace import (
@@ -600,3 +601,62 @@ def test_mvp_notes_routes(monkeypatch):
     assert list_response.json()["notes"][0]["title"] == "服务收入"
     assert post_response.status_code == 200
     assert post_response.json()["ticker"] == "AAPL"
+
+
+def _research_result_payload() -> dict:
+    return {
+        "ticker": "AAPL",
+        "status": "complete",
+        "summary": "AAPL: 服务收入韧性仍在。",
+        "bull_case": "服务收入支撑多头观点。",
+        "bear_case": "估值压缩仍是风险。",
+        "watch_items": ["复核 10-Q"],
+        "evidence_count": 1,
+        "trade_plan_draft": {
+            "entry_condition": "人工复核后才考虑后续动作。",
+            "invalidation_condition": "证据相反则失效。",
+            "risk_notes": ["必须经过人工审批。"],
+            "requires_human_review": True,
+        },
+    }
+
+
+def test_mvp_research_note_route_saves_ai_result(monkeypatch):
+    note = NotePayload(
+        id="00000000-0000-0000-0000-000000000006",
+        ticker="AAPL",
+        title="AI 研究 - AAPL - 识别组合风险",
+        body="AAPL: 服务收入韧性仍在。",
+        created_at="2026-06-13T00:00:00Z",
+    )
+
+    def fake_save(session, data: ResearchNoteCreate) -> ResearchNotePayload:
+        assert data.prompt == "识别组合风险"
+        assert data.result.ticker == "AAPL"
+        return ResearchNotePayload(ai_run_id="00000000-0000-0000-0000-000000000007", note=note)
+
+    monkeypatch.setattr(mvp, "save_research_result_as_note", fake_save, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/research/notes",
+        json={"prompt": "识别组合风险", "result": _research_result_payload()},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ai_run_id"] == "00000000-0000-0000-0000-000000000007"
+    assert payload["note"]["ticker"] == "AAPL"
+    assert payload["note"]["title"] == "AI 研究 - AAPL - 识别组合风险"
+    assert "AAPL: 服务收入韧性仍在。" in payload["note"]["body"]
+
+
+def test_mvp_research_note_route_rejects_malformed_result():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/research/notes",
+        json={"prompt": "识别组合风险", "result": {"ticker": "AAPL"}},
+    )
+
+    assert response.status_code == 422
