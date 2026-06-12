@@ -610,12 +610,16 @@ tbody tr:last-child td {
 }
 
 .primary-action {
+  align-items: center;
   background: #182235;
   border: 1px solid #182235;
   border-radius: 7px;
   color: #ffffff;
   cursor: pointer;
+  display: inline-flex;
   flex: 0 0 auto;
+  gap: 7px;
+  justify-content: center;
   min-height: 36px;
   padding: 7px 12px;
   white-space: nowrap;
@@ -801,6 +805,132 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+.workspace-panel .panel-heading strong {
+  color: #111827;
+  font-size: 1.08rem;
+  white-space: nowrap;
+}
+
+.workspace-form {
+  align-items: end;
+  border-bottom: 1px solid #edf0f4;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(120px, 160px) minmax(110px, 150px) minmax(120px, 160px) auto;
+  padding: 16px;
+}
+
+.workspace-field {
+  color: #667085;
+  display: grid;
+  font-size: 0.78rem;
+  font-weight: 700;
+  gap: 5px;
+  min-width: 0;
+}
+
+.workspace-field input,
+.workspace-field textarea {
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  color: #172033;
+  font: inherit;
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.workspace-field textarea {
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.watchlist-form,
+.note-form {
+  grid-template-columns: minmax(120px, 160px) minmax(220px, 1fr) auto;
+}
+
+.import-form {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.wide-field {
+  min-width: 0;
+}
+
+.full-field {
+  grid-column: 1 / -1;
+}
+
+.note-form .full-field,
+.import-form .full-field {
+  grid-column: 1 / -1;
+}
+
+.workspace-message {
+  border-bottom: 1px solid #edf0f4;
+  color: #667085;
+  font-size: 0.86rem;
+  margin: 0;
+  padding: 10px 16px;
+}
+
+.workspace-row {
+  align-items: flex-start;
+}
+
+.note-row {
+  display: block;
+}
+
+.note-row p {
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.ghost-action {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  color: #435065;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.ghost-action:hover {
+  background: #eef2f6;
+}
+
+.ghost-action.danger {
+  color: #9a3412;
+}
+
+.import-result {
+  color: #435065;
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.import-result strong,
+.import-result p,
+.import-result ul {
+  margin: 0;
+}
+
+.import-result ul {
+  color: #9a3412;
+  padding-left: 20px;
+}
+
 @media (max-width: 760px) {
   .market-grid {
     grid-template-columns: 1fr;
@@ -814,7 +944,11 @@ tbody tr:last-child td {
 @media (max-width: 900px) {
   .strategy-grid,
   .parameter-grid,
-  .backtest-metrics {
+  .backtest-metrics,
+  .workspace-form,
+  .watchlist-form,
+  .note-form,
+  .import-form {
     grid-template-columns: 1fr;
   }
 

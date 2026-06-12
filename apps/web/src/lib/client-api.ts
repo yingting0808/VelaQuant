@@ -790,3 +790,290 @@ export async function runStrategyBacktest(
     return fallbackBacktestResult(normalizedStrategyId, parameters);
   }
 }
+
+export type WorkspaceSummaryPayload = {
+  team_id: string;
+  team_name: string;
+  portfolio_id: string;
+  portfolio_name: string;
+  position_count: number;
+  watchlist_count: number;
+  note_count: number;
+};
+
+export type PositionPayload = {
+  id: string;
+  ticker: string;
+  quantity: number;
+  average_cost: number;
+  currency: string;
+  price: number | null;
+  market_value: number;
+  weight: number;
+  updated_at: string;
+};
+
+export type PortfolioPayload = {
+  id: string;
+  name: string;
+  base_currency: string;
+  total_market_value: number;
+  positions: PositionPayload[];
+};
+
+export type PositionInputPayload = {
+  ticker: string;
+  quantity: number;
+  average_cost: number;
+  currency?: string;
+};
+
+export type PositionImportPayload = {
+  imported_count: number;
+  errors: Array<{ field: string; message: string; row: number }>;
+  portfolio: PortfolioPayload | null;
+};
+
+export type WatchlistItemPayload = {
+  id: string;
+  ticker: string;
+  thesis: string;
+  created_at: string;
+};
+
+export type WatchlistPayload = {
+  items: WatchlistItemPayload[];
+};
+
+export type WatchlistInputPayload = {
+  ticker: string;
+  thesis: string;
+};
+
+export type NotePayload = {
+  id: string;
+  ticker: string | null;
+  title: string;
+  body: string;
+  created_at: string;
+};
+
+export type NotesPayload = {
+  notes: NotePayload[];
+};
+
+export type NoteInputPayload = {
+  ticker?: string | null;
+  title: string;
+  body: string;
+};
+
+const fallbackPortfolio: PortfolioPayload = {
+  id: "offline-portfolio",
+  name: "主组合",
+  base_currency: "USD",
+  total_market_value: 0,
+  positions: []
+};
+
+function isPositionPayload(value: unknown): value is PositionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.ticker === "string" &&
+    typeof value.quantity === "number" &&
+    typeof value.average_cost === "number" &&
+    typeof value.currency === "string" &&
+    isNullableNumber(value.price) &&
+    typeof value.market_value === "number" &&
+    typeof value.weight === "number" &&
+    typeof value.updated_at === "string"
+  );
+}
+
+function isPortfolioPayload(value: unknown): value is PortfolioPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.base_currency === "string" &&
+    typeof value.total_market_value === "number" &&
+    Array.isArray(value.positions) &&
+    value.positions.every(isPositionPayload)
+  );
+}
+
+function isImportPayload(value: unknown): value is PositionImportPayload {
+  return (
+    isRecord(value) &&
+    typeof value.imported_count === "number" &&
+    Array.isArray(value.errors) &&
+    value.errors.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.row === "number" &&
+        typeof item.field === "string" &&
+        typeof item.message === "string"
+    ) &&
+    (value.portfolio === null || isPortfolioPayload(value.portfolio))
+  );
+}
+
+function isWatchlistItem(value: unknown): value is WatchlistItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.ticker === "string" &&
+    typeof value.thesis === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isWatchlistPayload(value: unknown): value is WatchlistPayload {
+  return isRecord(value) && Array.isArray(value.items) && value.items.every(isWatchlistItem);
+}
+
+function isNotePayload(value: unknown): value is NotePayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    (typeof value.ticker === "string" || value.ticker === null) &&
+    typeof value.title === "string" &&
+    typeof value.body === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isNotesPayload(value: unknown): value is NotesPayload {
+  return isRecord(value) && Array.isArray(value.notes) && value.notes.every(isNotePayload);
+}
+
+export async function getPortfolio(): Promise<PortfolioPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/portfolio`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPortfolio;
+    }
+    const payload: unknown = await response.json();
+    return isPortfolioPayload(payload) ? payload : fallbackPortfolio;
+  } catch {
+    return fallbackPortfolio;
+  }
+}
+
+export async function upsertPosition(input: PositionInputPayload): Promise<PositionPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/portfolio/positions`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isPositionPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deletePosition(ticker: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/portfolio/positions/${ticker.trim().toUpperCase()}`, {
+      method: "DELETE"
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function importPositionsCsv(content: string): Promise<PositionImportPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/portfolio/import`, {
+      body: JSON.stringify({ content }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      const detail = await readResponseErrorDetail(response);
+      return { imported_count: 0, errors: [{ row: 0, field: "request", message: detail }], portfolio: null };
+    }
+    const payload: unknown = await response.json();
+    return isImportPayload(payload) ? payload : { imported_count: 0, errors: [], portfolio: null };
+  } catch {
+    return { imported_count: 0, errors: [{ row: 0, field: "network", message: "后端 API 暂不可用。" }], portfolio: null };
+  }
+}
+
+export async function getWatchlist(): Promise<WatchlistPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/watchlist`, { cache: "no-store" });
+    if (!response.ok) {
+      return { items: [] };
+    }
+    const payload: unknown = await response.json();
+    return isWatchlistPayload(payload) ? payload : { items: [] };
+  } catch {
+    return { items: [] };
+  }
+}
+
+export async function upsertWatchlistItem(input: WatchlistInputPayload): Promise<WatchlistItemPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/watchlist`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isWatchlistItem(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteWatchlistItem(ticker: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/watchlist/${ticker.trim().toUpperCase()}`, {
+      method: "DELETE"
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function getNotes(): Promise<NotesPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/notes`, { cache: "no-store" });
+    if (!response.ok) {
+      return { notes: [] };
+    }
+    const payload: unknown = await response.json();
+    return isNotesPayload(payload) ? payload : { notes: [] };
+  } catch {
+    return { notes: [] };
+  }
+}
+
+export async function createNote(input: NoteInputPayload): Promise<NotePayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/notes`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isNotePayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { runStrategyBacktest } from "../src/lib/client-api";
+import { runStrategyBacktest, type PositionPayload } from "../src/lib/client-api";
 
 const movingAverageParameters = [
   { name: "symbol", label: "Ticker", kind: "ticker", default: "AAPL", required: true },
@@ -318,6 +318,145 @@ test("watchlist can query an arbitrary ticker and show unavailable fallback", as
 
   await expect(page.getByText("TSLA", { exact: true })).toBeVisible();
   await expect(page.getByText("Ticker not found.")).toBeVisible();
+});
+
+test("portfolio workspace can save and delete a position", async ({ page }) => {
+  let positions: PositionPayload[] = [
+    {
+      id: "position-aapl",
+      ticker: "AAPL",
+      quantity: 10,
+      average_cost: 165,
+      currency: "USD",
+      price: 210.12,
+      market_value: 2101.2,
+      weight: 1,
+      updated_at: "2026-06-13T00:00:00Z"
+    }
+  ];
+  const portfolioPayload = () => ({
+    id: "portfolio-main",
+    name: "主组合",
+    base_currency: "USD",
+    total_market_value: positions.reduce((sum, position) => sum + position.market_value, 0),
+    positions
+  });
+
+  await page.route("**/api/mvp/portfolio", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ contentType: "application/json", json: portfolioPayload() });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route("**/api/mvp/portfolio/positions", async (route) => {
+    const body = route.request().postDataJSON() as { average_cost: number; quantity: number; ticker: string };
+    positions = [
+      ...positions,
+      {
+        id: "position-tsla",
+        ticker: body.ticker.toUpperCase(),
+        quantity: body.quantity,
+        average_cost: body.average_cost,
+        currency: "USD",
+        price: null,
+        market_value: body.quantity * body.average_cost,
+        weight: 0,
+        updated_at: "2026-06-13T00:00:00Z"
+      }
+    ];
+    await route.fulfill({ contentType: "application/json", json: positions[positions.length - 1] });
+  });
+  await page.route("**/api/mvp/portfolio/positions/TSLA", async (route) => {
+    positions = positions.filter((position) => position.ticker !== "TSLA");
+    await route.fulfill({ contentType: "application/json", json: { ticker: "TSLA" } });
+  });
+
+  await page.goto("/portfolio");
+  await expect(page.getByRole("heading", { name: "组合" })).toBeVisible();
+  await page.getByLabel("Ticker").fill("tsla");
+  await page.getByLabel("数量").fill("4");
+  await page.getByLabel("平均成本").fill("181.25");
+  await page.getByRole("button", { name: "保存持仓" }).click();
+  await expect(page.getByText("TSLA", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "删除 TSLA" }).click();
+  await expect(page.getByText("TSLA", { exact: true })).not.toBeVisible();
+});
+
+test("watchlist workspace can save and delete an item", async ({ page }) => {
+  let items = [
+    { id: "watch-nvda", ticker: "NVDA", thesis: "AI 基础设施", created_at: "2026-06-13T00:00:00Z" }
+  ];
+  await page.route("**/api/mvp/watchlist", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ contentType: "application/json", json: { items } });
+      return;
+    }
+    const body = route.request().postDataJSON() as { thesis: string; ticker: string };
+    const saved = { id: "watch-tsla", ticker: body.ticker.toUpperCase(), thesis: body.thesis, created_at: "2026-06-13T00:00:00Z" };
+    items = [...items, saved];
+    await route.fulfill({ contentType: "application/json", json: saved });
+  });
+  await page.route("**/api/mvp/watchlist/TSLA", async (route) => {
+    items = items.filter((item) => item.ticker !== "TSLA");
+    await route.fulfill({ contentType: "application/json", json: { ticker: "TSLA" } });
+  });
+  await page.route("**/api/mvp/market/snapshot/NVDA", async (route) => {
+    await route.abort();
+  });
+
+  await page.goto("/watchlist");
+  await page.getByLabel("自选 Ticker").fill("tsla");
+  await page.getByLabel("研究假设").fill("机器人和电动车弹性");
+  await page.getByRole("button", { name: "保存自选股" }).click();
+  await expect(page.getByText("机器人和电动车弹性")).toBeVisible();
+  await page.getByRole("button", { name: "删除 TSLA" }).click();
+  await expect(page.getByText("机器人和电动车弹性")).not.toBeVisible();
+});
+
+test("notes workspace can create a research note", async ({ page }) => {
+  let notes = [
+    { id: "note-aapl", ticker: "AAPL", title: "服务收入", body: "观察利润率。", created_at: "2026-06-13T00:00:00Z" }
+  ];
+  await page.route("**/api/mvp/notes", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ contentType: "application/json", json: { notes } });
+      return;
+    }
+    const body = route.request().postDataJSON() as { body: string; ticker: string; title: string };
+    const saved = { id: "note-msft", ticker: body.ticker.toUpperCase(), title: body.title, body: body.body, created_at: "2026-06-13T00:00:00Z" };
+    notes = [saved, ...notes];
+    await route.fulfill({ contentType: "application/json", json: saved });
+  });
+
+  await page.goto("/notes");
+  await page.getByLabel("Ticker").fill("msft");
+  await page.getByLabel("标题").fill("Azure 需求");
+  await page.getByLabel("正文").fill("跟踪云增速和 AI capex。");
+  await page.getByRole("button", { name: "保存笔记" }).click();
+  await expect(page.getByText("Azure 需求")).toBeVisible();
+  await expect(page.getByText("跟踪云增速和 AI capex。")).toBeVisible();
+});
+
+test("imports workspace can import positions csv and show row errors", async ({ page }) => {
+  await page.route("**/api/mvp/portfolio/import", async (route) => {
+    const body = route.request().postDataJSON() as { content: string };
+    expect(body.content).toContain("TSLA");
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        imported_count: 1,
+        errors: [{ row: 3, field: "ticker", message: "ticker is required" }],
+        portfolio: null
+      }
+    });
+  });
+
+  await page.goto("/imports");
+  await page.getByLabel("CSV 内容").fill("ticker,quantity,average_cost\nTSLA,2,190\n,1,10\n");
+  await page.getByRole("button", { name: "导入持仓" }).click();
+  await expect(page.getByText("已导入 1 条持仓")).toBeVisible();
+  await expect(page.getByText("第 3 行 ticker：ticker is required")).toBeVisible();
 });
 
 test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
