@@ -1,6 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { runStrategyBacktest } from "../src/lib/client-api";
 
+const movingAverageParameters = [
+  { name: "symbol", label: "Ticker", kind: "ticker", default: "AAPL", required: true },
+  { name: "start_date", label: "Start Date", kind: "date", default: "2020-01-01", required: true },
+  { name: "end_date", label: "End Date", kind: "date", default: "2021-01-01", required: true },
+  { name: "cash", label: "Initial Cash", kind: "number", default: "100000", min: 1000, max: 1000000000, required: true },
+  { name: "fast_period", label: "Fast SMA", kind: "integer", default: "20", min: 2, max: 400, required: true },
+  { name: "slow_period", label: "Slow SMA", kind: "integer", default: "50", min: 3, max: 600, required: true }
+];
+
 async function gotoDashboard(page: Page) {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
@@ -338,7 +347,8 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
             asset_class: "US Equity",
             default_symbol: "AAPL",
             resolution: "Daily",
-            enabled: true
+            enabled: true,
+            parameters: movingAverageParameters
           }
         ]
       }
@@ -347,10 +357,51 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
     await route.fulfill({ contentType: "application/json", json: { latest: null } });
   });
+  await page.route("**/api/mvp/strategy-lab/backtests/history**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        history: [
+          {
+            run_id: "20260612T101500Z-moving_average_cross",
+            strategy_id: "moving_average_cross",
+            status: "success",
+            started_at: "2026-06-12T10:15:00Z",
+            completed_at: "2026-06-12T10:16:15Z",
+            duration_seconds: 75,
+            parameters: {
+              symbol: "MSFT",
+              start_date: "2020-02-01",
+              end_date: "2020-12-31",
+              cash: "250000",
+              fast_period: "10",
+              slow_period: "30"
+            },
+            statistics: {
+              total_net_profit: "12.34%",
+              compounding_annual_return: "8.10%",
+              sharpe_ratio: "0.72",
+              drawdown: "15.20%",
+              win_rate: "48%",
+              total_trades: "24"
+            }
+          }
+        ]
+      }
+    });
+  });
   await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
     expect(route.request().method()).toBe("POST");
-    const requestBody = route.request().postDataJSON() as { strategy_id?: unknown };
+    const requestBody = route.request().postDataJSON() as { parameters?: Record<string, string>; strategy_id?: unknown };
     expect(requestBody.strategy_id).toBe("moving_average_cross");
+    expect(requestBody.parameters).toEqual({
+      symbol: "MSFT",
+      start_date: "2020-02-01",
+      end_date: "2020-12-31",
+      cash: "250000",
+      fast_period: "10",
+      slow_period: "30"
+    });
     await route.fulfill({
       contentType: "application/json",
       json: {
@@ -361,6 +412,14 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
         completed_at: "2026-06-12T10:16:15Z",
         duration_seconds: 75,
         message: "Backtest completed.",
+        parameters: {
+          symbol: "MSFT",
+          start_date: "2020-02-01",
+          end_date: "2020-12-31",
+          cash: "250000",
+          fast_period: "10",
+          slow_period: "30"
+        },
         statistics: {
           total_net_profit: "12.34%",
           compounding_annual_return: "8.10%",
@@ -382,14 +441,25 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
     "aria-pressed",
     "true"
   );
+  await expect(panel.getByLabel("Ticker")).toHaveValue("AAPL");
+  await expect(panel.getByLabel("Start Date")).toHaveValue("2020-01-01");
+  await panel.getByLabel("Ticker").fill("msft");
+  await panel.getByLabel("Start Date").fill("2020-02-01");
+  await panel.getByLabel("End Date").fill("2020-12-31");
+  await panel.getByLabel("Initial Cash").fill("250000");
+  await panel.getByLabel("Fast SMA").fill("10");
+  await panel.getByLabel("Slow SMA").fill("30");
   await page.getByRole("button", { name: "运行回测" }).click();
 
   await expect(page.getByText("MovingAverageCross")).toBeVisible();
   await expect(page.getByText("Backtest completed.")).toBeVisible();
-  await expect(page.getByText("12.34%")).toBeVisible();
+  await expect(panel.locator(".backtest-metrics").getByText("12.34%")).toBeVisible();
   await expect(page.getByText("Sharpe")).toBeVisible();
   await expect(page.getByText("TRACE:: Backtest completed")).toBeVisible();
   await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("回测完成");
+  await expect(panel.getByRole("heading", { name: "历史记录" })).toBeVisible();
+  await expect(panel.getByText("MSFT · 2020-02-01 到 2020-12-31")).toBeVisible();
+  await expect(panel.getByText("10 / 30")).toBeVisible();
 });
 
 test("strategy lab displays LEAN backtest failures", async ({ page }) => {
@@ -416,7 +486,8 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
             asset_class: "US Equity",
             default_symbol: "AAPL",
             resolution: "Daily",
-            enabled: true
+            enabled: true,
+            parameters: movingAverageParameters
           }
         ]
       }
@@ -425,10 +496,14 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
   await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
     await route.fulfill({ contentType: "application/json", json: { latest: null } });
   });
+  await page.route("**/api/mvp/strategy-lab/backtests/history**", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { history: [] } });
+  });
   await page.route("**/api/mvp/strategy-lab/backtests", async (route) => {
     expect(route.request().method()).toBe("POST");
-    const requestBody = route.request().postDataJSON() as { strategy_id?: unknown };
+    const requestBody = route.request().postDataJSON() as { parameters?: Record<string, string>; strategy_id?: unknown };
     expect(requestBody.strategy_id).toBe("moving_average_cross");
+    expect(requestBody.parameters?.symbol).toBe("AAPL");
     await route.fulfill({
       contentType: "application/json",
       json: {
@@ -439,6 +514,14 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
         completed_at: "2026-06-12T10:15:01Z",
         duration_seconds: 1,
         message: "Strategy Lab is partially configured.",
+        parameters: {
+          symbol: "AAPL",
+          start_date: "2020-01-01",
+          end_date: "2021-01-01",
+          cash: "100000",
+          fast_period: "20",
+          slow_period: "50"
+        },
         statistics: {
           total_net_profit: null,
           compounding_annual_return: null,
@@ -460,6 +543,7 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
 
   await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("环境未就绪");
   await expect(panel.getByLabel("回测日志").getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+  await expect(panel.getByText("安装 QuantConnect LEAN CLI")).toBeVisible();
 });
 
 test("strategy lab shows an empty state when no strategies are cataloged", async ({ page }) => {
@@ -482,6 +566,9 @@ test("strategy lab shows an empty state when no strategies are cataloged", async
   await page.route("**/api/mvp/strategy-lab/backtests/latest", async (route) => {
     await route.fulfill({ contentType: "application/json", json: { latest: null } });
   });
+  await page.route("**/api/mvp/strategy-lab/backtests/history**", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { history: [] } });
+  });
 
   await page.goto("/strategy-lab");
 
@@ -496,7 +583,9 @@ test("strategy backtest client preserves HTTP error detail", async () => {
   const originalFetch = globalThis.fetch;
   let postedStrategyId: string | null = null;
   globalThis.fetch = async (_input, init) => {
-    postedStrategyId = JSON.parse(String(init?.body)).strategy_id;
+    const payload = JSON.parse(String(init?.body));
+    postedStrategyId = payload.strategy_id;
+    expect(payload.parameters).toEqual({});
     return new Response(JSON.stringify({ detail: "Unknown strategy_id: missing" }), {
       headers: { "Content-Type": "application/json" },
       status: 404

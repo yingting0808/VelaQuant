@@ -436,6 +436,17 @@ export type StrategyDefinitionPayload = {
   default_symbol: string;
   resolution: string;
   enabled: boolean;
+  parameters: StrategyParameterDefinitionPayload[];
+};
+
+export type StrategyParameterDefinitionPayload = {
+  name: string;
+  label: string;
+  kind: "ticker" | "date" | "integer" | "number";
+  default: string;
+  min?: number | null;
+  max?: number | null;
+  required: boolean;
 };
 
 export type StrategyListPayload = {
@@ -464,6 +475,7 @@ export type BacktestResultPayload = {
   completed_at: string;
   duration_seconds: number;
   message: string;
+  parameters: BacktestParametersPayload;
   statistics: BacktestStatisticsPayload;
   equity: EquityPointPayload[];
   logs: string[];
@@ -472,6 +484,23 @@ export type BacktestResultPayload = {
 
 export type LatestBacktestPayload = {
   latest: BacktestResultPayload | null;
+};
+
+export type BacktestParametersPayload = Record<string, string>;
+
+export type BacktestHistoryItemPayload = {
+  run_id: string;
+  strategy_id: string;
+  status: BacktestResultPayload["status"];
+  started_at: string;
+  completed_at: string;
+  duration_seconds: number;
+  parameters: BacktestParametersPayload;
+  statistics: BacktestStatisticsPayload;
+};
+
+export type BacktestHistoryPayload = {
+  history: BacktestHistoryItemPayload[];
 };
 
 const backtestResultStatuses: BacktestResultPayload["status"][] = [
@@ -492,12 +521,23 @@ const fallbackStrategies: StrategyListPayload = {
       asset_class: "US Equity",
       default_symbol: "AAPL",
       resolution: "Daily",
-      enabled: true
+      enabled: true,
+      parameters: [
+        { name: "symbol", label: "Ticker", kind: "ticker", default: "AAPL", required: true },
+        { name: "start_date", label: "Start Date", kind: "date", default: "2020-01-01", required: true },
+        { name: "end_date", label: "End Date", kind: "date", default: "2021-01-01", required: true },
+        { name: "cash", label: "Initial Cash", kind: "number", default: "100000", min: 1000, max: 1000000000, required: true },
+        { name: "fast_period", label: "Fast SMA", kind: "integer", default: "20", min: 2, max: 400, required: true },
+        { name: "slow_period", label: "Slow SMA", kind: "integer", default: "50", min: 3, max: 600, required: true }
+      ]
     }
   ]
 };
 
-function fallbackBacktestResult(strategyId: string): BacktestResultPayload {
+function fallbackBacktestResult(
+  strategyId: string,
+  parameters: BacktestParametersPayload = {}
+): BacktestResultPayload {
   const now = new Date().toISOString();
   return {
     run_id: `offline-${strategyId}`,
@@ -507,6 +547,7 @@ function fallbackBacktestResult(strategyId: string): BacktestResultPayload {
     completed_at: now,
     duration_seconds: 0,
     message: "后端 API 暂不可用，无法运行 LEAN 回测。",
+    parameters,
     statistics: {
       total_net_profit: null,
       compounding_annual_return: null,
@@ -521,7 +562,11 @@ function fallbackBacktestResult(strategyId: string): BacktestResultPayload {
   };
 }
 
-function failedBacktestResult(strategyId: string, message: string): BacktestResultPayload {
+function failedBacktestResult(
+  strategyId: string,
+  message: string,
+  parameters: BacktestParametersPayload = {}
+): BacktestResultPayload {
   const now = new Date().toISOString();
   return {
     run_id: `failed-${strategyId || "strategy"}`,
@@ -531,6 +576,7 @@ function failedBacktestResult(strategyId: string, message: string): BacktestResu
     completed_at: now,
     duration_seconds: 0,
     message,
+    parameters,
     statistics: {
       total_net_profit: null,
       compounding_annual_return: null,
@@ -586,7 +632,22 @@ function isStrategyDefinition(value: unknown): value is StrategyDefinitionPayloa
     typeof value.asset_class === "string" &&
     typeof value.default_symbol === "string" &&
     typeof value.resolution === "string" &&
-    typeof value.enabled === "boolean"
+    typeof value.enabled === "boolean" &&
+    Array.isArray(value.parameters) &&
+    value.parameters.every(isStrategyParameterDefinition)
+  );
+}
+
+function isStrategyParameterDefinition(value: unknown): value is StrategyParameterDefinitionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.label === "string" &&
+    ["ticker", "date", "integer", "number"].includes(String(value.kind)) &&
+    typeof value.default === "string" &&
+    (typeof value.min === "number" || value.min === null || value.min === undefined) &&
+    (typeof value.max === "number" || value.max === null || value.max === undefined) &&
+    typeof value.required === "boolean"
   );
 }
 
@@ -610,6 +671,10 @@ function isEquityPoint(value: unknown): value is EquityPointPayload {
   return isRecord(value) && typeof value.time === "string" && typeof value.value === "number";
 }
 
+function isBacktestParameters(value: unknown): value is BacktestParametersPayload {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+}
+
 function isBacktestResultPayload(value: unknown): value is BacktestResultPayload {
   return (
     isRecord(value) &&
@@ -621,6 +686,7 @@ function isBacktestResultPayload(value: unknown): value is BacktestResultPayload
     typeof value.completed_at === "string" &&
     typeof value.duration_seconds === "number" &&
     typeof value.message === "string" &&
+    isBacktestParameters(value.parameters) &&
     isBacktestStatistics(value.statistics) &&
     Array.isArray(value.equity) &&
     value.equity.every(isEquityPoint) &&
@@ -632,6 +698,25 @@ function isBacktestResultPayload(value: unknown): value is BacktestResultPayload
 
 function isLatestBacktestPayload(value: unknown): value is LatestBacktestPayload {
   return isRecord(value) && (value.latest === null || isBacktestResultPayload(value.latest));
+}
+
+function isBacktestHistoryItem(value: unknown): value is BacktestHistoryItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.status === "string" &&
+    backtestResultStatuses.includes(value.status as BacktestResultPayload["status"]) &&
+    typeof value.started_at === "string" &&
+    typeof value.completed_at === "string" &&
+    typeof value.duration_seconds === "number" &&
+    isBacktestParameters(value.parameters) &&
+    isBacktestStatistics(value.statistics)
+  );
+}
+
+function isBacktestHistoryPayload(value: unknown): value is BacktestHistoryPayload {
+  return isRecord(value) && Array.isArray(value.history) && value.history.every(isBacktestHistoryItem);
 }
 
 export async function getStrategyCatalog(): Promise<StrategyListPayload> {
@@ -664,26 +749,44 @@ export async function getLatestBacktest(): Promise<LatestBacktestPayload> {
   }
 }
 
-export async function runStrategyBacktest(strategyId: string): Promise<BacktestResultPayload> {
+export async function getBacktestHistory(limit = 10): Promise<BacktestHistoryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/backtests/history?limit=${limit}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return { history: [] };
+    }
+    const payload: unknown = await response.json();
+    return isBacktestHistoryPayload(payload) ? payload : { history: [] };
+  } catch {
+    return { history: [] };
+  }
+}
+
+export async function runStrategyBacktest(
+  strategyId: string,
+  parameters: BacktestParametersPayload = {}
+): Promise<BacktestResultPayload> {
   const normalizedStrategyId = strategyId.trim();
   if (!normalizedStrategyId) {
-    return failedBacktestResult("", "请选择策略后再运行回测。");
+    return failedBacktestResult("", "请选择策略后再运行回测。", parameters);
   }
 
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/backtests`, {
-      body: JSON.stringify({ strategy_id: normalizedStrategyId }),
+      body: JSON.stringify({ strategy_id: normalizedStrategyId, parameters }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
     if (!response.ok) {
       const detail = await readResponseErrorDetail(response);
       const message = `请求失败（${response.status}）：${detail}`;
-      return failedBacktestResult(normalizedStrategyId, message);
+      return failedBacktestResult(normalizedStrategyId, message, parameters);
     }
     const payload: unknown = await response.json();
-    return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(normalizedStrategyId);
+    return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(normalizedStrategyId, parameters);
   } catch {
-    return fallbackBacktestResult(normalizedStrategyId);
+    return fallbackBacktestResult(normalizedStrategyId, parameters);
   }
 }
