@@ -12,6 +12,7 @@ __pycache__/
 *.db
 node_modules/
 .next/
+apps/web/.next-playwright/
 *.tsbuildinfo
 playwright-report/
 test-results/
