@@ -20,7 +20,7 @@ def test_mvp_research_route_returns_structured_ai_result():
 
     response = client.post(
         "/api/mvp/research",
-        json={"ticker": "AAPL", "question": "What changed?"},
+        json={"ticker": " AAPL ", "question": " What changed? "},
     )
 
     assert response.status_code == 200
@@ -28,3 +28,25 @@ def test_mvp_research_route_returns_structured_ai_result():
     assert payload["ticker"] == "AAPL"
     assert payload["status"] == "complete"
     assert payload["trade_plan_draft"]["requires_human_review"] is True
+
+
+def test_mvp_research_route_rejects_whitespace_only_ticker():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/research",
+        json={"ticker": "   ", "question": "What changed?"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_mvp_research_route_rejects_whitespace_only_question():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/research",
+        json={"ticker": "AAPL", "question": "   "},
+    )
+
+    assert response.status_code == 422

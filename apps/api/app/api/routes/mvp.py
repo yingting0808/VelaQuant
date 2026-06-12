@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
 from app.ai.workflow import run_research_workflow
@@ -11,8 +11,16 @@ router = APIRouter(prefix="/api/mvp", tags=["mvp"])
 
 
 class ResearchBody(BaseModel):
-    ticker: str
-    question: str
+    ticker: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+
+    @field_validator("ticker", "question")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
 
 
 @router.get("/dashboard")
