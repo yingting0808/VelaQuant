@@ -70,10 +70,14 @@ def _run_id(strategy_id: str, started_at: str) -> str:
     return f"{compact}-{strategy_id}"
 
 
-def _tail_lines(stdout: str | None, stderr: str | None, limit: int = 30) -> list[str]:
+def _tail_lines(stdout: str | None, stderr: str | None, limit: int | None = None) -> list[str]:
     lines = []
     for text in (stdout or "", stderr or ""):
         lines.extend(line.strip() for line in text.splitlines() if line.strip())
+    if limit is None:
+        return lines
+    if limit <= 0:
+        return []
     return lines[-limit:]
 
 
@@ -255,8 +259,11 @@ def _extract_statistics(payload: dict) -> BacktestStatistics:
 
 
 def _stat(raw: dict, name: str) -> str | None:
-    value = raw.get(name) or raw.get(name.lower()) or raw.get(name.replace(" ", ""))
-    return str(value) if value is not None else None
+    for key in (name, name.lower(), name.replace(" ", "")):
+        if key in raw:
+            value = raw[key]
+            return str(value) if value is not None else None
+    return None
 
 
 def _order_count(orders: object) -> str | None:
@@ -295,8 +302,8 @@ def _equity_points(values: object) -> list[EquityPoint]:
     for item in values:
         if not isinstance(item, dict):
             continue
-        time = item.get("x") or item.get("time") or item.get("Time")
-        value = item.get("y") or item.get("value") or item.get("Value")
+        time = _first_existing_value(item, ("x", "time", "Time"))
+        value = _first_existing_value(item, ("y", "value", "Value"))
         if time is None or value is None:
             continue
         try:
@@ -304,6 +311,13 @@ def _equity_points(values: object) -> list[EquityPoint]:
         except (TypeError, ValueError):
             continue
     return points
+
+
+def _first_existing_value(raw: dict, keys: tuple[str, ...]) -> object:
+    for key in keys:
+        if key in raw:
+            return raw[key]
+    return None
 
 
 def _save_latest(result: BacktestResult, runtime_root: Path) -> None:

@@ -119,6 +119,51 @@ def test_run_lean_backtest_success_parses_statistics_and_saves_latest(tmp_path: 
     assert read_latest_backtest(runtime_root=runtime_root) == result
 
 
+def test_run_lean_backtest_success_preserves_zero_statistics_and_equity(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        output_dir = Path(command[4])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "1710698424.json").write_text(
+            json.dumps(
+                {
+                    "statistics": {
+                        "Total Net Profit": 0,
+                        "Sharpe Ratio": 0,
+                    },
+                    "charts": {
+                        "Strategy Equity": {
+                            "series": {
+                                "Equity": {
+                                    "values": [
+                                        {"x": "2020-01-01", "y": 0},
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CompletedProcess(command, 0, stdout="", stderr="")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "success"
+    assert result.statistics.total_net_profit == "0"
+    assert result.statistics.sharpe_ratio == "0"
+    assert result.equity[0].time == "2020-01-01"
+    assert result.equity[0].value == 0.0
+
+
 def test_run_lean_backtest_returns_unavailable_without_calling_runner(tmp_path: Path):
     catalog = write_catalog(tmp_path)
 
@@ -155,6 +200,28 @@ def test_run_lean_backtest_returns_failed_for_nonzero_exit(tmp_path: Path):
     assert result.status == "failed"
     assert "exit code 1" in result.message
     assert result.logs[-1] == "data missing"
+
+
+def test_run_lean_backtest_returns_all_logs_for_nonzero_exit(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+    stdout = "\n".join(f"stdout-{index}" for index in range(25))
+    stderr = "\n".join(f"stderr-{index}" for index in range(25))
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        return CompletedProcess(command, 1, stdout=stdout, stderr=stderr)
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "failed"
+    assert len(result.logs) == 50
+    assert result.logs[0] == "stdout-0"
+    assert result.logs[-1] == "stderr-24"
 
 
 def test_run_lean_backtest_returns_timeout_when_runner_times_out(tmp_path: Path):
