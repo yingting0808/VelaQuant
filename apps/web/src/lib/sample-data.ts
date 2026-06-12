@@ -1,6 +1,6 @@
 export const sampleDashboard = {
   portfolio: {
-    name: "Main Book",
+    name: "主组合",
     total_market_value: 4253.95,
     positions: [
       { ticker: "AAPL", market_value: 2101.2, weight: 0.49394 },
@@ -16,9 +16,9 @@ export const sampleDashboard = {
     }
   ],
   ai_prompts: [
-    "Explain current page",
-    "Find portfolio risks",
-    "Generate bull/base/bear view",
-    "Draft a trade plan"
+    "解释当前页面",
+    "识别组合风险",
+    "生成多/中/空情景",
+    "起草交易计划"
   ]
 };

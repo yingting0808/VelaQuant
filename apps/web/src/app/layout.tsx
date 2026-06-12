@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "AI US Stocks",
-  description: "Internal AI research and portfolio monitoring workspace"
+  title: "VelaQuant",
+  description: "机构级 AI 投研与组合监控工作台"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

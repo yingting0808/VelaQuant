@@ -29,11 +29,11 @@ export default async function DashboardPage() {
           </div>
           <div className="status-pill">
             <Activity size={15} aria-hidden="true" />
-            Live mock data
+            Mock 数据视图
           </div>
         </header>
 
-        <section className="metric-grid" aria-label="Portfolio summary">
+        <section className="metric-grid" aria-label="组合摘要">
           <article className="metric-card">
             <div className="metric-label">
               <BriefcaseBusiness size={16} aria-hidden="true" />
@@ -73,10 +73,10 @@ export default async function DashboardPage() {
                 <tr>
                   <th scope="col">Ticker</th>
                   <th className="numeric" scope="col">
-                    Market Value
+                    市值
                   </th>
                   <th className="numeric" scope="col">
-                    Weight
+                    权重
                   </th>
                 </tr>
               </thead>
