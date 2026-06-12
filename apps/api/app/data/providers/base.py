@@ -3,6 +3,15 @@ from typing import Protocol
 from pydantic import BaseModel
 
 
+class ProviderStatus(BaseModel):
+    name: str
+    mode: str
+    available: bool
+    message: str
+    checked_at: str
+    version: str | None = None
+
+
 class Quote(BaseModel):
     ticker: str
     price: float
@@ -18,6 +27,9 @@ class EvidenceItem(BaseModel):
     source: str
     source_url: str
     observed_at: str
+    form: str | None = None
+    filing_date: str | None = None
+    accession_number: str | None = None
 
 
 class MarketDataProvider(Protocol):
@@ -25,4 +37,7 @@ class MarketDataProvider(Protocol):
         raise NotImplementedError
 
     def get_research_evidence(self, ticker: str) -> list[EvidenceItem]:
+        raise NotImplementedError
+
+    def get_statuses(self) -> list[ProviderStatus]:
         raise NotImplementedError

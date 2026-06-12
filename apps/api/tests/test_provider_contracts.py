@@ -1,0 +1,49 @@
+from app.core.config import Settings
+from app.data.providers.base import EvidenceItem, ProviderStatus
+
+
+def test_provider_status_serializes_operational_state():
+    status = ProviderStatus(
+        name="SEC EDGAR",
+        mode="sec_edgar",
+        available=True,
+        message="configured",
+        checked_at="2026-06-12T00:00:00Z",
+        version="api",
+    )
+
+    assert status.model_dump() == {
+        "name": "SEC EDGAR",
+        "mode": "sec_edgar",
+        "available": True,
+        "message": "configured",
+        "checked_at": "2026-06-12T00:00:00Z",
+        "version": "api",
+    }
+
+
+def test_evidence_item_accepts_sec_filing_metadata():
+    evidence = EvidenceItem(
+        ticker="AAPL",
+        title="AAPL 10-K filed",
+        summary="AAPL filed a 10-K on 2025-10-31.",
+        source="sec_edgar",
+        source_url="https://www.sec.gov/Archives/edgar/data/320193/example.htm",
+        observed_at="2025-10-31T00:00:00Z",
+        form="10-K",
+        filing_date="2025-10-31",
+        accession_number="0000320193-25-000079",
+    )
+
+    assert evidence.form == "10-K"
+    assert evidence.filing_date == "2025-10-31"
+    assert evidence.accession_number == "0000320193-25-000079"
+
+
+def test_settings_expose_data_provider_defaults():
+    settings = Settings()
+
+    assert settings.data_mode == "hybrid"
+    assert settings.sec_timeout_seconds == 3.0
+    assert "VelaQuant" in settings.sec_user_agent
+    assert settings.strategy_command_timeout_seconds == 2.0

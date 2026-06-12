@@ -1,4 +1,10 @@
-from app.data.providers.base import EvidenceItem, Quote
+from datetime import UTC, datetime
+
+from app.data.providers.base import EvidenceItem, ProviderStatus, Quote
+
+
+def _checked_at() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _normalize_ticker(ticker: str) -> str:
@@ -36,4 +42,16 @@ class MockMarketDataProvider:
                 source_url=f"https://example.local/news/{normalized}",
                 observed_at="2026-06-12T13:10:00Z",
             ),
+        ]
+
+    def get_statuses(self) -> list[ProviderStatus]:
+        return [
+            ProviderStatus(
+                name="Mock",
+                mode="mock",
+                available=True,
+                message="Deterministic local fallback data is available.",
+                checked_at=_checked_at(),
+                version="local",
+            )
         ]
