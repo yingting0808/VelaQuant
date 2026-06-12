@@ -1,5 +1,6 @@
 from app.core.config import Settings
 from app.data.providers.base import EvidenceItem, ProviderStatus
+from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers.registry import HybridMarketDataProvider, build_market_data_provider
 
 
@@ -57,11 +58,35 @@ def test_provider_registry_builds_hybrid_by_default():
     assert isinstance(provider, HybridMarketDataProvider)
 
 
-def test_openbb_optional_status_reports_missing_package_when_not_installed():
+def test_provider_registry_openbb_optional_uses_mock_quotes_with_openbb_status():
     provider = build_market_data_provider(Settings(data_mode="openbb_optional"))
+
+    quote = provider.get_quote("aapl")
+    statuses = provider.get_statuses()
+
+    assert isinstance(provider, HybridMarketDataProvider)
+    assert quote.source == "mock"
+    assert any(status.name == "Mock" for status in statuses)
+    assert any(status.name == "OpenBB" for status in statuses)
+
+
+def test_openbb_optional_status_reports_missing_package():
+    provider = OpenBBOptionalProvider(module_finder=lambda _: None)
 
     status = provider.get_statuses()[0]
 
     assert status.name == "OpenBB"
     assert status.mode == "openbb_optional"
     assert status.available is False
+    assert status.version is None
+
+
+def test_openbb_optional_status_reports_installed_package():
+    provider = OpenBBOptionalProvider(module_finder=lambda _: object())
+
+    status = provider.get_statuses()[0]
+
+    assert status.name == "OpenBB"
+    assert status.mode == "openbb_optional"
+    assert status.available is True
+    assert status.version == "installed"

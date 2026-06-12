@@ -1,3 +1,5 @@
+from typing import Protocol
+
 from app.core.config import Settings, get_settings
 from app.data.providers.base import EvidenceItem, MarketDataProvider, ProviderStatus, Quote
 from app.data.providers.mock import MockMarketDataProvider
@@ -5,12 +7,20 @@ from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers.sec_edgar import SecEdgarProvider
 
 
+class ResearchEvidenceProvider(Protocol):
+    def get_research_evidence(self, ticker: str) -> list[EvidenceItem]:
+        raise NotImplementedError
+
+    def get_statuses(self) -> list[ProviderStatus]:
+        raise NotImplementedError
+
+
 class HybridMarketDataProvider:
     def __init__(
         self,
         *,
         mock_provider: MockMarketDataProvider | None = None,
-        sec_provider: object | None = None,
+        sec_provider: ResearchEvidenceProvider | None = None,
         openbb_provider: OpenBBOptionalProvider | None = None,
     ) -> None:
         self.mock_provider = mock_provider or MockMarketDataProvider()
@@ -35,6 +45,13 @@ class HybridMarketDataProvider:
         statuses.extend(self.openbb_provider.get_statuses())
         return statuses
 
+    def close(self) -> None:
+        if self.sec_provider is None:
+            return
+        close = getattr(self.sec_provider, "close", None)
+        if callable(close):
+            close()
+
 
 def build_market_data_provider(settings: Settings | None = None) -> MarketDataProvider:
     active_settings = settings or get_settings()
@@ -44,7 +61,7 @@ def build_market_data_provider(settings: Settings | None = None) -> MarketDataPr
         return MockMarketDataProvider()
 
     if mode == "openbb_optional":
-        return OpenBBOptionalProvider()
+        return HybridMarketDataProvider(sec_provider=None, openbb_provider=OpenBBOptionalProvider())
 
     sec_provider = SecEdgarProvider(
         user_agent=active_settings.sec_user_agent,

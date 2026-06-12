@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from collections.abc import Callable
 from importlib.util import find_spec
 
 from app.data.providers.base import EvidenceItem, ProviderStatus, Quote
@@ -9,8 +10,8 @@ def _utc_now() -> str:
 
 
 class OpenBBOptionalProvider:
-    def __init__(self) -> None:
-        self.available = find_spec("openbb") is not None
+    def __init__(self, module_finder: Callable[[str], object | None] = find_spec) -> None:
+        self.available = module_finder("openbb") is not None
 
     def get_quote(self, ticker: str) -> Quote:
         normalized = ticker.strip().upper()

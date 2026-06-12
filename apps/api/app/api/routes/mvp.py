@@ -1,9 +1,12 @@
-from fastapi import APIRouter
+from collections.abc import Iterator
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
 from app.ai.workflow import run_research_workflow
 from app.core.config import get_settings
+from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.services.alerts import AlertCandidate, generate_event_alerts
 from app.services.portfolio import PositionInput, calculate_exposure
@@ -25,14 +28,19 @@ class ResearchBody(BaseModel):
         return stripped
 
 
-def get_market_data_provider():
-    return build_market_data_provider(get_settings())
+def get_market_data_provider() -> Iterator[MarketDataProvider]:
+    provider = build_market_data_provider(get_settings())
+    try:
+        yield provider
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
 
 
 @router.get("/dashboard")
-def dashboard() -> dict:
+def dashboard(provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
     settings = get_settings()
-    provider = get_market_data_provider()
     positions = [
         PositionInput(ticker="AAPL", quantity=10, price=provider.get_quote("AAPL").price),
         PositionInput(ticker="MSFT", quantity=5, price=provider.get_quote("MSFT").price),
@@ -65,9 +73,8 @@ def dashboard() -> dict:
 
 
 @router.get("/data-sources/status")
-def data_sources_status() -> dict:
+def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
     settings = get_settings()
-    provider = get_market_data_provider()
     return {
         "provider_mode": settings.data_mode,
         "data_sources": [status.model_dump() for status in provider.get_statuses()],
@@ -75,8 +82,7 @@ def data_sources_status() -> dict:
 
 
 @router.post("/research")
-def research(body: ResearchBody) -> dict:
-    provider = get_market_data_provider()
+def research(body: ResearchBody, provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
     evidence = [
         EvidenceItemInput(
             title=item.title,

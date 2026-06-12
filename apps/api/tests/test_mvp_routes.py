@@ -1,6 +1,23 @@
 from fastapi.testclient import TestClient
 
+from app.api.routes import mvp
+from app.data.providers.openbb_optional import OpenBBOptionalProvider
+from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
+
+
+class CloseTrackingSecProvider:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def get_research_evidence(self, ticker: str) -> list:
+        return []
+
+    def get_statuses(self) -> list:
+        return []
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_mvp_dashboard_route_returns_portfolio_alerts_and_ai_prompts():
@@ -27,6 +44,19 @@ def test_mvp_dashboard_route_includes_provider_and_strategy_status():
     assert "strategy_lab" in payload
 
 
+def test_mvp_dashboard_route_openbb_optional_mode_uses_mock_quote_fallback(monkeypatch):
+    monkeypatch.setenv("AI_STOCKS_DATA_MODE", "openbb_optional")
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.get("/api/mvp/dashboard")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider_mode"] == "openbb_optional"
+    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert any(source["name"] == "OpenBB" for source in payload["data_sources"])
+
+
 def test_mvp_data_sources_status_route_returns_statuses():
     client = TestClient(create_app())
 
@@ -36,6 +66,25 @@ def test_mvp_data_sources_status_route_returns_statuses():
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
     assert any(source["name"] == "Mock" for source in payload["data_sources"])
+
+
+def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):
+    sec_provider = CloseTrackingSecProvider()
+    provider = HybridMarketDataProvider(
+        sec_provider=sec_provider,
+        openbb_provider=OpenBBOptionalProvider(module_finder=lambda _: None),
+    )
+
+    def build_test_provider(settings):
+        return provider
+
+    monkeypatch.setattr(mvp, "build_market_data_provider", build_test_provider)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/dashboard")
+
+    assert response.status_code == 200
+    assert sec_provider.closed is True
 
 
 def test_mvp_research_route_returns_structured_ai_result():
