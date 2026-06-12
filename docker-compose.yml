@@ -19,8 +19,9 @@ services:
     image: python:3.12-slim
     working_dir: /workspace/apps/api
     command: sh -c "pip install -e '.[dev]' && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-    env_file:
-      - .env
+    environment:
+      AI_STOCKS_DATABASE_URL: postgresql+psycopg://ai_stocks:ai_stocks@postgres:5432/ai_stocks
+      AI_STOCKS_CORS_ORIGIN: http://localhost:3000
     ports:
       - "8000:8000"
     volumes:
