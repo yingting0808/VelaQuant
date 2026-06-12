@@ -56,7 +56,10 @@ def test_sec_provider_parses_recent_filings_into_evidence_items():
     assert evidence[0].filing_date == "2025-10-31"
     assert evidence[0].accession_number == "0000320193-25-000079"
     assert "AAPL filed 10-K" in evidence[0].summary
-    assert evidence[0].source_url.endswith("/aapl-20250927.htm")
+    assert (
+        evidence[0].source_url
+        == "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    )
 
 
 def test_sec_provider_reports_unsupported_ticker_without_network_call():
@@ -91,3 +94,47 @@ def test_sec_provider_returns_no_evidence_when_request_fails():
     )
 
     assert provider.get_research_evidence("AAPL") == []
+
+
+def test_sec_provider_returns_no_evidence_for_invalid_json_or_malformed_payload():
+    responses = [
+        httpx.Response(200, content=b"not-json"),
+        httpx.Response(200, json={"filings": []}),
+        httpx.Response(200, json={"filings": {"recent": []}}),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    provider = SecEdgarProvider(
+        user_agent="VelaQuant tests contact@example.com",
+        timeout_seconds=1.0,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert provider.get_research_evidence("AAPL") == []
+    assert provider.get_research_evidence("AAPL") == []
+    assert provider.get_research_evidence("AAPL") == []
+
+
+def test_sec_provider_context_manager_closes_only_owned_clients():
+    with SecEdgarProvider(
+        user_agent="VelaQuant tests contact@example.com",
+        timeout_seconds=1.0,
+    ) as owned_provider:
+        owned_client = owned_provider.client
+        assert owned_client.is_closed is False
+
+    assert owned_client.is_closed is True
+
+    injected_client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(500)))
+
+    with SecEdgarProvider(
+        user_agent="VelaQuant tests contact@example.com",
+        timeout_seconds=1.0,
+        client=injected_client,
+    ):
+        assert injected_client.is_closed is False
+
+    assert injected_client.is_closed is False
+    injected_client.close()

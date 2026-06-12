@@ -45,7 +45,18 @@ class SecEdgarProvider:
     ) -> None:
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
+        self._owns_client = client is None
         self.client = client or httpx.Client(timeout=timeout_seconds)
+
+    def __enter__(self) -> "SecEdgarProvider":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._owns_client:
+            self.client.close()
 
     def get_quote(self, ticker: str) -> Quote:
         normalized = _normalize_ticker(ticker)
@@ -67,7 +78,11 @@ class SecEdgarProvider:
         except httpx.HTTPError:
             return []
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            return []
+
         return parse_submission_evidence(normalized, cik, payload)
 
     def get_statuses(self) -> list[ProviderStatus]:
@@ -84,7 +99,14 @@ class SecEdgarProvider:
 
 
 def parse_submission_evidence(ticker: str, cik: str, payload: dict[str, Any]) -> list[EvidenceItem]:
-    recent = payload.get("filings", {}).get("recent", {})
+    filings = payload.get("filings", {})
+    if not isinstance(filings, dict):
+        return []
+
+    recent = filings.get("recent", {})
+    if not isinstance(recent, dict):
+        return []
+
     accession_numbers = recent.get("accessionNumber", [])
     filing_dates = recent.get("filingDate", [])
     forms = recent.get("form", [])
