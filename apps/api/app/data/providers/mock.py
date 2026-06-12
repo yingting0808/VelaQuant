@@ -1,9 +1,13 @@
 from app.data.providers.base import EvidenceItem, Quote
 
 
+def _normalize_ticker(ticker: str) -> str:
+    return ticker.strip().upper()
+
+
 class MockMarketDataProvider:
     def get_quote(self, ticker: str) -> Quote:
-        normalized = ticker.upper()
+        normalized = _normalize_ticker(ticker)
         prices = {"AAPL": 210.12, "MSFT": 430.55, "NVDA": 125.75}
         return Quote(
             ticker=normalized,
@@ -14,7 +18,7 @@ class MockMarketDataProvider:
         )
 
     def get_research_evidence(self, ticker: str) -> list[EvidenceItem]:
-        normalized = ticker.upper()
+        normalized = _normalize_ticker(ticker)
         return [
             EvidenceItem(
                 ticker=normalized,
