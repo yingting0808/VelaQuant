@@ -43,6 +43,11 @@ from app.services.workspace import (
     upsert_position,
     upsert_watchlist_item,
 )
+from app.trading_core.engine import TradingEngine
+from app.trading_core.events import MarketEvent
+from app.trading_core.portfolio import PortfolioState
+from app.trading_core.risk import RiskEngine, RiskLimits
+from app.trading_core.strategy import DeterministicWatchlistStrategy
 
 router = APIRouter(prefix="/api/mvp", tags=["mvp"])
 
@@ -83,6 +88,14 @@ class ImportPositionsBody(BaseModel):
         if not stripped:
             raise ValueError("must not be empty")
         return stripped
+
+
+class TradingCoreDryRunBody(BaseModel):
+    event: MarketEvent
+    portfolio: PortfolioState
+    watchlist: list[str] = Field(default_factory=list)
+    risk_limits: RiskLimits = Field(default_factory=RiskLimits)
+    strategy_notional: float = Field(default=1500, gt=0)
 
 
 def get_market_data_provider() -> Iterator[MarketDataProvider]:
@@ -234,6 +247,14 @@ def paper_trading_order(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return order.model_dump()
+
+
+@router.post("/trading-core/dry-run")
+def trading_core_dry_run(body: TradingCoreDryRunBody) -> dict:
+    strategy = DeterministicWatchlistStrategy(watchlist=body.watchlist, notional=body.strategy_notional)
+    risk_engine = RiskEngine(body.risk_limits)
+    engine = TradingEngine(strategy=strategy, risk_engine=risk_engine)
+    return engine.process_event(body.event, body.portfolio).model_dump(mode="json")
 
 
 @router.get("/strategy-lab/status")

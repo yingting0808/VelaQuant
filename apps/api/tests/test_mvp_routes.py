@@ -240,6 +240,40 @@ def test_mvp_research_cors_preflight_allows_loopback_web_origin():
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
 
 
+def test_trading_core_dry_run_returns_state_machine():
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/trading-core/dry-run",
+        json={
+            "event": {
+                "source": "ai_structured",
+                "event_type": "earnings",
+                "ticker": "NVDA",
+                "occurred_at": "2026-06-13T00:00:00Z",
+                "summary": "NVDA reported stronger than expected data center revenue.",
+                "sentiment": "positive",
+                "confidence": 0.86,
+                "impact_score": 0.74,
+            },
+            "portfolio": {"cash": 100000, "equity": 100000, "positions": []},
+            "watchlist": ["NVDA"],
+            "risk_limits": {"max_order_notional": 5000},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["orders"][0]["current_state"] == "filled"
+    assert [item["state"] for item in payload["orders"][0]["state_history"]] == [
+        "new",
+        "validated",
+        "risk_approved",
+        "sent",
+        "filled",
+    ]
+
+
 def test_mvp_market_snapshot_route_returns_quote_fundamentals_and_sources():
     client = TestClient(create_app())
 
