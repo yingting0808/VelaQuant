@@ -12,6 +12,8 @@ from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, Back
 from app.services.paper_trading import (
     PaperAccountPayload,
     PaperCandidatePayload,
+    PaperOrderCreate,
+    PaperOrderPayload,
     PaperReviewPayload,
     PaperTradingSummary,
 )
@@ -741,3 +743,43 @@ def test_mvp_paper_trading_daily_run_route_generates_candidates(monkeypatch):
     payload = response.json()
     assert payload["candidates"][0]["action"] == "buy"
     assert "证据" in payload["candidates"][0]["thesis"]
+
+
+def test_mvp_paper_trading_order_route_fills_or_rejects(monkeypatch):
+    order = PaperOrderPayload(
+        id="00000000-0000-0000-0000-000000000013",
+        ticker="NVDA",
+        side="buy",
+        order_type="market",
+        quantity=10,
+        status="filled",
+        fill_price=125.75,
+        realized_pnl=0,
+        rejection_reason=None,
+        submitted_at="2026-06-13T00:00:00Z",
+        filled_at="2026-06-13T00:00:00Z",
+    )
+
+    def fake_submit(session, provider, data: PaperOrderCreate) -> PaperOrderPayload:
+        assert data.ticker == "NVDA"
+        assert data.side == "buy"
+        if data.quantity > 100:
+            raise ValueError("Insufficient paper cash for NVDA.")
+        return order
+
+    monkeypatch.setattr(mvp, "submit_paper_order", fake_submit, raising=False)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    fill_response = client.post(
+        "/api/mvp/paper-trading/orders",
+        json={"ticker": "nvda", "side": "buy", "quantity": 10, "order_type": "market"},
+    )
+    reject_response = client.post(
+        "/api/mvp/paper-trading/orders",
+        json={"ticker": "nvda", "side": "buy", "quantity": 101, "order_type": "market"},
+    )
+
+    assert fill_response.status_code == 200
+    assert fill_response.json()["status"] == "filled"
+    assert reject_response.status_code == 400
+    assert "Insufficient paper cash" in reject_response.json()["detail"]
