@@ -110,6 +110,9 @@ test("settings renders data source status", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "数据源状态" })).toBeVisible();
   await expect(page.getByText("hybrid")).toBeVisible();
   await expect(page.getByText("SEC EDGAR")).toBeVisible();
+  await expect(page.getByText("Deterministic local fallback data is available.")).toBeVisible();
+  await expect(page.getByText("SEC submissions adapter is configured.")).toBeVisible();
+  await expect(page.getByText("data.sec.gov")).toBeVisible();
 });
 
 test("strategy lab renders readiness status", async ({ page }) => {
@@ -142,7 +145,12 @@ test("strategy lab renders readiness status", async ({ page }) => {
 
   await expect(page).toHaveURL("/strategy-lab");
   await expect(page.getByRole("heading", { name: "策略实验室" })).toBeVisible();
+  await expect(
+    page.getByText("Strategy Lab is partially configured; review unavailable tools before running LEAN backtests.")
+  ).toBeVisible();
   await expect(page.getByText("Docker CLI")).toBeVisible();
+  await expect(page.getByText("Docker version 29.5.3")).toBeVisible();
   await expect(page.getByText("LEAN CLI")).toBeVisible();
+  await expect(page.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
   await expect(page.getByText("不可回测")).toBeVisible();
 });
