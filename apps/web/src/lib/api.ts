@@ -19,7 +19,9 @@ export type DashboardPayload = {
   ai_prompts: string[];
 };
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+function getApiBaseUrl(): string {
+  return process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -68,7 +70,7 @@ function isDashboardPayload(value: unknown): value is DashboardPayload {
 
 export async function getDashboard(): Promise<DashboardPayload> {
   try {
-    const response = await fetch(`${apiBaseUrl}/api/mvp/dashboard`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/mvp/dashboard`, {
       cache: "no-store"
     });
 
