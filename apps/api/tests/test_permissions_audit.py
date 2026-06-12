@@ -5,6 +5,14 @@ from app.security.permissions import Permission, can
 from app.services.audit import record_audit
 
 
+def test_services_import_star_exports_existing_modules():
+    namespace: dict[str, object] = {}
+
+    exec("from app.services import *", namespace)
+
+    assert "audit" in namespace
+
+
 def test_role_permission_matrix():
     assert can(MemberRole.owner, Permission.manage_settings)
     assert can(MemberRole.analyst, Permission.create_ai_draft)
@@ -33,9 +41,13 @@ def test_record_audit_persists_action():
             action="portfolio.imported",
             entity_type="imported_file",
             entity_id="sample.csv",
-            metadata={"rows": 2},
+            metadata={"source": "导入", "rows": 2},
         )
 
         stored = session.exec(select(AuditLog)).one()
+        assert stored.team_id == team.id
+        assert stored.user_id == user.id
         assert stored.action == "portfolio.imported"
-        assert '"rows": 2' in stored.metadata_json
+        assert stored.entity_type == "imported_file"
+        assert stored.entity_id == "sample.csv"
+        assert stored.metadata_json == '{"rows": 2, "source": "导入"}'
