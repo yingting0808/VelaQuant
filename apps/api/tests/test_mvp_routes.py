@@ -1,9 +1,37 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.routes import mvp
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
+from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
+
+
+FAKE_STRATEGY_LAB_PAYLOAD = {
+    "can_run_backtests": True,
+    "summary": "Strategy Lab test readiness.",
+    "tools": [
+        {
+            "name": "Docker CLI",
+            "available": True,
+            "version": "Docker version test",
+            "message": "Docker CLI is available.",
+        }
+    ],
+}
+
+
+@pytest.fixture(autouse=True)
+def stub_strategy_lab_status(monkeypatch):
+    def fake_strategy_lab_status() -> StrategyLabStatus:
+        return StrategyLabStatus(
+            can_run_backtests=FAKE_STRATEGY_LAB_PAYLOAD["can_run_backtests"],
+            summary=FAKE_STRATEGY_LAB_PAYLOAD["summary"],
+            tools=[StrategyToolStatus(**tool) for tool in FAKE_STRATEGY_LAB_PAYLOAD["tools"]],
+        )
+
+    monkeypatch.setattr(mvp, "get_strategy_lab_status", fake_strategy_lab_status)
 
 
 class CloseTrackingSecProvider:
@@ -41,7 +69,7 @@ def test_mvp_dashboard_route_includes_provider_and_strategy_status():
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
     assert any(source["name"] == "Mock" for source in payload["data_sources"])
-    assert "strategy_lab" in payload
+    assert payload["strategy_lab"] == FAKE_STRATEGY_LAB_PAYLOAD
 
 
 def test_mvp_dashboard_route_openbb_optional_mode_uses_mock_quote_fallback(monkeypatch):
@@ -74,10 +102,7 @@ def test_mvp_strategy_lab_status_route_returns_readiness_payload():
     response = client.get("/api/mvp/strategy-lab/status")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert "can_run_backtests" in payload
-    assert "summary" in payload
-    assert "tools" in payload
+    assert response.json() == FAKE_STRATEGY_LAB_PAYLOAD
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):
