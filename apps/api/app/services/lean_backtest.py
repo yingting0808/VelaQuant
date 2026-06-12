@@ -6,7 +6,7 @@ from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.services.strategy_catalog import DEFAULT_CATALOG_PATH, StrategyDefinition, get_strategy_by_id
 from app.services.strategy_lab import StrategyLabStatus, get_strategy_lab_status
@@ -61,16 +61,16 @@ def default_command_runner(command: list[str], cwd: Path, timeout: float) -> Com
 
 
 def _utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _run_id(strategy_id: str, started_at: str) -> str:
-    compact = started_at.replace("-", "").replace(":", "").replace("+00:00", "Z")
+    compact = started_at.replace("-", "").replace(":", "").replace(".", "").replace("+00:00", "Z")
     compact = compact.replace("T", "T").replace("Z", "Z")
     return f"{compact}-{strategy_id}"
 
 
-def _tail_lines(stdout: str | None, stderr: str | None, limit: int | None = None) -> list[str]:
+def _tail_lines(stdout: str | None, stderr: str | None, limit: int | None = 120) -> list[str]:
     lines = []
     for text in (stdout or "", stderr or ""):
         lines.extend(line.strip() for line in text.splitlines() if line.strip())
@@ -168,6 +168,20 @@ def run_lean_backtest(
         )
         _save_latest(result, runtime_root)
         return result
+    except OSError as error:
+        message = str(error) or error.__class__.__name__
+        result = _empty_result(
+            run_id=run_id,
+            strategy_id=strategy.id,
+            status="failed",
+            started_at=started_at,
+            completed_at=_utc_now(),
+            message=f"LEAN backtest could not be started: {message}",
+            logs=[message],
+            output_dir=output_dir,
+        )
+        _save_latest(result, runtime_root)
+        return result
 
     logs = _tail_lines(completed.stdout, completed.stderr)
     if completed.returncode != 0:
@@ -209,7 +223,20 @@ def _parse_backtest_output(
             output_dir=output_dir,
         )
 
-    payload = json.loads(result_json.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(result_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return _empty_result(
+            run_id=run_id,
+            strategy_id=strategy.id,
+            status="malformed_result",
+            started_at=started_at,
+            completed_at=_utc_now(),
+            message="LEAN result JSON could not be parsed.",
+            logs=logs,
+            output_dir=output_dir,
+        )
+
     statistics = _extract_statistics(payload)
     equity = _extract_equity(payload)
     completed_at = _utc_now()
@@ -236,7 +263,7 @@ def _find_result_json(output_dir: Path) -> Path | None:
     for candidate in sorted(output_dir.rglob("*.json")):
         try:
             payload = json.loads(candidate.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             continue
         if isinstance(payload, dict) and any(key in payload for key in ("statistics", "Statistics", "charts", "Charts")):
             return candidate
@@ -322,11 +349,17 @@ def _first_existing_value(raw: dict, keys: tuple[str, ...]) -> object:
 
 def _save_latest(result: BacktestResult, runtime_root: Path) -> None:
     runtime_root.mkdir(parents=True, exist_ok=True)
-    _latest_path(runtime_root).write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    latest_path = _latest_path(runtime_root)
+    temp_path = runtime_root / f".{latest_path.name}.{result.run_id}.tmp"
+    temp_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    temp_path.replace(latest_path)
 
 
 def read_latest_backtest(runtime_root: Path = DEFAULT_RUNTIME_ROOT) -> BacktestResult | None:
     path = _latest_path(runtime_root)
     if not path.exists():
         return None
-    return BacktestResult.model_validate_json(path.read_text(encoding="utf-8"))
+    try:
+        return BacktestResult.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValidationError):
+        return None

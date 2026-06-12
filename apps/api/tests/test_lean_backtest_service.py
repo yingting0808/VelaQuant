@@ -202,10 +202,10 @@ def test_run_lean_backtest_returns_failed_for_nonzero_exit(tmp_path: Path):
     assert result.logs[-1] == "data missing"
 
 
-def test_run_lean_backtest_returns_all_logs_for_nonzero_exit(tmp_path: Path):
+def test_run_lean_backtest_returns_tail_logs_for_nonzero_exit(tmp_path: Path):
     catalog = write_catalog(tmp_path)
-    stdout = "\n".join(f"stdout-{index}" for index in range(25))
-    stderr = "\n".join(f"stderr-{index}" for index in range(25))
+    stdout = "\n".join(f"stdout-{index}" for index in range(100))
+    stderr = "\n".join(f"stderr-{index}" for index in range(100))
 
     def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
         return CompletedProcess(command, 1, stdout=stdout, stderr=stderr)
@@ -219,9 +219,94 @@ def test_run_lean_backtest_returns_all_logs_for_nonzero_exit(tmp_path: Path):
     )
 
     assert result.status == "failed"
-    assert len(result.logs) == 50
-    assert result.logs[0] == "stdout-0"
-    assert result.logs[-1] == "stderr-24"
+    assert len(result.logs) == 120
+    assert result.logs[0] == "stdout-80"
+    assert "stderr-0" in result.logs
+    assert result.logs[-1] == "stderr-99"
+
+
+def test_run_lean_backtest_returns_failed_when_runner_cannot_start(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise FileNotFoundError("lean executable missing")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "failed"
+    assert "lean executable missing" in result.message
+    assert result.logs == ["lean executable missing"]
+
+
+def test_run_lean_backtest_returns_failed_when_runner_raises_os_error(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise OSError("permission denied")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "failed"
+    assert "permission denied" in result.message
+    assert result.logs == ["permission denied"]
+
+
+def test_run_lean_backtest_returns_malformed_result_for_unreadable_json(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        output_dir = Path(command[4])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "1710698424.json").write_bytes(b"\xff\xfe\x00")
+        return CompletedProcess(command, 0, stdout="TRACE:: done", stderr="")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "malformed_result"
+    assert "No LEAN result JSON" in result.message
+
+
+def test_run_lean_backtest_uses_unique_run_id_for_rapid_repeated_runs(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        write_result_json(Path(command[4]))
+        return CompletedProcess(command, 0, stdout="", stderr="")
+
+    first = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+    second = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert first.run_id != second.run_id
 
 
 def test_run_lean_backtest_returns_timeout_when_runner_times_out(tmp_path: Path):
@@ -263,6 +348,14 @@ def test_run_lean_backtest_returns_malformed_result_when_json_is_missing(tmp_pat
 
 def test_read_latest_backtest_returns_none_when_missing(tmp_path: Path):
     assert read_latest_backtest(runtime_root=tmp_path / "runtime") is None
+
+
+def test_read_latest_backtest_returns_none_when_json_is_corrupt(tmp_path: Path):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / "latest-backtest.json").write_text("{not-json", encoding="utf-8")
+
+    assert read_latest_backtest(runtime_root=runtime_root) is None
 
 
 def test_unknown_strategy_id_raises_value_error(tmp_path: Path):
