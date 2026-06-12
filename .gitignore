@@ -1,2 +1,11 @@
 .superpowers/
 .worktrees/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+*.db
+node_modules/
+.next/
+playwright-report/
+test-results/
