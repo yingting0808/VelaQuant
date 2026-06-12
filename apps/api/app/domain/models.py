@@ -22,6 +22,33 @@ class AlertStatus(str, Enum):
     closed = "closed"
 
 
+class PaperTradingMode(str, Enum):
+    paper = "paper"
+
+
+class PaperCandidateStatus(str, Enum):
+    proposed = "proposed"
+    ordered = "ordered"
+    dismissed = "dismissed"
+
+
+class PaperOrderSide(str, Enum):
+    buy = "buy"
+    sell = "sell"
+
+
+class PaperOrderStatus(str, Enum):
+    filled = "filled"
+    rejected = "rejected"
+
+
+class PaperReadiness(str, Enum):
+    collecting = "collecting"
+    negative_expectancy = "negative_expectancy"
+    watch = "watch"
+    paper_ready = "paper_ready"
+
+
 class Team(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
@@ -125,4 +152,80 @@ class AuditLog(SQLModel, table=True):
     entity_type: str
     entity_id: Optional[str] = None
     metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperAccount(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    name: str
+    mode: PaperTradingMode = Field(default=PaperTradingMode.paper, index=True)
+    starting_cash: float = 100000.0
+    cash: float = 100000.0
+    realized_pnl: float = 0.0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperCandidate(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    ticker: str = Field(index=True)
+    action: PaperOrderSide = Field(default=PaperOrderSide.buy, index=True)
+    rank: int
+    confidence: float
+    thesis: str
+    risk_notes: str
+    evidence_summary: str
+    proposed_quantity: float
+    status: PaperCandidateStatus = Field(default=PaperCandidateStatus.proposed, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperOrder(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    account_id: UUID = Field(foreign_key="paperaccount.id", index=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    ticker: str = Field(index=True)
+    side: PaperOrderSide = Field(index=True)
+    order_type: str = "market"
+    quantity: float
+    status: PaperOrderStatus = Field(default=PaperOrderStatus.filled, index=True)
+    fill_price: Optional[float] = None
+    realized_pnl: float = 0.0
+    rejection_reason: Optional[str] = None
+    submitted_at: datetime = Field(default_factory=utc_now)
+    filled_at: Optional[datetime] = None
+
+
+class PaperPosition(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    account_id: UUID = Field(foreign_key="paperaccount.id", index=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    ticker: str = Field(index=True)
+    quantity: float
+    average_cost: float
+    last_price: Optional[float] = None
+    market_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperReview(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    account_id: UUID = Field(foreign_key="paperaccount.id", index=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    trading_day: str = Field(index=True)
+    equity: float
+    cash: float
+    realized_pnl: float
+    unrealized_pnl: float
+    trade_count: int
+    win_rate: float
+    average_win: float
+    average_loss: float
+    expectancy: float
+    readiness: PaperReadiness = Field(default=PaperReadiness.collecting, index=True)
+    notes: str
     created_at: datetime = Field(default_factory=utc_now)
