@@ -4,6 +4,7 @@ from app.data.providers.sec_edgar import (
     SUPPORTED_TICKER_CIKS,
     SecEdgarProvider,
     normalize_cik,
+    parse_submission_evidence,
 )
 
 
@@ -115,6 +116,58 @@ def test_sec_provider_returns_no_evidence_for_invalid_json_or_malformed_payload(
     assert provider.get_research_evidence("AAPL") == []
     assert provider.get_research_evidence("AAPL") == []
     assert provider.get_research_evidence("AAPL") == []
+
+
+def test_parse_submission_evidence_returns_empty_for_top_level_list_payload():
+    assert parse_submission_evidence("AAPL", "0000320193", []) == []
+
+
+def test_parse_submission_evidence_returns_empty_for_malformed_recent_fields():
+    malformed_payloads = [
+        {
+            "filings": {
+                "recent": {
+                    "accessionNumber": {"0": "0000320193-25-000079"},
+                    "filingDate": ["2025-10-31"],
+                    "form": ["10-K"],
+                    "primaryDocument": ["aapl-20250927.htm"],
+                }
+            }
+        },
+        {
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000320193-25-000079"],
+                    "filingDate": {"0": "2025-10-31"},
+                    "form": ["10-K"],
+                    "primaryDocument": ["aapl-20250927.htm"],
+                }
+            }
+        },
+        {
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000320193-25-000079"],
+                    "filingDate": ["2025-10-31"],
+                    "form": {"0": "10-K"},
+                    "primaryDocument": ["aapl-20250927.htm"],
+                }
+            }
+        },
+        {
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000320193-25-000079"],
+                    "filingDate": ["2025-10-31"],
+                    "form": ["10-K"],
+                    "primaryDocument": {"0": "aapl-20250927.htm"},
+                }
+            }
+        },
+    ]
+
+    for payload in malformed_payloads:
+        assert parse_submission_evidence("AAPL", "0000320193", payload) == []
 
 
 def test_sec_provider_context_manager_closes_only_owned_clients():

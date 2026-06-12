@@ -99,6 +99,9 @@ class SecEdgarProvider:
 
 
 def parse_submission_evidence(ticker: str, cik: str, payload: dict[str, Any]) -> list[EvidenceItem]:
+    if not isinstance(payload, dict):
+        return []
+
     filings = payload.get("filings", {})
     if not isinstance(filings, dict):
         return []
@@ -107,10 +110,18 @@ def parse_submission_evidence(ticker: str, cik: str, payload: dict[str, Any]) ->
     if not isinstance(recent, dict):
         return []
 
-    accession_numbers = recent.get("accessionNumber", [])
-    filing_dates = recent.get("filingDate", [])
-    forms = recent.get("form", [])
-    primary_documents = recent.get("primaryDocument", [])
+    accession_numbers = _list_field(recent, "accessionNumber")
+    filing_dates = _list_field(recent, "filingDate")
+    forms = _list_field(recent, "form")
+    primary_documents = _list_field(recent, "primaryDocument")
+    if (
+        accession_numbers is None
+        or filing_dates is None
+        or forms is None
+        or primary_documents is None
+    ):
+        return []
+
     observed_at = _utc_now()
     evidence: list[EvidenceItem] = []
 
@@ -136,6 +147,11 @@ def parse_submission_evidence(ticker: str, cik: str, payload: dict[str, Any]) ->
         )
 
     return evidence
+
+
+def _list_field(values: dict[str, Any], key: str) -> list[Any] | None:
+    value = values.get(key, [])
+    return value if isinstance(value, list) else None
 
 
 def _value_at(values: list[Any], index: int) -> str:
