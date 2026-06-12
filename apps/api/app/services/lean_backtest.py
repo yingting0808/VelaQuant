@@ -23,6 +23,10 @@ CommandRunner = Callable[[list[str], Path, float], CompletedProcess[str]]
 StatusProvider = Callable[[], StrategyLabStatus]
 
 
+class BacktestParameterValidationError(ValueError):
+    pass
+
+
 class BacktestStatistics(BaseModel):
     total_net_profit: str | None = None
     compounding_annual_return: str | None = None
@@ -168,13 +172,13 @@ def _normalize_backtest_parameters(
     normalized_overrides = overrides or {}
     for key in normalized_overrides:
         if key not in definitions:
-            raise ValueError(f"Unsupported strategy parameter: {key}")
+            raise BacktestParameterValidationError(f"Unsupported strategy parameter: {key}")
 
     parameters: BacktestParameters = {}
     for definition in strategy.parameters:
         raw_value = str(normalized_overrides.get(definition.name, definition.default)).strip()
         if not raw_value and definition.required:
-            raise ValueError(f"Missing required strategy parameter: {definition.name}")
+            raise BacktestParameterValidationError(f"Missing required strategy parameter: {definition.name}")
         if not raw_value:
             continue
 
@@ -191,13 +195,13 @@ def _normalize_backtest_parameters(
         start = _normalize_date("start_date", parameters["start_date"])
         end = _normalize_date("end_date", parameters["end_date"])
         if start >= end:
-            raise ValueError("start_date must be before end_date")
+            raise BacktestParameterValidationError("start_date must be before end_date")
 
     if "fast_period" in parameters and "slow_period" in parameters:
         fast = int(parameters["fast_period"])
         slow = int(parameters["slow_period"])
         if fast >= slow:
-            raise ValueError("fast_period must be less than slow_period")
+            raise BacktestParameterValidationError("fast_period must be less than slow_period")
 
     return parameters
 
@@ -205,7 +209,7 @@ def _normalize_backtest_parameters(
 def _normalize_ticker(name: str, value: str) -> str:
     normalized = value.strip().upper()
     if not re.fullmatch(r"[A-Z0-9.-]{1,12}", normalized):
-        raise ValueError(f"Invalid ticker parameter {name}: {value}")
+        raise BacktestParameterValidationError(f"Invalid ticker parameter {name}: {value}")
     return normalized
 
 
@@ -213,18 +217,18 @@ def _normalize_date(name: str, value: str) -> date:
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError as error:
-        raise ValueError(f"Invalid date parameter {name}: {value}") from error
+        raise BacktestParameterValidationError(f"Invalid date parameter {name}: {value}") from error
 
 
 def _normalize_integer(name: str, value: str, minimum: float | None, maximum: float | None) -> int:
     try:
         parsed = int(value)
     except ValueError as error:
-        raise ValueError(f"Invalid integer parameter {name}: {value}") from error
+        raise BacktestParameterValidationError(f"Invalid integer parameter {name}: {value}") from error
     if minimum is not None and parsed < minimum:
-        raise ValueError(f"{name} must be greater than or equal to {int(minimum)}")
+        raise BacktestParameterValidationError(f"{name} must be greater than or equal to {int(minimum)}")
     if maximum is not None and parsed > maximum:
-        raise ValueError(f"{name} must be less than or equal to {int(maximum)}")
+        raise BacktestParameterValidationError(f"{name} must be less than or equal to {int(maximum)}")
     return parsed
 
 
@@ -232,11 +236,11 @@ def _normalize_number(name: str, value: str, minimum: float | None, maximum: flo
     try:
         parsed = float(value)
     except ValueError as error:
-        raise ValueError(f"Invalid number parameter {name}: {value}") from error
+        raise BacktestParameterValidationError(f"Invalid number parameter {name}: {value}") from error
     if minimum is not None and parsed < minimum:
-        raise ValueError(f"{name} must be greater than or equal to {minimum:g}")
+        raise BacktestParameterValidationError(f"{name} must be greater than or equal to {minimum:g}")
     if maximum is not None and parsed > maximum:
-        raise ValueError(f"{name} must be less than or equal to {maximum:g}")
+        raise BacktestParameterValidationError(f"{name} must be less than or equal to {maximum:g}")
     return value.strip()
 
 

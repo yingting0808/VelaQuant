@@ -8,8 +8,8 @@ from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
 from app.services import strategy_catalog
-from app.services.lean_backtest import BacktestResult, BacktestStatistics
-from app.services.strategy_catalog import StrategyDefinition
+from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
+from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 
 
@@ -265,6 +265,15 @@ def test_mvp_strategy_lab_strategies_route_returns_catalog(monkeypatch):
                 resolution="Daily",
                 project_path="MovingAverageCross",
                 enabled=True,
+                parameters=[
+                    StrategyParameterDefinition(
+                        name="symbol",
+                        label="Ticker",
+                        kind="ticker",
+                        default="AAPL",
+                        required=True,
+                    )
+                ],
             )
         ]
 
@@ -277,6 +286,7 @@ def test_mvp_strategy_lab_strategies_route_returns_catalog(monkeypatch):
     payload = response.json()
     assert payload["strategies"][0]["id"] == "moving_average_cross"
     assert "project_path" not in payload["strategies"][0]
+    assert payload["strategies"][0]["parameters"][0]["name"] == "symbol"
 
 
 def test_mvp_strategy_lab_latest_backtest_route_returns_null_initially(monkeypatch):
@@ -298,14 +308,16 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
         completed_at="2026-06-12T10:16:15Z",
         duration_seconds=75.0,
         message="Backtest completed.",
+        parameters={"symbol": "MSFT", "fast_period": "10", "slow_period": "30"},
         statistics=BacktestStatistics(total_net_profit="12.34%", sharpe_ratio="0.72"),
         equity=[],
         logs=["TRACE:: Backtest completed"],
         output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
     )
 
-    def fake_run(strategy_id: str) -> BacktestResult:
+    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
         assert strategy_id == "moving_average_cross"
+        assert parameter_overrides == {"symbol": "MSFT", "fast_period": "10", "slow_period": "30"}
         return result
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
@@ -313,17 +325,21 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
 
     response = client.post(
         "/api/mvp/strategy-lab/backtests",
-        json={"strategy_id": "moving_average_cross"},
+        json={
+            "strategy_id": "moving_average_cross",
+            "parameters": {"symbol": "MSFT", "fast_period": "10", "slow_period": "30"},
+        },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "success"
+    assert payload["parameters"]["symbol"] == "MSFT"
     assert payload["statistics"]["total_net_profit"] == "12.34%"
 
 
 def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
-    def fake_run(strategy_id: str) -> BacktestResult:
+    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
         raise strategy_catalog.UnknownStrategyError("Unknown strategy_id: missing")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
@@ -337,8 +353,24 @@ def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
     assert response.status_code == 404
 
 
+def test_mvp_strategy_lab_backtest_route_rejects_invalid_parameters(monkeypatch):
+    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
+        raise mvp.BacktestParameterValidationError("Invalid ticker parameter symbol: BAD TICKER")
+
+    monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/strategy-lab/backtests",
+        json={"strategy_id": "moving_average_cross", "parameters": {"symbol": "BAD TICKER"}},
+    )
+
+    assert response.status_code == 422
+    assert "Invalid ticker" in response.json()["detail"]
+
+
 def test_mvp_strategy_lab_backtest_route_does_not_mask_catalog_errors(monkeypatch):
-    def fake_run(strategy_id: str) -> BacktestResult:
+    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
         raise ValueError("catalog broken")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
@@ -361,3 +393,30 @@ def test_mvp_strategy_lab_backtest_route_rejects_blank_strategy_id():
     )
 
     assert response.status_code == 422
+
+
+def test_mvp_strategy_lab_backtest_history_route_returns_history(monkeypatch):
+    history_item = BacktestHistoryItem(
+        run_id="20260613T101500Z-moving_average_cross",
+        strategy_id="moving_average_cross",
+        status="success",
+        started_at="2026-06-13T10:15:00Z",
+        completed_at="2026-06-13T10:16:15Z",
+        duration_seconds=75.0,
+        parameters={"symbol": "AAPL", "fast_period": "20", "slow_period": "50"},
+        statistics=BacktestStatistics(total_net_profit="12.34%", sharpe_ratio="0.72"),
+    )
+
+    def fake_history(limit: int = 10) -> list[BacktestHistoryItem]:
+        assert limit == 5
+        return [history_item]
+
+    monkeypatch.setattr(mvp, "read_backtest_history", fake_history)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/backtests/history?limit=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["history"][0]["run_id"] == history_item.run_id
+    assert payload["history"][0]["parameters"]["symbol"] == "AAPL"

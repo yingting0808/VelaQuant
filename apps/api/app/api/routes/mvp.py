@@ -10,7 +10,12 @@ from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.services.alerts import AlertCandidate, generate_event_alerts
-from app.services.lean_backtest import read_latest_backtest, run_lean_backtest
+from app.services.lean_backtest import (
+    BacktestParameterValidationError,
+    read_backtest_history,
+    read_latest_backtest,
+    run_lean_backtest,
+)
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
 from app.services.strategy_lab import get_strategy_lab_status
@@ -33,6 +38,7 @@ class ResearchBody(BaseModel):
 
 class BacktestBody(BaseModel):
     strategy_id: str = Field(min_length=1)
+    parameters: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("strategy_id")
     @classmethod
@@ -109,9 +115,11 @@ def strategy_lab_strategies() -> dict:
 @router.post("/strategy-lab/backtests")
 def strategy_lab_run_backtest(body: BacktestBody) -> dict:
     try:
-        result = run_lean_backtest(body.strategy_id)
+        result = run_lean_backtest(body.strategy_id, parameter_overrides=body.parameters)
     except UnknownStrategyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except BacktestParameterValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return result.model_dump()
 
 
@@ -119,6 +127,12 @@ def strategy_lab_run_backtest(body: BacktestBody) -> dict:
 def strategy_lab_latest_backtest() -> dict:
     latest = read_latest_backtest()
     return {"latest": latest.model_dump() if latest is not None else None}
+
+
+@router.get("/strategy-lab/backtests/history")
+def strategy_lab_backtest_history(limit: int = 10) -> dict:
+    history = read_backtest_history(limit=limit)
+    return {"history": [item.model_dump() for item in history]}
 
 
 def _normalize_path_ticker(ticker: str) -> str:
