@@ -1,5 +1,6 @@
 from app.core.config import Settings
 from app.data.providers.base import EvidenceItem, ProviderStatus
+from app.data.providers.mock import MockMarketDataProvider
 
 
 def test_provider_status_serializes_operational_state():
@@ -40,7 +41,23 @@ def test_evidence_item_accepts_sec_filing_metadata():
     assert evidence.accession_number == "0000320193-25-000079"
 
 
-def test_settings_expose_data_provider_defaults():
+def test_mock_provider_reports_local_status():
+    status = MockMarketDataProvider().get_statuses()[0]
+
+    assert status.name == "Mock"
+    assert status.mode == "mock"
+    assert status.available is True
+    assert status.message
+    assert status.checked_at.endswith("Z")
+    assert status.version == "local"
+
+
+def test_settings_expose_data_provider_defaults(monkeypatch):
+    monkeypatch.delenv("AI_STOCKS_DATA_MODE", raising=False)
+    monkeypatch.delenv("AI_STOCKS_SEC_USER_AGENT", raising=False)
+    monkeypatch.delenv("AI_STOCKS_SEC_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("AI_STOCKS_STRATEGY_COMMAND_TIMEOUT_SECONDS", raising=False)
+
     settings = Settings()
 
     assert settings.data_mode == "hybrid"
