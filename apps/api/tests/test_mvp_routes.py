@@ -7,6 +7,7 @@ from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
+from app.services import strategy_catalog
 from app.services.lean_backtest import BacktestResult, BacktestStatistics
 from app.services.strategy_catalog import StrategyDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
@@ -323,7 +324,7 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
 
 def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
     def fake_run(strategy_id: str) -> BacktestResult:
-        raise ValueError("Unknown strategy_id: missing")
+        raise strategy_catalog.UnknownStrategyError("Unknown strategy_id: missing")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
     client = TestClient(create_app(), raise_server_exceptions=False)
@@ -334,3 +335,29 @@ def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
     )
 
     assert response.status_code == 404
+
+
+def test_mvp_strategy_lab_backtest_route_does_not_mask_catalog_errors(monkeypatch):
+    def fake_run(strategy_id: str) -> BacktestResult:
+        raise ValueError("catalog broken")
+
+    monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/strategy-lab/backtests",
+        json={"strategy_id": "moving_average_cross"},
+    )
+
+    assert response.status_code == 500
+
+
+def test_mvp_strategy_lab_backtest_route_rejects_blank_strategy_id():
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/strategy-lab/backtests",
+        json={"strategy_id": "   "},
+    )
+
+    assert response.status_code == 422

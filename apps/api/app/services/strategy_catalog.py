@@ -9,6 +9,10 @@ LEAN_WORKSPACE_ROOT = API_ROOT / "lean-workspace"
 DEFAULT_CATALOG_PATH = LEAN_WORKSPACE_ROOT / "strategies.json"
 
 
+class UnknownStrategyError(ValueError):
+    pass
+
+
 class StrategyDefinition(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -52,7 +56,7 @@ def get_strategy_by_id(strategy_id: str, catalog_path: Path = DEFAULT_CATALOG_PA
     for strategy in load_enabled_strategies(catalog_path=catalog_path):
         if strategy.id == normalized:
             return strategy
-    raise ValueError(f"Unknown strategy_id: {normalized}")
+    raise UnknownStrategyError(f"Unknown strategy_id: {normalized}")
 
 
 def _resolve_project_path(raw_project_path: str, catalog_root: Path) -> Path:

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services import strategy_catalog
 from app.services.strategy_catalog import (
     StrategyDefinition,
     get_strategy_by_id,
@@ -24,7 +25,7 @@ def test_load_enabled_strategies_returns_checked_in_moving_average_strategy():
 
 
 def test_get_strategy_by_id_rejects_unknown_strategy():
-    with pytest.raises(ValueError, match="Unknown strategy_id"):
+    with pytest.raises(strategy_catalog.UnknownStrategyError, match="Unknown strategy_id"):
         get_strategy_by_id("not_real")
 
 

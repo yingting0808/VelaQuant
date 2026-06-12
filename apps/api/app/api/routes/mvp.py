@@ -12,7 +12,7 @@ from app.data.providers.registry import build_market_data_provider
 from app.services.alerts import AlertCandidate, generate_event_alerts
 from app.services.lean_backtest import read_latest_backtest, run_lean_backtest
 from app.services.portfolio import PositionInput, calculate_exposure
-from app.services.strategy_catalog import load_enabled_strategies
+from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
 from app.services.strategy_lab import get_strategy_lab_status
 
 router = APIRouter(prefix="/api/mvp", tags=["mvp"])
@@ -110,7 +110,7 @@ def strategy_lab_strategies() -> dict:
 def strategy_lab_run_backtest(body: BacktestBody) -> dict:
     try:
         result = run_lean_backtest(body.strategy_id)
-    except ValueError as error:
+    except UnknownStrategyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return result.model_dump()
 
