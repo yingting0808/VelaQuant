@@ -68,6 +68,18 @@ def test_mvp_data_sources_status_route_returns_statuses():
     assert any(source["name"] == "Mock" for source in payload["data_sources"])
 
 
+def test_mvp_strategy_lab_status_route_returns_readiness_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "can_run_backtests" in payload
+    assert "summary" in payload
+    assert "tools" in payload
+
+
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):
     sec_provider = CloseTrackingSecProvider()
     provider = HybridMarketDataProvider(

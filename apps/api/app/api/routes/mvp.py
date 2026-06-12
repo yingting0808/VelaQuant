@@ -81,6 +81,11 @@ def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_p
     }
 
 
+@router.get("/strategy-lab/status")
+def strategy_lab_status() -> dict:
+    return get_strategy_lab_status().model_dump()
+
+
 @router.post("/research")
 def research(body: ResearchBody, provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
     evidence = [
