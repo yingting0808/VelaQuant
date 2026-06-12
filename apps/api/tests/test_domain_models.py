@@ -1,6 +1,50 @@
+import os
+import subprocess
+import sys
+import textwrap
+
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.domain.models import MemberRole, Portfolio, Position, Team, User
+
+
+def test_create_db_and_tables_registers_models_on_cold_import(tmp_path):
+    database_path = tmp_path / "cold_import.db"
+    script = textwrap.dedent(
+        f"""
+        import sqlite3
+
+        from app.db.session import create_db_and_tables
+
+        create_db_and_tables()
+
+        connection = sqlite3.connect({str(database_path)!r})
+        tables = {{
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }}
+        missing = {{"team", "portfolio", "position"}} - tables
+        if missing:
+            raise SystemExit(f"Missing tables: {{sorted(missing)}}")
+        """
+    )
+    env = {
+        **os.environ,
+        "AI_STOCKS_DATABASE_URL": f"sqlite:///{database_path}",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        cwd=os.getcwd(),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_team_user_portfolio_position_can_be_persisted():

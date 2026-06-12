@@ -15,6 +15,8 @@ engine = get_engine()
 
 
 def create_db_and_tables() -> None:
+    from app.domain import models  # noqa: F401
+
     SQLModel.metadata.create_all(engine)
 
 
