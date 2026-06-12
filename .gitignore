@@ -1,5 +1,6 @@
 .superpowers/
 .worktrees/
+.codex-logs/
 .env
 .env.local
 .env.*.local
@@ -11,5 +12,6 @@ __pycache__/
 *.db
 node_modules/
 .next/
+*.tsbuildinfo
 playwright-report/
 test-results/
