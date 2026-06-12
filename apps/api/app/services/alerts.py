@@ -15,17 +15,21 @@ class GeneratedAlert(BaseModel):
     source: str
 
 
+def _normalize_ticker(ticker: str) -> str:
+    return ticker.strip().upper()
+
+
 def generate_event_alerts(
     *,
     portfolio_tickers: list[str],
     candidates: list[AlertCandidate],
 ) -> list[GeneratedAlert]:
-    tracked = {ticker.upper() for ticker in portfolio_tickers}
+    tracked = {_normalize_ticker(ticker) for ticker in portfolio_tickers}
     seen: set[tuple[str, str, str]] = set()
     alerts: list[GeneratedAlert] = []
 
     for candidate in candidates:
-        ticker = candidate.ticker.upper()
+        ticker = _normalize_ticker(candidate.ticker)
         key = (ticker, candidate.title, candidate.source)
         if ticker not in tracked or key in seen:
             continue

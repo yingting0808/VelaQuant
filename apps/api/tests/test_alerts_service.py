@@ -23,3 +23,17 @@ def test_generate_event_alerts_deduplicates_by_ticker_title_source():
     alerts = generate_event_alerts(portfolio_tickers=["MSFT"], candidates=candidates)
 
     assert len(alerts) == 1
+    assert alerts[0].ticker == "MSFT"
+    assert alerts[0].title == "Earnings date changed"
+    assert alerts[0].source == "calendar"
+
+
+def test_generate_event_alerts_strips_portfolio_and_candidate_tickers():
+    candidates = [
+        AlertCandidate(ticker=" aapl ", title="AAPL 10-Q filed", reason="SEC filing", source="sec_edgar"),
+    ]
+
+    alerts = generate_event_alerts(portfolio_tickers=[" aapl "], candidates=candidates)
+
+    assert len(alerts) == 1
+    assert alerts[0].ticker == "AAPL"
