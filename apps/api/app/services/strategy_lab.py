@@ -77,6 +77,13 @@ def _check_tool(
             version=None,
             message=f"{name} check timed out after {timeout:.1f}s.",
         )
+    except OSError as error:
+        return StrategyToolStatus(
+            name=name,
+            available=False,
+            version=None,
+            message=f"{name} could not be checked: {error}.",
+        )
 
     output = (completed.stdout or completed.stderr or "").strip()
     first_line = output.splitlines()[0] if output else ""

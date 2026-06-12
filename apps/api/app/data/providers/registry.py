@@ -22,10 +22,12 @@ class HybridMarketDataProvider:
         mock_provider: MockMarketDataProvider | None = None,
         sec_provider: ResearchEvidenceProvider | None = None,
         openbb_provider: OpenBBOptionalProvider | None = None,
+        include_mock_evidence: bool = True,
     ) -> None:
         self.mock_provider = mock_provider or MockMarketDataProvider()
         self.sec_provider = sec_provider
         self.openbb_provider = openbb_provider or OpenBBOptionalProvider()
+        self.include_mock_evidence = include_mock_evidence
 
     def get_quote(self, ticker: str) -> Quote:
         return self.mock_provider.get_quote(ticker)
@@ -34,7 +36,8 @@ class HybridMarketDataProvider:
         evidence: list[EvidenceItem] = []
         if self.sec_provider is not None:
             evidence.extend(self.sec_provider.get_research_evidence(ticker))
-        evidence.extend(self.mock_provider.get_research_evidence(ticker))
+        if self.include_mock_evidence:
+            evidence.extend(self.mock_provider.get_research_evidence(ticker))
         return evidence
 
     def get_statuses(self) -> list[ProviderStatus]:
@@ -69,6 +72,10 @@ def build_market_data_provider(settings: Settings | None = None) -> MarketDataPr
     )
 
     if mode == "sec_edgar":
-        return HybridMarketDataProvider(sec_provider=sec_provider, openbb_provider=OpenBBOptionalProvider())
+        return HybridMarketDataProvider(
+            sec_provider=sec_provider,
+            openbb_provider=OpenBBOptionalProvider(),
+            include_mock_evidence=False,
+        )
 
     return HybridMarketDataProvider(sec_provider=sec_provider, openbb_provider=OpenBBOptionalProvider())

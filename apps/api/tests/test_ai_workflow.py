@@ -27,7 +27,7 @@ def test_research_workflow_returns_structured_answer_with_evidence():
     assert result.evidence_count == 1
     assert result.trade_plan_draft.entry_condition
     assert result.trade_plan_draft.requires_human_review is True
-    assert any("not executable order" in note for note in result.trade_plan_draft.risk_notes)
+    assert any("不是可直接执行的订单建议" in note for note in result.trade_plan_draft.risk_notes)
 
 
 def test_research_workflow_normalizes_whitespace_ticker():
@@ -66,6 +66,6 @@ def test_research_workflow_refuses_when_evidence_is_missing():
     result = run_research_workflow(request)
 
     assert result.status == "insufficient_evidence"
-    assert result.summary == "Insufficient evidence to produce a research view."
+    assert result.summary == "证据不足，无法生成可靠的投研观点。"
     assert result.evidence_count == 0
-    assert any("not executable order" in note for note in result.trade_plan_draft.risk_notes)
+    assert any("不是可直接执行的订单建议" in note for note in result.trade_plan_draft.risk_notes)

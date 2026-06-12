@@ -12,6 +12,13 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AI_STOCKS_")
 
+    @property
+    def cors_origins(self) -> list[str]:
+        origins = [self.cors_origin]
+        if self.cors_origin == "http://localhost:3000":
+            origins.append("http://127.0.0.1:3000")
+        return list(dict.fromkeys(origins))
+
 
 def get_settings() -> Settings:
     return Settings()

@@ -2,7 +2,9 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.routes import mvp
+from app.data.providers.base import ProviderStatus
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
+from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
@@ -43,6 +45,29 @@ class CloseTrackingSecProvider:
 
     def get_statuses(self) -> list:
         return []
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class EmptySecProvider:
+    def __init__(self, **kwargs) -> None:
+        self.closed = False
+
+    def get_research_evidence(self, ticker: str) -> list:
+        return []
+
+    def get_statuses(self) -> list[ProviderStatus]:
+        return [
+            ProviderStatus(
+                name="SEC EDGAR",
+                mode="sec_edgar",
+                available=True,
+                message="fixture",
+                checked_at="2026-06-12T00:00:00Z",
+                version="fixture",
+            )
+        ]
 
     def close(self) -> None:
         self.closed = True
@@ -137,6 +162,22 @@ def test_mvp_research_route_returns_structured_ai_result():
     assert payload["ticker"] == "AAPL"
     assert payload["status"] == "complete"
     assert payload["trade_plan_draft"]["requires_human_review"] is True
+
+
+def test_mvp_research_sec_mode_does_not_mask_missing_sec_evidence(monkeypatch):
+    monkeypatch.setenv("AI_STOCKS_DATA_MODE", "sec_edgar")
+    monkeypatch.setattr(registry, "SecEdgarProvider", EmptySecProvider)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/research",
+        json={"ticker": "AAPL", "question": "What changed?"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "insufficient_evidence"
+    assert payload["evidence_count"] == 0
 
 
 def test_mvp_research_route_rejects_whitespace_only_ticker():
