@@ -3,10 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.mvp import router as mvp_router
 from app.core.config import get_settings
+from app.db.session import create_db_and_tables
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    create_db_and_tables()
     app = FastAPI(title=settings.app_name)
     app.add_middleware(
         CORSMiddleware,

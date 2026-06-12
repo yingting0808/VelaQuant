@@ -3,12 +3,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
+from sqlmodel import Session
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
 from app.ai.workflow import run_research_workflow
 from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
+from app.db.session import get_session
 from app.services.alerts import AlertCandidate, generate_event_alerts
 from app.services.lean_backtest import (
     BacktestParameterValidationError,
@@ -19,6 +21,21 @@ from app.services.lean_backtest import (
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
 from app.services.strategy_lab import get_strategy_lab_status
+from app.services.workspace import (
+    NoteCreate,
+    PositionUpsert,
+    WatchlistUpsert,
+    create_note,
+    delete_position,
+    delete_watchlist_item,
+    get_portfolio_payload,
+    get_workspace_summary,
+    import_positions_csv,
+    list_notes,
+    list_watchlist_items,
+    upsert_position,
+    upsert_watchlist_item,
+)
 
 router = APIRouter(prefix="/api/mvp", tags=["mvp"])
 
@@ -49,6 +66,18 @@ class BacktestBody(BaseModel):
         return stripped
 
 
+class ImportPositionsBody(BaseModel):
+    content: str = Field(min_length=1)
+
+    @field_validator("content")
+    @classmethod
+    def strip_content(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty")
+        return stripped
+
+
 def get_market_data_provider() -> Iterator[MarketDataProvider]:
     provider = build_market_data_provider(get_settings())
     try:
@@ -60,15 +89,14 @@ def get_market_data_provider() -> Iterator[MarketDataProvider]:
 
 
 @router.get("/dashboard")
-def dashboard(provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
+def dashboard(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
     settings = get_settings()
-    positions = [
-        PositionInput(ticker="AAPL", quantity=10, price=provider.get_quote("AAPL").price),
-        PositionInput(ticker="MSFT", quantity=5, price=provider.get_quote("MSFT").price),
-    ]
-    exposure = calculate_exposure(positions)
+    portfolio = get_portfolio_payload(session, provider)
     alerts = generate_event_alerts(
-        portfolio_tickers=[item.ticker for item in exposure.items],
+        portfolio_tickers=[item.ticker for item in portfolio.positions],
         candidates=[
             AlertCandidate(ticker="AAPL", title="AAPL 10-Q filed", reason="SEC filing", source="mock_sec"),
             AlertCandidate(ticker="NVDA", title="NVDA news", reason="News event", source="mock_news"),
@@ -76,9 +104,9 @@ def dashboard(provider: MarketDataProvider = Depends(get_market_data_provider)) 
     )
     return {
         "portfolio": {
-            "name": "主组合",
-            "total_market_value": exposure.total_market_value,
-            "positions": [item.model_dump() for item in exposure.items],
+            "name": portfolio.name,
+            "total_market_value": portfolio.total_market_value,
+            "positions": [item.model_dump() for item in portfolio.positions],
         },
         "alerts": [alert.model_dump() for alert in alerts],
         "ai_prompts": [
@@ -100,6 +128,71 @@ def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_p
         "provider_mode": settings.data_mode,
         "data_sources": [status.model_dump() for status in provider.get_statuses()],
     }
+
+
+@router.get("/workspace")
+def workspace_summary(session: Session = Depends(get_session)) -> dict:
+    return get_workspace_summary(session).model_dump()
+
+
+@router.get("/portfolio")
+def portfolio_workspace(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    return get_portfolio_payload(session, provider).model_dump()
+
+
+@router.put("/portfolio/positions")
+def portfolio_upsert_position(body: PositionUpsert, session: Session = Depends(get_session)) -> dict:
+    return upsert_position(session, body).model_dump()
+
+
+@router.delete("/portfolio/positions/{ticker}")
+def portfolio_delete_position(ticker: str = Path(min_length=1), session: Session = Depends(get_session)) -> dict:
+    try:
+        deleted = delete_position(session, ticker)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return deleted.model_dump()
+
+
+@router.post("/portfolio/import")
+def portfolio_import_positions(
+    body: ImportPositionsBody,
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    return import_positions_csv(session, body.content, provider=provider).model_dump()
+
+
+@router.get("/watchlist")
+def watchlist_workspace(session: Session = Depends(get_session)) -> dict:
+    return {"items": [item.model_dump() for item in list_watchlist_items(session)]}
+
+
+@router.post("/watchlist")
+def watchlist_upsert(body: WatchlistUpsert, session: Session = Depends(get_session)) -> dict:
+    return upsert_watchlist_item(session, body).model_dump()
+
+
+@router.delete("/watchlist/{ticker}")
+def watchlist_delete(ticker: str = Path(min_length=1), session: Session = Depends(get_session)) -> dict:
+    try:
+        deleted = delete_watchlist_item(session, ticker)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return deleted.model_dump()
+
+
+@router.get("/notes")
+def notes_workspace(session: Session = Depends(get_session)) -> dict:
+    return {"notes": [note.model_dump() for note in list_notes(session)]}
+
+
+@router.post("/notes")
+def notes_create(body: NoteCreate, session: Session = Depends(get_session)) -> dict:
+    return create_note(session, body).model_dump()
 
 
 @router.get("/strategy-lab/status")

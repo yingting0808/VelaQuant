@@ -11,6 +11,17 @@ from app.services import strategy_catalog
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
+from app.services.workspace import (
+    NoteCreate,
+    NotePayload,
+    PortfolioPayload,
+    PositionImportPayload,
+    PositionPayload,
+    PositionUpsert,
+    WatchlistItemPayload,
+    WatchlistUpsert,
+    WorkspaceSummary,
+)
 
 
 FAKE_STRATEGY_LAB_PAYLOAD = {
@@ -420,3 +431,172 @@ def test_mvp_strategy_lab_backtest_history_route_returns_history(monkeypatch):
     payload = response.json()
     assert payload["history"][0]["run_id"] == history_item.run_id
     assert payload["history"][0]["parameters"]["symbol"] == "AAPL"
+
+
+def test_mvp_workspace_route_returns_summary(monkeypatch):
+    summary = WorkspaceSummary(
+        team_id="00000000-0000-0000-0000-000000000001",
+        team_name="个人工作区",
+        portfolio_id="00000000-0000-0000-0000-000000000002",
+        portfolio_name="主组合",
+        position_count=2,
+        watchlist_count=3,
+        note_count=1,
+    )
+
+    monkeypatch.setattr(mvp, "get_workspace_summary", lambda session: summary, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/workspace")
+
+    assert response.status_code == 200
+    assert response.json()["portfolio_name"] == "主组合"
+
+
+def test_mvp_portfolio_route_returns_workspace_portfolio(monkeypatch):
+    portfolio = PortfolioPayload(
+        id="00000000-0000-0000-0000-000000000002",
+        name="主组合",
+        base_currency="USD",
+        total_market_value=1000,
+        positions=[
+            PositionPayload(
+                id="00000000-0000-0000-0000-000000000003",
+                ticker="AAPL",
+                quantity=2,
+                average_cost=100,
+                currency="USD",
+                price=120,
+                market_value=240,
+                weight=1,
+                updated_at="2026-06-13T00:00:00Z",
+            )
+        ],
+    )
+
+    monkeypatch.setattr(mvp, "get_portfolio_payload", lambda session, provider: portfolio, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/portfolio")
+
+    assert response.status_code == 200
+    assert response.json()["positions"][0]["ticker"] == "AAPL"
+
+
+def test_mvp_position_upsert_and_delete_routes(monkeypatch):
+    saved = PositionPayload(
+        id="00000000-0000-0000-0000-000000000003",
+        ticker="TSLA",
+        quantity=4,
+        average_cost=181.25,
+        currency="USD",
+        price=None,
+        market_value=725,
+        weight=0,
+        updated_at="2026-06-13T00:00:00Z",
+    )
+
+    def fake_upsert(session, data: PositionUpsert) -> PositionPayload:
+        assert data.ticker == "TSLA"
+        assert data.quantity == 4
+        return saved
+
+    def fake_delete(session, ticker: str) -> PositionPayload:
+        assert ticker == "TSLA"
+        return saved
+
+    monkeypatch.setattr(mvp, "upsert_position", fake_upsert, raising=False)
+    monkeypatch.setattr(mvp, "delete_position", fake_delete, raising=False)
+    client = TestClient(create_app())
+
+    response = client.put(
+        "/api/mvp/portfolio/positions",
+        json={"ticker": "tsla", "quantity": 4, "average_cost": 181.25, "currency": "usd"},
+    )
+    delete_response = client.delete("/api/mvp/portfolio/positions/TSLA")
+
+    assert response.status_code == 200
+    assert response.json()["ticker"] == "TSLA"
+    assert delete_response.status_code == 200
+    assert delete_response.json()["ticker"] == "TSLA"
+
+
+def test_mvp_position_delete_route_returns_404_for_missing(monkeypatch):
+    def fake_delete(session, ticker: str) -> PositionPayload:
+        raise ValueError("Unknown position ticker: MISSING")
+
+    monkeypatch.setattr(mvp, "delete_position", fake_delete, raising=False)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.delete("/api/mvp/portfolio/positions/MISSING")
+
+    assert response.status_code == 404
+
+
+def test_mvp_portfolio_import_route_returns_import_summary(monkeypatch):
+    payload = PositionImportPayload(imported_count=1, errors=[], portfolio=None)
+
+    def fake_import(session, content: str, provider=None) -> PositionImportPayload:
+        assert "TSLA" in content
+        return payload
+
+    monkeypatch.setattr(mvp, "import_positions_csv", fake_import, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/portfolio/import", json={"content": "ticker,quantity,average_cost\nTSLA,2,190\n"})
+
+    assert response.status_code == 200
+    assert response.json()["imported_count"] == 1
+
+
+def test_mvp_watchlist_routes(monkeypatch):
+    item = WatchlistItemPayload(
+        id="00000000-0000-0000-0000-000000000004",
+        ticker="NVDA",
+        thesis="AI 基础设施",
+        created_at="2026-06-13T00:00:00Z",
+    )
+
+    def fake_upsert(session, data: WatchlistUpsert) -> WatchlistItemPayload:
+        assert data.ticker == "NVDA"
+        return item
+
+    monkeypatch.setattr(mvp, "list_watchlist_items", lambda session: [item], raising=False)
+    monkeypatch.setattr(mvp, "upsert_watchlist_item", fake_upsert, raising=False)
+    monkeypatch.setattr(mvp, "delete_watchlist_item", lambda session, ticker: item, raising=False)
+    client = TestClient(create_app())
+
+    list_response = client.get("/api/mvp/watchlist")
+    post_response = client.post("/api/mvp/watchlist", json={"ticker": "nvda", "thesis": "AI 基础设施"})
+    delete_response = client.delete("/api/mvp/watchlist/NVDA")
+
+    assert list_response.status_code == 200
+    assert list_response.json()["items"][0]["ticker"] == "NVDA"
+    assert post_response.status_code == 200
+    assert delete_response.status_code == 200
+
+
+def test_mvp_notes_routes(monkeypatch):
+    note = NotePayload(
+        id="00000000-0000-0000-0000-000000000005",
+        ticker="AAPL",
+        title="服务收入",
+        body="观察利润率。",
+        created_at="2026-06-13T00:00:00Z",
+    )
+
+    def fake_create(session, data: NoteCreate) -> NotePayload:
+        assert data.ticker == "AAPL"
+        return note
+
+    monkeypatch.setattr(mvp, "list_notes", lambda session: [note], raising=False)
+    monkeypatch.setattr(mvp, "create_note", fake_create, raising=False)
+    client = TestClient(create_app())
+
+    list_response = client.get("/api/mvp/notes")
+    post_response = client.post("/api/mvp/notes", json={"ticker": "aapl", "title": "服务收入", "body": "观察利润率。"})
+
+    assert list_response.status_code == 200
+    assert list_response.json()["notes"][0]["title"] == "服务收入"
+    assert post_response.status_code == 200
+    assert post_response.json()["ticker"] == "AAPL"
