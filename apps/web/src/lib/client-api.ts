@@ -251,3 +251,178 @@ export async function getStrategyLabStatus(): Promise<StrategyLabStatusPayload> 
     return fallbackStrategyLabStatus;
   }
 }
+
+export type MarketQuotePayload = {
+  ticker: string;
+  price: number | null;
+  currency: string;
+  source: string;
+  updated_at: string;
+  change: number | null;
+  change_percent: number | null;
+  volume: number | null;
+  is_fallback: boolean;
+  message: string;
+};
+
+export type PriceHistoryBarPayload = {
+  ticker: string;
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+  source: string;
+};
+
+export type FundamentalSnapshotPayload = {
+  ticker: string;
+  market_cap: number | null;
+  pe_ratio: number | null;
+  eps: number | null;
+  price_to_sales: number | null;
+  price_to_book: number | null;
+  gross_margin: number | null;
+  profit_margin: number | null;
+  operating_margin: number | null;
+  debt_to_equity: number | null;
+  source: string;
+  period_ending: string | null;
+  updated_at: string;
+  is_fallback: boolean;
+  message: string;
+};
+
+export type MarketSnapshotPayload = {
+  ticker: string;
+  quote: MarketQuotePayload;
+  fundamentals: FundamentalSnapshotPayload;
+  history: PriceHistoryBarPayload[];
+  provider_mode: string;
+  data_sources: ProviderStatusPayload[];
+};
+
+function fallbackMarketSnapshot(ticker: string): MarketSnapshotPayload {
+  const normalizedTicker = ticker.trim().toUpperCase() || "NVDA";
+  return {
+    ticker: normalizedTicker,
+    quote: {
+      ticker: normalizedTicker,
+      price: null,
+      currency: "USD",
+      source: "offline",
+      updated_at: "local",
+      change: null,
+      change_percent: null,
+      volume: null,
+      is_fallback: true,
+      message: "后端 API 暂不可用，无法确认真实行情。"
+    },
+    fundamentals: {
+      ticker: normalizedTicker,
+      market_cap: null,
+      pe_ratio: null,
+      eps: null,
+      price_to_sales: null,
+      price_to_book: null,
+      gross_margin: null,
+      profit_margin: null,
+      operating_margin: null,
+      debt_to_equity: null,
+      source: "offline",
+      period_ending: null,
+      updated_at: "local",
+      is_fallback: true,
+      message: "后端 API 暂不可用，无法确认基本面。"
+    },
+    history: [],
+    provider_mode: "hybrid",
+    data_sources: fallbackDataSourcesStatus.data_sources
+  };
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return typeof value === "number" || value === null;
+}
+
+function isMarketQuotePayload(value: unknown): value is MarketQuotePayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    isNullableNumber(value.price) &&
+    typeof value.currency === "string" &&
+    typeof value.source === "string" &&
+    typeof value.updated_at === "string" &&
+    isNullableNumber(value.change) &&
+    isNullableNumber(value.change_percent) &&
+    isNullableNumber(value.volume) &&
+    typeof value.is_fallback === "boolean" &&
+    typeof value.message === "string"
+  );
+}
+
+function isPriceHistoryBarPayload(value: unknown): value is PriceHistoryBarPayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    typeof value.date === "string" &&
+    isNullableNumber(value.open) &&
+    isNullableNumber(value.high) &&
+    isNullableNumber(value.low) &&
+    isNullableNumber(value.close) &&
+    isNullableNumber(value.volume) &&
+    typeof value.source === "string"
+  );
+}
+
+function isFundamentalSnapshotPayload(value: unknown): value is FundamentalSnapshotPayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    isNullableNumber(value.market_cap) &&
+    isNullableNumber(value.pe_ratio) &&
+    isNullableNumber(value.eps) &&
+    isNullableNumber(value.price_to_sales) &&
+    isNullableNumber(value.price_to_book) &&
+    isNullableNumber(value.gross_margin) &&
+    isNullableNumber(value.profit_margin) &&
+    isNullableNumber(value.operating_margin) &&
+    isNullableNumber(value.debt_to_equity) &&
+    typeof value.source === "string" &&
+    (typeof value.period_ending === "string" || value.period_ending === null) &&
+    typeof value.updated_at === "string" &&
+    typeof value.is_fallback === "boolean" &&
+    typeof value.message === "string"
+  );
+}
+
+function isMarketSnapshotPayload(value: unknown): value is MarketSnapshotPayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    isMarketQuotePayload(value.quote) &&
+    isFundamentalSnapshotPayload(value.fundamentals) &&
+    Array.isArray(value.history) &&
+    value.history.every(isPriceHistoryBarPayload) &&
+    typeof value.provider_mode === "string" &&
+    Array.isArray(value.data_sources) &&
+    value.data_sources.every(isProviderStatus)
+  );
+}
+
+export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshotPayload> {
+  const normalizedTicker = ticker.trim().toUpperCase() || "NVDA";
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/market/snapshot/${normalizedTicker}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackMarketSnapshot(normalizedTicker);
+    }
+    const payload: unknown = await response.json();
+    return isMarketSnapshotPayload(payload) ? payload : fallbackMarketSnapshot(normalizedTicker);
+  } catch {
+    return fallbackMarketSnapshot(normalizedTicker);
+  }
+}
