@@ -1,0 +1,15 @@
+{
+  "strategies": [
+    {
+      "id": "moving_average_cross",
+      "name": "MovingAverageCross",
+      "description": "AAPL daily moving average crossover sample for local LEAN validation.",
+      "language": "Python",
+      "asset_class": "US Equity",
+      "default_symbol": "AAPL",
+      "resolution": "Daily",
+      "project_path": "MovingAverageCross",
+      "enabled": true
+    }
+  ]
+}

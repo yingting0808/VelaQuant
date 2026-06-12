@@ -1,0 +1,5 @@
+{
+  "algorithm-language": "Python",
+  "parameters": {},
+  "description": "AAPL daily moving average crossover sample for local LEAN validation."
+}
