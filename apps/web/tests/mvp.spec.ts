@@ -33,6 +33,22 @@ test("dashboard renders portfolio, alerts, and AI sidecar", async ({ page }) => 
 });
 
 test("navigation links route to module workspaces", async ({ page }) => {
+  await page.route("**/api/mvp/watchlist", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        items: [
+          {
+            created_at: "2026-06-13T00:00:00Z",
+            id: "watch-nvda",
+            thesis: "AI 基础设施龙头 · 关注估值",
+            ticker: "NVDA"
+          }
+        ]
+      }
+    });
+  });
+
   await gotoDashboard(page);
 
   await page.getByRole("link", { name: "自选股" }).click();
@@ -41,7 +57,7 @@ test("navigation links route to module workspaces", async ({ page }) => {
   await expect(page.getByRole("link", { name: "自选股" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("当前模块：自选股")).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "自选股" })).toBeVisible();
-  await expect(page.locator(".module-view").getByText("NVDA", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "自选股工作区" }).getByText("NVDA", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "主组合" })).not.toBeVisible();
 });
 
@@ -313,7 +329,7 @@ test("watchlist can query an arbitrary ticker and show unavailable fallback", as
   });
 
   await page.goto("/watchlist");
-  await page.getByLabel("Ticker").fill("tsla");
+  await page.getByLabel("Ticker", { exact: true }).fill("tsla");
   await page.getByRole("button", { name: "查询" }).click();
 
   await expect(page.getByText("TSLA", { exact: true })).toBeVisible();
