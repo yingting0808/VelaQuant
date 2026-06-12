@@ -479,7 +479,7 @@ const fallbackStrategies: StrategyListPayload = {
     {
       id: "moving_average_cross",
       name: "MovingAverageCross",
-      description: "AAPL daily moving average crossover sample for local LEAN validation.",
+      description: "AAPL 日线均线交叉示例策略，用于本地 LEAN 回测验证。",
       language: "Python",
       asset_class: "US Equity",
       default_symbol: "AAPL",
