@@ -12,7 +12,7 @@ class ResearchState(TypedDict):
 
 def analyze(state: ResearchState) -> ResearchState:
     request = state["request"]
-    ticker = request.ticker.upper()
+    ticker = request.ticker.strip().upper()
     if not request.evidence:
         state["result"] = ResearchResult(
             ticker=ticker,
@@ -25,7 +25,7 @@ def analyze(state: ResearchState) -> ResearchState:
             trade_plan_draft=TradePlanDraft(
                 entry_condition="No entry condition generated.",
                 invalidation_condition="No invalidation condition generated.",
-                risk_notes=["Evidence package is empty."],
+                risk_notes=["Evidence package is empty.", "This is not executable order guidance."],
             ),
         )
         return state
@@ -46,7 +46,7 @@ def analyze(state: ResearchState) -> ResearchState:
         trade_plan_draft=TradePlanDraft(
             entry_condition="Only consider action after a human reviews the evidence and confirms the thesis.",
             invalidation_condition="Invalidate the draft if new filings or news contradict the evidence package.",
-            risk_notes=["This is a draft, not an executable order.", "Human approval is required."],
+            risk_notes=["This is not executable order guidance.", "Human approval is required."],
         ),
     )
     return state
