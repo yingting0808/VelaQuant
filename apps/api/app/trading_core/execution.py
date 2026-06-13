@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,6 +31,21 @@ class OrderStateRecord(BaseModel):
     reason: str = ""
 
 
+class ExecutionReportStatus(str, Enum):
+    partial_fill = "partial_fill"
+    filled = "filled"
+    rejected = "rejected"
+
+
+class ExecutionReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ExecutionReportStatus
+    broker_order_id: str | None = None
+    average_fill_price: float | None = Field(default=None, gt=0)
+    message: str = ""
+
+
 class CoreOrder(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +56,8 @@ class CoreOrder(BaseModel):
         default_factory=lambda: [OrderStateRecord(state=OrderState.new, reason="Order created.")]
     )
     risk_decision: RiskDecision | None = None
+    broker_order_id: str | None = None
+    average_fill_price: float | None = None
 
     def transition(self, state: OrderState, reason: str = "") -> None:
         if self.current_state in {OrderState.filled, OrderState.rejected, OrderState.closed}:
@@ -48,9 +66,24 @@ class CoreOrder(BaseModel):
         self.state_history.append(OrderStateRecord(state=state, reason=reason))
 
 
+class ExecutionAdapter(Protocol):
+    def submit_order(self, order: CoreOrder, portfolio: PortfolioState) -> ExecutionReport:
+        ...
+
+
+class MockExecutionAdapter:
+    def submit_order(self, order: CoreOrder, portfolio: PortfolioState) -> ExecutionReport:
+        return ExecutionReport(
+            status=ExecutionReportStatus.filled,
+            broker_order_id=f"MOCK-{order.order_id}",
+            message="Synchronously filled by mock execution adapter.",
+        )
+
+
 class ExecutionEngine:
-    def __init__(self, risk_engine: RiskEngine) -> None:
+    def __init__(self, risk_engine: RiskEngine, adapter: ExecutionAdapter | None = None) -> None:
         self.risk_engine = risk_engine
+        self.adapter = adapter or MockExecutionAdapter()
 
     def submit_intent(self, intent: TradeIntent, portfolio: PortfolioState) -> CoreOrder:
         order = CoreOrder(intent=intent)
@@ -63,6 +96,14 @@ class ExecutionEngine:
             return order
 
         order.transition(OrderState.risk_approved, decision.reason)
-        order.transition(OrderState.sent, "Sent to mock execution adapter.")
-        order.transition(OrderState.filled, "Synchronously filled by mock execution adapter.")
+        order.transition(OrderState.sent, "Sent to execution adapter.")
+        report = self.adapter.submit_order(order, portfolio)
+        order.broker_order_id = report.broker_order_id
+        order.average_fill_price = report.average_fill_price
+        if report.status == ExecutionReportStatus.rejected:
+            order.transition(OrderState.rejected, report.message)
+        elif report.status == ExecutionReportStatus.partial_fill:
+            order.transition(OrderState.partial_fill, report.message)
+        else:
+            order.transition(OrderState.filled, report.message)
         return order

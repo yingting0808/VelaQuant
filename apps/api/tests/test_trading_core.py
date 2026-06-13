@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from app.trading_core.engine import TradingEngine
 from app.trading_core.event_bus import InMemoryEventBus, TradingEventTopic
 from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
-from app.trading_core.execution import ExecutionEngine, OrderState
+from app.trading_core.execution import ExecutionEngine, ExecutionReport, ExecutionReportStatus, OrderState
 from app.trading_core.portfolio import PortfolioState
 from app.trading_core.risk import RiskDecisionStatus, RiskEngine, RiskLimits
 from app.trading_core.strategy import DeterministicWatchlistStrategy, TradeIntent, TradeIntentSide
@@ -127,6 +127,50 @@ def test_execution_engine_does_not_fill_rejected_intent():
     assert [state.state for state in order.state_history] == [OrderState.new, OrderState.validated, OrderState.rejected]
     assert order.risk_decision is not None
     assert order.risk_decision.status == RiskDecisionStatus.rejected
+
+
+class RecordingExecutionAdapter:
+    def __init__(self, report: ExecutionReport | None = None) -> None:
+        self.submitted_order_ids: list[str] = []
+        self.report = report or ExecutionReport(
+            status=ExecutionReportStatus.filled,
+            broker_order_id="recording-1",
+            average_fill_price=123.45,
+            message="recording adapter fill",
+        )
+
+    def submit_order(self, order, portfolio):
+        self.submitted_order_ids.append(str(order.order_id))
+        return self.report
+
+
+def test_execution_engine_does_not_call_adapter_when_risk_rejects_intent():
+    adapter = RecordingExecutionAdapter()
+    risk = RiskEngine(RiskLimits(max_order_notional=1000))
+    execution = ExecutionEngine(risk, adapter=adapter)
+    portfolio = PortfolioState(cash=100000, equity=100000)
+    intent = TradeIntent(ticker="NVDA", side=TradeIntentSide.buy, notional=5000, reason="test")
+
+    order = execution.submit_intent(intent, portfolio)
+
+    assert order.current_state == OrderState.rejected
+    assert adapter.submitted_order_ids == []
+
+
+def test_execution_engine_uses_adapter_report_for_filled_order():
+    adapter = RecordingExecutionAdapter()
+    risk = RiskEngine(RiskLimits(max_order_notional=5000))
+    execution = ExecutionEngine(risk, adapter=adapter)
+    portfolio = PortfolioState(cash=100000, equity=100000)
+    intent = TradeIntent(ticker="NVDA", side=TradeIntentSide.buy, notional=1500, reason="test")
+
+    order = execution.submit_intent(intent, portfolio)
+
+    assert adapter.submitted_order_ids == [str(order.order_id)]
+    assert order.current_state == OrderState.filled
+    assert order.broker_order_id == "recording-1"
+    assert order.average_fill_price == 123.45
+    assert order.state_history[-1].reason == "recording adapter fill"
 
 
 def test_execution_engine_records_approved_order_state_history():
