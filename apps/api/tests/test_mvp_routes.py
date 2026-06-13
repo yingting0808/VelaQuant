@@ -27,6 +27,8 @@ from app.services.strategy_attribution import (
     DrawdownAttribution,
     ExpectancyDecomposition,
     MarketRegimeAttribution,
+    RegimeBreakdownPayload,
+    RegimePerformanceItem,
     SignalQualityAttribution,
     SignalDecayAttribution,
     StrategyAttributionPayload,
@@ -248,6 +250,48 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
             review_count=5,
             equity_change=-0.04,
         ),
+        regime_breakdown=RegimeBreakdownPayload(
+            primary_regime="trend_market",
+            items=[
+                RegimePerformanceItem(
+                    regime="trend_market",
+                    ticker_count=1,
+                    observed_pnl=60,
+                    average_return=0.08,
+                    average_volatility=0.01,
+                    tickers=["NVDA"],
+                    basis="proxy",
+                ),
+                RegimePerformanceItem(
+                    regime="range_market",
+                    ticker_count=0,
+                    observed_pnl=0,
+                    average_return=0,
+                    average_volatility=0,
+                    tickers=[],
+                    basis="proxy",
+                ),
+                RegimePerformanceItem(
+                    regime="high_volatility",
+                    ticker_count=0,
+                    observed_pnl=0,
+                    average_return=0,
+                    average_volatility=0,
+                    tickers=[],
+                    basis="proxy",
+                ),
+                RegimePerformanceItem(
+                    regime="insufficient_data",
+                    ticker_count=0,
+                    observed_pnl=0,
+                    average_return=0,
+                    average_volatility=0,
+                    tickers=[],
+                    basis="proxy",
+                ),
+            ],
+            basis="proxy",
+        ),
         drawdown=DrawdownAttribution(
             source="open_position_pressure",
             max_drawdown=0.1161,
@@ -263,7 +307,13 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
         summary="归因测试。",
     )
 
-    monkeypatch.setattr(mvp, "attribute_current_paper_strategy", lambda session: attribution, raising=False)
+    captured = {}
+
+    def fake_attribution(session, provider=None):
+        captured["provider"] = provider
+        return attribution
+
+    monkeypatch.setattr(mvp, "attribute_current_paper_strategy", fake_attribution, raising=False)
     client = TestClient(create_app())
 
     response = client.get("/api/mvp/strategy-lab/attribution")
@@ -277,8 +327,11 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
     assert payload["expectancy_decomposition"]["total_observed_pnl"] == 60
     assert payload["expectancy_decomposition"]["components"][1]["name"] == "timing_component"
     assert payload["regime"]["regime"] == "drawdown_pressure"
+    assert payload["regime_breakdown"]["primary_regime"] == "trend_market"
+    assert payload["regime_breakdown"]["items"][0]["tickers"] == ["NVDA"]
     assert payload["drawdown"]["source"] == "open_position_pressure"
     assert payload["drawdown"]["contributors"][3]["name"] == "risk_overreach"
+    assert captured["provider"] is not None
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):

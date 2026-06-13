@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, SQLModel, create_engine
 
+from app.data.providers.base import PriceHistoryBar
 from app.domain.models import (
     CoreEventLog,
     PaperAccount,
@@ -15,6 +16,36 @@ from app.domain.models import (
 )
 from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.workspace import get_or_create_default_workspace
+
+
+def _bar(ticker: str, date: str, close: float) -> PriceHistoryBar:
+    return PriceHistoryBar(
+        ticker=ticker,
+        date=date,
+        open=close,
+        high=close,
+        low=close,
+        close=close,
+        volume=1000,
+        source="test",
+    )
+
+
+class RegimeFixtureProvider:
+    def get_price_history(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        interval: str = "1d",
+    ) -> list[PriceHistoryBar]:
+        histories = {
+            "NVDA": [_bar("NVDA", "2026-06-01", 100), _bar("NVDA", "2026-06-02", 104), _bar("NVDA", "2026-06-03", 108)],
+            "MSFT": [_bar("MSFT", "2026-06-01", 100), _bar("MSFT", "2026-06-02", 100.6), _bar("MSFT", "2026-06-03", 100.3)],
+            "TSLA": [_bar("TSLA", "2026-06-01", 100), _bar("TSLA", "2026-06-02", 118), _bar("TSLA", "2026-06-03", 92)],
+            "AMZN": [_bar("AMZN", "2026-06-01", 100), _bar("AMZN", "2026-06-02", 101)],
+        }
+        return histories[ticker]
 
 
 def make_session() -> Session:
@@ -351,3 +382,30 @@ def test_strategy_attribution_breaks_down_expectancy_and_drawdown_contributors()
         assert contributors["signal_failure"].value == -45
         assert contributors["risk_overreach"].value == 1
         assert contributors["execution_lag"].value == 0
+
+
+def test_strategy_attribution_breaks_down_performance_by_market_regime():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(session, account, "market_event", 1, {"ticker": "NVDA", "confidence": 0.8})
+        _core_event(session, account, "market_event", 2, {"ticker": "MSFT", "confidence": 0.7})
+        _core_event(session, account, "market_event", 3, {"ticker": "TSLA", "confidence": 0.6})
+        _core_event(session, account, "market_event", 4, {"ticker": "AMZN", "confidence": 0.5})
+        _filled_sell(session, account, "NVDA", realized_pnl=25)
+        _filled_sell(session, account, "MSFT", realized_pnl=-4)
+        _filled_sell(session, account, "TSLA", realized_pnl=-15)
+        _filled_sell(session, account, "AMZN", realized_pnl=3)
+
+        attribution = attribute_current_paper_strategy(session, provider=RegimeFixtureProvider())
+        breakdown = {item.regime: item for item in attribution.regime_breakdown.items}
+
+        assert breakdown["trend_market"].ticker_count == 1
+        assert breakdown["trend_market"].observed_pnl == 25
+        assert breakdown["trend_market"].tickers == ["NVDA"]
+        assert breakdown["range_market"].observed_pnl == -4
+        assert breakdown["range_market"].tickers == ["MSFT"]
+        assert breakdown["high_volatility"].observed_pnl == -15
+        assert breakdown["high_volatility"].tickers == ["TSLA"]
+        assert breakdown["insufficient_data"].observed_pnl == 3
+        assert breakdown["insufficient_data"].tickers == ["AMZN"]
+        assert attribution.regime_breakdown.primary_regime == "trend_market"

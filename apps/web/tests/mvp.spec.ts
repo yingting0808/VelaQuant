@@ -465,6 +465,48 @@ test("strategy lab renders readiness status", async ({ page }) => {
           review_count: 5,
           equity_change: -0.04
         },
+        regime_breakdown: {
+          primary_regime: "trend_market",
+          items: [
+            {
+              regime: "trend_market",
+              ticker_count: 1,
+              observed_pnl: 60,
+              average_return: 0.08,
+              average_volatility: 0.01,
+              tickers: ["NVDA"],
+              basis: "趋势市场表现。"
+            },
+            {
+              regime: "range_market",
+              ticker_count: 0,
+              observed_pnl: 0,
+              average_return: 0,
+              average_volatility: 0,
+              tickers: [],
+              basis: "震荡市场表现。"
+            },
+            {
+              regime: "high_volatility",
+              ticker_count: 0,
+              observed_pnl: 0,
+              average_return: 0,
+              average_volatility: 0,
+              tickers: [],
+              basis: "高波动市场表现。"
+            },
+            {
+              regime: "insufficient_data",
+              ticker_count: 0,
+              observed_pnl: 0,
+              average_return: 0,
+              average_volatility: 0,
+              tickers: [],
+              basis: "行情不足。"
+            }
+          ],
+          basis: "按行情历史拆分。"
+        },
         drawdown: {
           source: "open_position_pressure",
           max_drawdown: 0.1161,
@@ -511,6 +553,8 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(attributionPanel.getByText("持仓 6.50 天")).toBeVisible();
   await expect(attributionPanel.getByText("timing_component -$20.00")).toBeVisible();
   await expect(attributionPanel.getByText("risk_overreach 1.00")).toBeVisible();
+  await expect(attributionPanel.getByText("市场环境 trend_market")).toBeVisible();
+  await expect(attributionPanel.getByText("收益 8.00% / 波动 1.00%")).toBeVisible();
 });
 
 test("watchlist renders market snapshot from API", async ({ page }) => {

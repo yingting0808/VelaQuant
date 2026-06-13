@@ -291,8 +291,11 @@ def strategy_lab_evaluation(session: Session = Depends(get_session)) -> dict:
 
 
 @router.get("/strategy-lab/attribution")
-def strategy_lab_attribution(session: Session = Depends(get_session)) -> dict:
-    return attribute_current_paper_strategy(session).model_dump()
+def strategy_lab_attribution(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    return attribute_current_paper_strategy(session, provider=provider).model_dump()
 
 
 @router.get("/strategy-lab/strategies")

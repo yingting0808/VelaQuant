@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
+from app.data.providers.base import MarketDataProvider, PriceHistoryBar
 from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperPosition, PaperReview
 from app.services.strategy_evaluation import DEFAULT_STRATEGY_ID, DEFAULT_STRATEGY_NAME
 from app.services.workspace import get_or_create_default_workspace
@@ -74,6 +75,26 @@ class MarketRegimeAttribution(BaseModel):
     equity_change: float
 
 
+class RegimePerformanceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    regime: Literal["trend_market", "range_market", "high_volatility", "insufficient_data"]
+    ticker_count: int
+    observed_pnl: float
+    average_return: float
+    average_volatility: float
+    tickers: list[str]
+    basis: str
+
+
+class RegimeBreakdownPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    primary_regime: Literal["trend_market", "range_market", "high_volatility", "insufficient_data"]
+    items: list[RegimePerformanceItem]
+    basis: str
+
+
 class DrawdownAttribution(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -101,12 +122,16 @@ class StrategyAttributionPayload(BaseModel):
     signal_decay: SignalDecayAttribution
     expectancy_decomposition: ExpectancyDecomposition
     regime: MarketRegimeAttribution
+    regime_breakdown: RegimeBreakdownPayload
     drawdown: DrawdownAttribution
     data_quality_warnings: list[str]
     summary: str
 
 
-def attribute_current_paper_strategy(session: Session) -> StrategyAttributionPayload:
+def attribute_current_paper_strategy(
+    session: Session,
+    provider: MarketDataProvider | None = None,
+) -> StrategyAttributionPayload:
     workspace = get_or_create_default_workspace(session)
     team_id = workspace.team.id
     events = list(
@@ -124,6 +149,7 @@ def attribute_current_paper_strategy(session: Session) -> StrategyAttributionPay
     regime = _market_regime(reviews, max_drawdown)
     drawdown = _drawdown_source(reviews, max_drawdown, expectancy)
     ticker_diagnostics = _ticker_diagnostics(events, orders, positions, warnings)
+    regime_breakdown = _regime_breakdown(ticker_diagnostics, provider, warnings)
     signal_decay = _signal_decay(events, orders, positions, reviews)
     expectancy.components = _expectancy_components(expectancy, signal_quality, orders, regime)
     drawdown.contributors = _drawdown_contributors(drawdown, expectancy, orders)
@@ -146,6 +172,7 @@ def attribute_current_paper_strategy(session: Session) -> StrategyAttributionPay
         signal_decay=signal_decay,
         expectancy_decomposition=expectancy,
         regime=regime,
+        regime_breakdown=regime_breakdown,
         drawdown=drawdown,
         data_quality_warnings=_dedupe(warnings),
         summary=_summary(signal_quality, expectancy, regime, drawdown),
@@ -400,6 +427,110 @@ def _market_regime(reviews: list[PaperReview], max_drawdown: float) -> MarketReg
         review_count=len(reviews),
         equity_change=equity_change,
     )
+
+
+def _regime_breakdown(
+    ticker_diagnostics: list[TickerSignalAttribution],
+    provider: MarketDataProvider | None,
+    warnings: list[str],
+) -> RegimeBreakdownPayload:
+    rows = {
+        "trend_market": _regime_row("trend_market", "价格首尾变化绝对值达到 2%。"),
+        "range_market": _regime_row("range_market", "价格首尾变化和波动率均未触发趋势或高波动阈值。"),
+        "high_volatility": _regime_row("high_volatility", "日收益波动率达到 4%。"),
+        "insufficient_data": _regime_row("insufficient_data", "少于 3 个有效收盘价或行情源不可用。"),
+    }
+    if provider is None:
+        warnings.append("missing_market_history_provider")
+        for diagnostic in ticker_diagnostics:
+            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0)
+        return _regime_payload(rows)
+
+    for diagnostic in ticker_diagnostics:
+        try:
+            history = provider.get_price_history(diagnostic.ticker)
+        except Exception:
+            warnings.append("market_history_unavailable")
+            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0)
+            continue
+        label, total_return, volatility = _classify_price_history(history)
+        _add_regime_row(rows[label], diagnostic, total_return, volatility)
+    return _regime_payload(rows)
+
+
+def _regime_row(regime: str, basis: str) -> dict:
+    return {
+        "regime": regime,
+        "ticker_count": 0,
+        "observed_pnl": 0.0,
+        "returns": [],
+        "volatilities": [],
+        "tickers": [],
+        "basis": basis,
+    }
+
+
+def _add_regime_row(
+    row: dict,
+    diagnostic: TickerSignalAttribution,
+    total_return: float,
+    volatility: float,
+) -> None:
+    row["ticker_count"] += 1
+    row["observed_pnl"] = round(row["observed_pnl"] + diagnostic.observed_pnl, 2)
+    row["returns"].append(total_return)
+    row["volatilities"].append(volatility)
+    row["tickers"].append(diagnostic.ticker)
+
+
+def _regime_payload(rows: dict[str, dict]) -> RegimeBreakdownPayload:
+    items: list[RegimePerformanceItem] = []
+    for regime in ("trend_market", "range_market", "high_volatility", "insufficient_data"):
+        row = rows[regime]
+        returns = row["returns"]
+        volatilities = row["volatilities"]
+        items.append(
+            RegimePerformanceItem(
+                regime=regime,
+                ticker_count=row["ticker_count"],
+                observed_pnl=row["observed_pnl"],
+                average_return=round(sum(returns) / len(returns), 4) if returns else 0.0,
+                average_volatility=round(sum(volatilities) / len(volatilities), 4) if volatilities else 0.0,
+                tickers=sorted(row["tickers"]),
+                basis=row["basis"],
+            )
+        )
+    populated = [item for item in items if item.ticker_count > 0]
+    primary = max(populated, key=lambda item: abs(item.observed_pnl)).regime if populated else "insufficient_data"
+    return RegimeBreakdownPayload(
+        primary_regime=primary,
+        items=items,
+        basis="基于各 ticker 最近价格历史的首尾收益和日收益波动率，对观测盈亏做市场环境代理拆分。",
+    )
+
+
+def _classify_price_history(
+    history: list[PriceHistoryBar],
+) -> tuple[Literal["trend_market", "range_market", "high_volatility", "insufficient_data"], float, float]:
+    closes = [float(bar.close) for bar in history if bar.close is not None and bar.close > 0]
+    if len(closes) < 3:
+        return "insufficient_data", 0.0, 0.0
+    total_return = (closes[-1] - closes[0]) / closes[0]
+    returns = [(closes[index] - closes[index - 1]) / closes[index - 1] for index in range(1, len(closes))]
+    volatility = _sample_volatility(returns)
+    if volatility >= 0.04:
+        return "high_volatility", round(total_return, 4), volatility
+    if abs(total_return) >= 0.02:
+        return "trend_market", round(total_return, 4), volatility
+    return "range_market", round(total_return, 4), volatility
+
+
+def _sample_volatility(returns: list[float]) -> float:
+    if len(returns) < 2:
+        return 0.0
+    average = sum(returns) / len(returns)
+    variance = sum((item - average) ** 2 for item in returns) / len(returns)
+    return round(variance ** 0.5, 4)
 
 
 def _drawdown_source(

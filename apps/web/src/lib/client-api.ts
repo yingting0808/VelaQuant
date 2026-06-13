@@ -91,6 +91,22 @@ export type DrawdownContributorPayload = {
   basis: string;
 };
 
+export type RegimePerformancePayload = {
+  regime: "trend_market" | "range_market" | "high_volatility" | "insufficient_data";
+  ticker_count: number;
+  observed_pnl: number;
+  average_return: number;
+  average_volatility: number;
+  tickers: string[];
+  basis: string;
+};
+
+export type RegimeBreakdownPayload = {
+  primary_regime: "trend_market" | "range_market" | "high_volatility" | "insufficient_data";
+  items: RegimePerformancePayload[];
+  basis: string;
+};
+
 export type StrategyAttributionPayload = {
   strategy_id: string;
   strategy_name: string;
@@ -117,6 +133,7 @@ export type StrategyAttributionPayload = {
     review_count: number;
     equity_change: number;
   };
+  regime_breakdown: RegimeBreakdownPayload;
   drawdown: {
     source: "insufficient_data" | "open_position_pressure" | "closed_trade_losses" | "equity_curve_pressure";
     max_drawdown: number;
@@ -380,6 +397,48 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
     review_count: 0,
     equity_change: 0
   },
+  regime_breakdown: {
+    primary_regime: "insufficient_data",
+    items: [
+      {
+        regime: "trend_market",
+        ticker_count: 0,
+        observed_pnl: 0,
+        average_return: 0,
+        average_volatility: 0,
+        tickers: [],
+        basis: "离线模式不能确认趋势市场表现。"
+      },
+      {
+        regime: "range_market",
+        ticker_count: 0,
+        observed_pnl: 0,
+        average_return: 0,
+        average_volatility: 0,
+        tickers: [],
+        basis: "离线模式不能确认震荡市场表现。"
+      },
+      {
+        regime: "high_volatility",
+        ticker_count: 0,
+        observed_pnl: 0,
+        average_return: 0,
+        average_volatility: 0,
+        tickers: [],
+        basis: "离线模式不能确认高波动市场表现。"
+      },
+      {
+        regime: "insufficient_data",
+        ticker_count: 0,
+        observed_pnl: 0,
+        average_return: 0,
+        average_volatility: 0,
+        tickers: [],
+        basis: "行情历史不足。"
+      }
+    ],
+    basis: "后端 API 暂不可用，无法确认市场环境 breakdown。"
+  },
   drawdown: {
     source: "insufficient_data",
     max_drawdown: 0,
@@ -548,6 +607,30 @@ function isDrawdownContributorPayload(value: unknown): value is DrawdownContribu
   return isRecord(value) && typeof value.name === "string" && typeof value.value === "number" && typeof value.basis === "string";
 }
 
+function isRegimePerformancePayload(value: unknown): value is RegimePerformancePayload {
+  return (
+    isRecord(value) &&
+    typeof value.regime === "string" &&
+    typeof value.ticker_count === "number" &&
+    typeof value.observed_pnl === "number" &&
+    typeof value.average_return === "number" &&
+    typeof value.average_volatility === "number" &&
+    Array.isArray(value.tickers) &&
+    value.tickers.every((item) => typeof item === "string") &&
+    typeof value.basis === "string"
+  );
+}
+
+function isRegimeBreakdownPayload(value: unknown): value is RegimeBreakdownPayload {
+  return (
+    isRecord(value) &&
+    typeof value.primary_regime === "string" &&
+    Array.isArray(value.items) &&
+    value.items.every(isRegimePerformancePayload) &&
+    typeof value.basis === "string"
+  );
+}
+
 function isStrategyAttributionPayload(value: unknown): value is StrategyAttributionPayload {
   return (
     isRecord(value) &&
@@ -575,6 +658,7 @@ function isStrategyAttributionPayload(value: unknown): value is StrategyAttribut
     typeof value.regime.basis === "string" &&
     typeof value.regime.review_count === "number" &&
     typeof value.regime.equity_change === "number" &&
+    isRegimeBreakdownPayload(value.regime_breakdown) &&
     isRecord(value.drawdown) &&
     typeof value.drawdown.source === "string" &&
     typeof value.drawdown.max_drawdown === "number" &&

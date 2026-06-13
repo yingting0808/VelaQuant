@@ -37,6 +37,9 @@ export function StrategyLabStatusPanel() {
   const timingComponent =
     attribution?.expectancy_decomposition.components.find((item) => item.name === "timing_component") ?? null;
   const riskContributor = attribution?.drawdown.contributors.find((item) => item.name === "risk_overreach") ?? null;
+  const primaryRegime =
+    attribution?.regime_breakdown.items.find((item) => item.regime === attribution.regime_breakdown.primary_regime) ??
+    null;
 
   return (
     <>
@@ -145,6 +148,19 @@ export function StrategyLabStatusPanel() {
             </div>
             <span className="state-warn">
               {riskContributor?.name ?? "risk_overreach"} {formatNumber(riskContributor?.value ?? 0)}
+            </span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>市场环境 {primaryRegime?.regime ?? "insufficient_data"}</strong>
+              <p>
+                Ticker {primaryRegime?.ticker_count ?? 0} · 贡献{" "}
+                {formatSignedCurrency(primaryRegime?.observed_pnl ?? 0)}
+              </p>
+            </div>
+            <span className="state-ok">
+              收益 {formatPercent(primaryRegime?.average_return ?? 0)} / 波动{" "}
+              {formatPercent(primaryRegime?.average_volatility ?? 0)}
             </span>
           </article>
         </div>
