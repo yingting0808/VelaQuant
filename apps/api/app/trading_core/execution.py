@@ -66,6 +66,30 @@ class CoreOrder(BaseModel):
         self.state_history.append(OrderStateRecord(state=state, reason=reason))
 
 
+class OrderStateEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    order_id: UUID
+    intent_id: UUID
+    ticker: str
+    current_state: OrderState
+    broker_order_id: str | None = None
+    risk_status: str | None = None
+    risk_code: str | None = None
+
+
+def order_state_event(order: CoreOrder) -> OrderStateEvent:
+    return OrderStateEvent(
+        order_id=order.order_id,
+        intent_id=order.intent.intent_id,
+        ticker=order.intent.ticker,
+        current_state=order.current_state,
+        broker_order_id=order.broker_order_id,
+        risk_status=order.risk_decision.status.value if order.risk_decision is not None else None,
+        risk_code=order.risk_decision.code if order.risk_decision is not None else None,
+    )
+
+
 class ExecutionAdapter(Protocol):
     def submit_order(self, order: CoreOrder, portfolio: PortfolioState) -> ExecutionReport:
         ...

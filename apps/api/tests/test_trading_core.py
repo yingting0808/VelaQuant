@@ -201,3 +201,25 @@ def test_trading_engine_processes_event_through_strategy_risk_and_execution():
     assert len(result.intents) == 1
     assert len(result.orders) == 1
     assert result.orders[0].current_state == OrderState.filled
+
+
+def test_trading_engine_publishes_replayable_core_event_chain():
+    bus = InMemoryEventBus()
+    strategy = DeterministicWatchlistStrategy(watchlist=["NVDA"], notional=1500)
+    risk = RiskEngine(RiskLimits(max_order_notional=5000))
+    engine = TradingEngine(strategy=strategy, risk_engine=risk, event_bus=bus)
+    portfolio = PortfolioState(cash=100000, equity=100000)
+
+    result = engine.process_event(_event(), portfolio)
+
+    assert [event.topic for event in bus.history] == [
+        TradingEventTopic.market_event,
+        TradingEventTopic.strategy_input,
+        TradingEventTopic.trade_intent,
+        TradingEventTopic.order_state,
+    ]
+    assert bus.history[1].payload.market_event.event_id == result.event.event_id
+    assert bus.history[2].payload.intent_id == result.intents[0].intent_id
+    assert bus.history[3].payload.order_id == result.orders[0].order_id
+    assert bus.history[3].payload.current_state == OrderState.filled
+    assert len({event.correlation_id for event in bus.history}) == 1
