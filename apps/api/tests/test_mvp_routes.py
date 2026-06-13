@@ -35,6 +35,7 @@ from app.services.strategy_attribution import (
     TickerSignalAttribution,
 )
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
+from app.services.strategy_registry import StrategyRegistryEntry, StrategyRegistryPayload
 from app.services.workspace import (
     NoteCreate,
     NotePayload,
@@ -344,6 +345,55 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
     assert payload["regime_breakdown"]["items"][0]["tickers"] == ["NVDA"]
     assert payload["drawdown"]["source"] == "open_position_pressure"
     assert payload["drawdown"]["contributors"][3]["name"] == "risk_overreach"
+    assert captured["provider"] is not None
+
+
+def test_mvp_strategy_lab_registry_route_returns_strategy_control_plane(monkeypatch):
+    registry_payload = StrategyRegistryPayload(
+        active_strategy_id="deterministic_watchlist_v1",
+        entries=[
+            StrategyRegistryEntry(
+                strategy_id="deterministic_watchlist_v1",
+                name="Deterministic Watchlist Strategy",
+                version="v1",
+                source="paper_core",
+                execution_mode="paper",
+                status="active",
+                rank=1,
+                ranking_score=74,
+                readiness="watch",
+                promotion_gate="keep_paper_running",
+                sample_size=22,
+                filled_order_count=21,
+                observed_pnl=125.5,
+                primary_regime="trend_market",
+                signal_quality_score=0.5,
+                backtest_status=None,
+                supports_live=False,
+                supports_hot_swap=False,
+                notes="fixture",
+            )
+        ],
+        missing_capabilities=["automatic_lifecycle_actions"],
+        summary="Registry is read-only: fixture.",
+    )
+    captured = {}
+
+    def fake_registry(session, provider=None):
+        captured["provider"] = provider
+        return registry_payload
+
+    monkeypatch.setattr(mvp, "get_strategy_registry", fake_registry, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/registry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["entries"][0]["ranking_score"] == 74
+    assert payload["entries"][0]["supports_live"] is False
+    assert payload["missing_capabilities"] == ["automatic_lifecycle_actions"]
     assert captured["provider"] is not None
 
 

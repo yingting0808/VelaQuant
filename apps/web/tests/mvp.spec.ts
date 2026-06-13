@@ -532,6 +532,66 @@ test("strategy lab renders readiness status", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/strategy-lab/registry", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        active_strategy_id: "deterministic_watchlist_v1",
+        entries: [
+          {
+            strategy_id: "deterministic_watchlist_v1",
+            name: "Deterministic Watchlist Strategy",
+            version: "v1",
+            source: "paper_core",
+            execution_mode: "paper",
+            status: "active",
+            rank: 1,
+            ranking_score: 74,
+            readiness: "watch",
+            promotion_gate: "keep_paper_running",
+            sample_size: 21,
+            filled_order_count: 21,
+            observed_pnl: 60,
+            primary_regime: "trend_market",
+            signal_quality_score: 0.5,
+            backtest_status: null,
+            supports_live: false,
+            supports_hot_swap: false,
+            notes: "fixture"
+          },
+          {
+            strategy_id: "moving_average_cross",
+            name: "MovingAverageCross",
+            version: "catalog",
+            source: "lean_catalog",
+            execution_mode: "backtest",
+            status: "available",
+            rank: 2,
+            ranking_score: 0,
+            readiness: "backtest_only",
+            promotion_gate: "not_connected_to_paper_runtime",
+            sample_size: 0,
+            filled_order_count: 0,
+            observed_pnl: 0,
+            primary_regime: "backtest_only",
+            signal_quality_score: 0,
+            backtest_status: "failed",
+            supports_live: false,
+            supports_hot_swap: false,
+            notes: "fixture"
+          }
+        ],
+        missing_capabilities: [
+          "strategy_versioning_persistence",
+          "multi_strategy_parallel_runtime",
+          "strategy_competition_runtime",
+          "hot_swap_execution_binding",
+          "automatic_lifecycle_actions"
+        ],
+        summary: "Registry is read-only: 1 active paper strategy, 1 backtest catalog strategy, no lifecycle automation."
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "策略实验室" }).click();
@@ -547,11 +607,21 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(statusPanel.getByText("LEAN CLI", { exact: true })).toBeVisible();
   await expect(statusPanel.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
   await expect(page.getByText("不可回测")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Alpha 验证" }).getByText("watch", { exact: true })).toBeVisible();
-  await expect(page.getByText("样本 21")).toBeVisible();
-  await expect(page.getByText("信号精度 71.43%")).toBeVisible();
-  await expect(page.getByText("最大回撤 8.00%")).toBeVisible();
-  await expect(page.getByText("keep_paper_running")).toBeVisible();
+  const alphaPanel = page.getByRole("region", { name: "Alpha 验证" });
+  await expect(alphaPanel.getByText("watch", { exact: true })).toBeVisible();
+  await expect(alphaPanel.getByText("样本 21", { exact: true })).toBeVisible();
+  await expect(alphaPanel.getByText("信号精度 71.43%")).toBeVisible();
+  await expect(alphaPanel.getByText("最大回撤 8.00%")).toBeVisible();
+  await expect(alphaPanel.getByText("keep_paper_running")).toBeVisible();
+  const registryPanel = page.getByRole("region", { name: "策略注册表" });
+  await expect(registryPanel.getByText("只读")).toBeVisible();
+  await expect(registryPanel.getByText("评分 74.00")).toBeVisible();
+  await expect(registryPanel.getByText("#1 Deterministic Watchlist Strategy")).toBeVisible();
+  await expect(registryPanel.getByText("deterministic_watchlist_v1 · paper_core · paper")).toBeVisible();
+  await expect(registryPanel.getByText("#2 MovingAverageCross")).toBeVisible();
+  await expect(registryPanel.getByText("moving_average_cross · lean_catalog · backtest")).toBeVisible();
+  await expect(registryPanel.getByText("控制缺口 5")).toBeVisible();
+  await expect(registryPanel.getByText("实盘关闭")).toBeVisible();
   const attributionPanel = page.getByRole("region", { name: "归因分析" });
   await expect(attributionPanel.getByText("drawdown_pressure")).toBeVisible();
   await expect(attributionPanel.getByText("可行动信号 50.00%")).toBeVisible();

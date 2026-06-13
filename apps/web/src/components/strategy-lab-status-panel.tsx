@@ -5,24 +5,28 @@ import {
   getStrategyAttribution,
   getStrategyEvaluation,
   getStrategyLabStatus,
+  getStrategyRegistry,
   type StrategyAttributionPayload,
   type StrategyEvaluationPayload,
-  type StrategyLabStatusPayload
+  type StrategyLabStatusPayload,
+  type StrategyRegistryPayload
 } from "@/lib/client-api";
 
 export function StrategyLabStatusPanel() {
   const [status, setStatus] = useState<StrategyLabStatusPayload | null>(null);
   const [evaluation, setEvaluation] = useState<StrategyEvaluationPayload | null>(null);
   const [attribution, setAttribution] = useState<StrategyAttributionPayload | null>(null);
+  const [registry, setRegistry] = useState<StrategyRegistryPayload | null>(null);
 
   useEffect(() => {
     let active = true;
-    Promise.all([getStrategyLabStatus(), getStrategyEvaluation(), getStrategyAttribution()]).then(
-      ([statusPayload, evaluationPayload, attributionPayload]) => {
+    Promise.all([getStrategyLabStatus(), getStrategyEvaluation(), getStrategyAttribution(), getStrategyRegistry()]).then(
+      ([statusPayload, evaluationPayload, attributionPayload, registryPayload]) => {
         if (active) {
           setStatus(statusPayload);
           setEvaluation(evaluationPayload);
           setAttribution(attributionPayload);
+          setRegistry(registryPayload);
         }
       }
     );
@@ -33,6 +37,8 @@ export function StrategyLabStatusPanel() {
 
   const canRun = status?.can_run_backtests ?? false;
   const readiness = evaluation?.readiness ?? "insufficient_sample";
+  const activeRegistryEntry = registry?.entries.find((item) => item.strategy_id === registry.active_strategy_id) ?? null;
+  const registryEntries = registry?.entries.slice(0, 4) ?? [];
   const topTicker = attribution?.ticker_diagnostics[0] ?? null;
   const volatilityComponent =
     attribution?.expectancy_decomposition.components.find((item) => item.name === "volatility_component") ?? null;
@@ -68,6 +74,61 @@ export function StrategyLabStatusPanel() {
               </span>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="data-panel status-panel" aria-label="策略注册表">
+        <div className="panel-heading">
+          <div>
+            <h3>策略注册表</h3>
+            <p>{registry?.summary ?? "正在读取策略控制平面。"}</p>
+          </div>
+          <span className="status-pill warning">只读</span>
+        </div>
+
+        <div className="module-list compact-list">
+          <article className="module-row">
+            <div>
+              <strong>{activeRegistryEntry?.name ?? "Deterministic Watchlist Strategy"}</strong>
+              <p>{registry?.active_strategy_id ?? "deterministic_watchlist_v1"}</p>
+            </div>
+            <span className="state-ok">评分 {formatNumber(activeRegistryEntry?.ranking_score ?? 0)}</span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>晋级 {activeRegistryEntry?.promotion_gate ?? "blocked"}</strong>
+              <p>
+                样本 {activeRegistryEntry?.sample_size ?? 0} · 成交{" "}
+                {activeRegistryEntry?.filled_order_count ?? 0} · 环境{" "}
+                {activeRegistryEntry?.primary_regime ?? "insufficient_data"}
+              </p>
+            </div>
+            <span className="state-ok">{formatSignedCurrency(activeRegistryEntry?.observed_pnl ?? 0)}</span>
+          </article>
+          {registryEntries.map((entry) => (
+            <article className="module-row" key={`${entry.source}:${entry.strategy_id}`}>
+              <div>
+                <strong>
+                  #{entry.rank} {entry.name}
+                </strong>
+                <p>
+                  {entry.strategy_id} · {entry.source} · {entry.execution_mode}
+                </p>
+              </div>
+              <span className={entry.status === "active" ? "state-ok" : "state-warn"}>
+                {entry.backtest_status ?? entry.readiness}
+              </span>
+            </article>
+          ))}
+          <article className="module-row">
+            <div>
+              <strong>控制缺口 {registry?.missing_capabilities.length ?? 0}</strong>
+              <p>{(registry?.missing_capabilities ?? []).slice(0, 2).join(" / ") || "等待 Registry 数据。"}</p>
+            </div>
+            <span className={activeRegistryEntry?.supports_live ? "state-ok" : "state-warn"}>
+              {activeRegistryEntry?.supports_live ? "可实盘" : "实盘关闭"}
+            </span>
+          </article>
         </div>
       </section>
 

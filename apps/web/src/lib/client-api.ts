@@ -146,6 +146,35 @@ export type StrategyAttributionPayload = {
   summary: string;
 };
 
+export type StrategyRegistryEntryPayload = {
+  strategy_id: string;
+  name: string;
+  version: string;
+  source: "paper_core" | "lean_catalog";
+  execution_mode: "paper" | "backtest";
+  status: "active" | "available" | "blocked";
+  rank: number;
+  ranking_score: number;
+  readiness: string;
+  promotion_gate: string;
+  sample_size: number;
+  filled_order_count: number;
+  observed_pnl: number;
+  primary_regime: string;
+  signal_quality_score: number;
+  backtest_status: string | null;
+  supports_live: boolean;
+  supports_hot_swap: boolean;
+  notes: string;
+};
+
+export type StrategyRegistryPayload = {
+  active_strategy_id: string;
+  entries: StrategyRegistryEntryPayload[];
+  missing_capabilities: string[];
+  summary: string;
+};
+
 export type PaperAccountPayload = {
   id: string;
   name: string;
@@ -465,6 +494,41 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
   summary: "后端 API 暂不可用，无法确认策略归因。"
 };
 
+const fallbackStrategyRegistry: StrategyRegistryPayload = {
+  active_strategy_id: "deterministic_watchlist_v1",
+  entries: [
+    {
+      strategy_id: "deterministic_watchlist_v1",
+      name: "Deterministic Watchlist Strategy",
+      version: "v1",
+      source: "paper_core",
+      execution_mode: "paper",
+      status: "active",
+      rank: 1,
+      ranking_score: 0,
+      readiness: "insufficient_sample",
+      promotion_gate: "blocked",
+      sample_size: 0,
+      filled_order_count: 0,
+      observed_pnl: 0,
+      primary_regime: "insufficient_data",
+      signal_quality_score: 0,
+      backtest_status: null,
+      supports_live: false,
+      supports_hot_swap: false,
+      notes: "后端 API 暂不可用，无法确认策略注册表。"
+    }
+  ],
+  missing_capabilities: [
+    "strategy_versioning_persistence",
+    "multi_strategy_parallel_runtime",
+    "strategy_competition_runtime",
+    "hot_swap_execution_binding",
+    "automatic_lifecycle_actions"
+  ],
+  summary: "后端 API 暂不可用，Registry 使用离线占位。"
+};
+
 const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   account: {
     id: "offline-paper-account",
@@ -684,6 +748,43 @@ function isStrategyAttributionPayload(value: unknown): value is StrategyAttribut
   );
 }
 
+function isStrategyRegistryEntryPayload(value: unknown): value is StrategyRegistryEntryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.version === "string" &&
+    typeof value.source === "string" &&
+    typeof value.execution_mode === "string" &&
+    typeof value.status === "string" &&
+    typeof value.rank === "number" &&
+    typeof value.ranking_score === "number" &&
+    typeof value.readiness === "string" &&
+    typeof value.promotion_gate === "string" &&
+    typeof value.sample_size === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.observed_pnl === "number" &&
+    typeof value.primary_regime === "string" &&
+    typeof value.signal_quality_score === "number" &&
+    (typeof value.backtest_status === "string" || value.backtest_status === null) &&
+    typeof value.supports_live === "boolean" &&
+    typeof value.supports_hot_swap === "boolean" &&
+    typeof value.notes === "string"
+  );
+}
+
+function isStrategyRegistryPayload(value: unknown): value is StrategyRegistryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.active_strategy_id === "string" &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isStrategyRegistryEntryPayload) &&
+    Array.isArray(value.missing_capabilities) &&
+    value.missing_capabilities.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
 export async function runResearchPrompt(question: string, ticker = "AAPL"): Promise<ResearchResultPayload> {
   const normalizedTicker = ticker.trim().toUpperCase() || "AAPL";
   const normalizedQuestion = question.trim() || "解释当前页面";
@@ -775,6 +876,21 @@ export async function getStrategyAttribution(): Promise<StrategyAttributionPaylo
     return isStrategyAttributionPayload(payload) ? payload : fallbackStrategyAttribution;
   } catch {
     return fallbackStrategyAttribution;
+  }
+}
+
+export async function getStrategyRegistry(): Promise<StrategyRegistryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/registry`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyRegistry;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyRegistryPayload(payload) ? payload : fallbackStrategyRegistry;
+  } catch {
+    return fallbackStrategyRegistry;
   }
 }
 
