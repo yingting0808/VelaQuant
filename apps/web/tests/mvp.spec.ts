@@ -390,20 +390,47 @@ test("strategy lab renders readiness status", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/strategy-lab/evaluation", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategy_id: "deterministic_watchlist_v1",
+        strategy_name: "Deterministic Watchlist Strategy",
+        sample_size: 21,
+        filled_order_count: 21,
+        rejected_order_count: 1,
+        closed_trade_count: 5,
+        signal_precision: 0.7143,
+        expectancy: 4.2,
+        max_drawdown: 0.08,
+        stability_score: 0.69,
+        readiness: "watch",
+        promotion_gate: "keep_paper_running",
+        event_chain_count: 80,
+        notes: "策略已有正期望迹象，但样本数或回撤约束仍需继续观察。"
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "策略实验室" }).click();
 
   await expect(page).toHaveURL("/strategy-lab");
   await expect(page.getByRole("heading", { name: "策略实验室" })).toBeVisible();
+  const statusPanel = page.getByRole("region", { name: "策略实验室状态" });
   await expect(
-    page.getByText("Strategy Lab is partially configured; review unavailable tools before running LEAN backtests.")
+    statusPanel.getByText("Strategy Lab is partially configured; review unavailable tools before running LEAN backtests.")
   ).toBeVisible();
-  await expect(page.getByText("Docker CLI", { exact: true })).toBeVisible();
-  await expect(page.getByText("Docker version 29.5.3")).toBeVisible();
-  await expect(page.getByText("LEAN CLI", { exact: true })).toBeVisible();
-  await expect(page.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
+  await expect(statusPanel.getByText("Docker CLI", { exact: true })).toBeVisible();
+  await expect(statusPanel.getByText("Docker version 29.5.3")).toBeVisible();
+  await expect(statusPanel.getByText("LEAN CLI", { exact: true })).toBeVisible();
+  await expect(statusPanel.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
   await expect(page.getByText("不可回测")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Alpha 验证" }).getByText("watch", { exact: true })).toBeVisible();
+  await expect(page.getByText("样本 21")).toBeVisible();
+  await expect(page.getByText("信号精度 71.43%")).toBeVisible();
+  await expect(page.getByText("最大回撤 8.00%")).toBeVisible();
+  await expect(page.getByText("keep_paper_running")).toBeVisible();
 });
 
 test("watchlist renders market snapshot from API", async ({ page }) => {

@@ -20,6 +20,7 @@ from app.services.paper_trading import (
 )
 from app.services.research_notebook import ResearchNoteCreate, ResearchNotePayload
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
+from app.services.strategy_evaluation import StrategyEvaluationPayload, StrategyEvaluationReadiness
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 from app.services.workspace import (
     NoteCreate,
@@ -152,6 +153,36 @@ def test_mvp_strategy_lab_status_route_returns_readiness_payload():
 
     assert response.status_code == 200
     assert response.json() == FAKE_STRATEGY_LAB_PAYLOAD
+
+
+def test_mvp_strategy_lab_evaluation_route_returns_alpha_report(monkeypatch):
+    evaluation = StrategyEvaluationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        strategy_name="Deterministic Watchlist Strategy",
+        sample_size=21,
+        filled_order_count=21,
+        rejected_order_count=1,
+        closed_trade_count=5,
+        signal_precision=0.7143,
+        expectancy=4.2,
+        max_drawdown=0.08,
+        stability_score=0.69,
+        readiness=StrategyEvaluationReadiness.watch,
+        promotion_gate="keep_paper_running",
+        event_chain_count=80,
+        notes="继续观察。",
+    )
+
+    monkeypatch.setattr(mvp, "evaluate_current_paper_strategy", lambda session: evaluation, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/evaluation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["readiness"] == "watch"
+    assert payload["promotion_gate"] == "keep_paper_running"
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):

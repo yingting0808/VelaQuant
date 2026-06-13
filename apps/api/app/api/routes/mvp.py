@@ -31,6 +31,7 @@ from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
+from app.services.strategy_evaluation import evaluate_current_paper_strategy
 from app.services.strategy_lab import get_strategy_lab_status
 from app.services.workspace import (
     NoteCreate,
@@ -281,6 +282,11 @@ def trading_core_dry_run(body: TradingCoreDryRunBody) -> dict:
 @router.get("/strategy-lab/status")
 def strategy_lab_status() -> dict:
     return get_strategy_lab_status().model_dump()
+
+
+@router.get("/strategy-lab/evaluation")
+def strategy_lab_evaluation(session: Session = Depends(get_session)) -> dict:
+    return evaluate_current_paper_strategy(session).model_dump()
 
 
 @router.get("/strategy-lab/strategies")

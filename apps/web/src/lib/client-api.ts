@@ -40,6 +40,23 @@ export type StrategyLabStatusPayload = {
   tools: StrategyToolStatusPayload[];
 };
 
+export type StrategyEvaluationPayload = {
+  strategy_id: string;
+  strategy_name: string;
+  sample_size: number;
+  filled_order_count: number;
+  rejected_order_count: number;
+  closed_trade_count: number;
+  signal_precision: number;
+  expectancy: number;
+  max_drawdown: number;
+  stability_score: number;
+  readiness: "insufficient_sample" | "negative_expectancy" | "watch" | "paper_ready";
+  promotion_gate: string;
+  event_chain_count: number;
+  notes: string;
+};
+
 export type PaperAccountPayload = {
   id: string;
   name: string;
@@ -238,6 +255,23 @@ const fallbackStrategyLabStatus: StrategyLabStatusPayload = {
   ]
 };
 
+const fallbackStrategyEvaluation: StrategyEvaluationPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  strategy_name: "Deterministic Watchlist Strategy",
+  sample_size: 0,
+  filled_order_count: 0,
+  rejected_order_count: 0,
+  closed_trade_count: 0,
+  signal_precision: 0,
+  expectancy: 0,
+  max_drawdown: 0,
+  stability_score: 0,
+  readiness: "insufficient_sample",
+  promotion_gate: "blocked",
+  event_chain_count: 0,
+  notes: "后端 API 暂不可用，无法确认策略评价。"
+};
+
 const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   account: {
     id: "offline-paper-account",
@@ -334,6 +368,26 @@ function isStrategyLabStatusPayload(value: unknown): value is StrategyLabStatusP
   );
 }
 
+function isStrategyEvaluationPayload(value: unknown): value is StrategyEvaluationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.strategy_name === "string" &&
+    typeof value.sample_size === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.rejected_order_count === "number" &&
+    typeof value.closed_trade_count === "number" &&
+    typeof value.signal_precision === "number" &&
+    typeof value.expectancy === "number" &&
+    typeof value.max_drawdown === "number" &&
+    typeof value.stability_score === "number" &&
+    typeof value.readiness === "string" &&
+    typeof value.promotion_gate === "string" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.notes === "string"
+  );
+}
+
 export async function runResearchPrompt(question: string, ticker = "AAPL"): Promise<ResearchResultPayload> {
   const normalizedTicker = ticker.trim().toUpperCase() || "AAPL";
   const normalizedQuestion = question.trim() || "解释当前页面";
@@ -395,6 +449,21 @@ export async function getStrategyLabStatus(): Promise<StrategyLabStatusPayload> 
     return isStrategyLabStatusPayload(payload) ? payload : fallbackStrategyLabStatus;
   } catch {
     return fallbackStrategyLabStatus;
+  }
+}
+
+export async function getStrategyEvaluation(): Promise<StrategyEvaluationPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/evaluation`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyEvaluation;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyEvaluationPayload(payload) ? payload : fallbackStrategyEvaluation;
+  } catch {
+    return fallbackStrategyEvaluation;
   }
 }
 
