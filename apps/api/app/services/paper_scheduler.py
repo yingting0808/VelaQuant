@@ -4,6 +4,7 @@ from sqlmodel import Session
 from app.core.config import Settings, get_settings
 from app.data.providers.registry import build_market_data_provider
 from app.db.session import engine
+from app.domain.models import PaperRunTrigger
 from app.services.paper_trading import run_daily_paper_trading_loop
 
 
@@ -66,7 +67,7 @@ def run_scheduled_paper_trading_once() -> None:
     provider = build_market_data_provider(settings)
     try:
         with Session(engine) as session:
-            run_daily_paper_trading_loop(session, provider)
+            run_daily_paper_trading_loop(session, provider, trigger=PaperRunTrigger.scheduled)
     finally:
         close = getattr(provider, "close", None)
         if callable(close):

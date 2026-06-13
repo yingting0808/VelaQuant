@@ -1,5 +1,12 @@
 from app.core.config import Settings
-from app.services.paper_scheduler import get_paper_scheduler_status, shutdown_paper_scheduler, start_paper_scheduler
+from app.domain.models import PaperRunTrigger
+from app.services import paper_scheduler
+from app.services.paper_scheduler import (
+    get_paper_scheduler_status,
+    run_scheduled_paper_trading_once,
+    shutdown_paper_scheduler,
+    start_paper_scheduler,
+)
 
 
 def test_paper_scheduler_is_disabled_by_default():
@@ -34,3 +41,34 @@ def test_paper_scheduler_registers_daily_job_when_enabled():
         assert scheduler.get_job("paper_trading_daily_run") is not None
     finally:
         shutdown_paper_scheduler()
+
+
+def test_scheduled_job_runs_paper_loop_with_scheduled_trigger(monkeypatch):
+    captured = {}
+
+    class Provider:
+        def close(self):
+            captured["closed"] = True
+
+    class SessionContext:
+        def __enter__(self):
+            return "session"
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr(paper_scheduler, "build_market_data_provider", lambda settings: Provider())
+    monkeypatch.setattr(paper_scheduler, "Session", lambda engine: SessionContext())
+    monkeypatch.setattr(
+        paper_scheduler,
+        "run_daily_paper_trading_loop",
+        lambda session, provider, trigger=PaperRunTrigger.manual: captured.update(
+            {"session": session, "trigger": trigger}
+        ),
+    )
+
+    run_scheduled_paper_trading_once()
+
+    assert captured["session"] == "session"
+    assert captured["trigger"] == PaperRunTrigger.scheduled
+    assert captured["closed"] is True

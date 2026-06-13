@@ -1,3 +1,4 @@
+import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
@@ -9,10 +10,11 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
-from app.domain.models import PaperOrder, PaperReview
+from app.domain.models import PaperOrder, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
+    list_paper_runs,
     run_daily_paper_trading_loop,
     submit_paper_order,
 )
@@ -88,6 +90,11 @@ class FixtureProvider(MarketDataProvider):
         return []
 
 
+class FailingQuoteProvider(FixtureProvider):
+    def get_quote(self, ticker: str) -> Quote:
+        raise RuntimeError(f"quote source failed for {ticker}")
+
+
 def make_session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
@@ -97,6 +104,7 @@ def make_session() -> Session:
 def test_daily_run_creates_account_candidates_and_review():
     with make_session() as session:
         summary = run_daily_paper_trading_loop(session, FixtureProvider())
+        runs = session.exec(select(PaperRun)).all()
 
         assert summary.account.name == "默认模拟盘"
         assert summary.account.mode == "paper"
@@ -120,6 +128,13 @@ def test_daily_run_creates_account_candidates_and_review():
         assert summary.latest_review is not None
         assert summary.latest_review.readiness == "collecting"
         assert summary.latest_review.trade_count == 0
+        assert len(runs) == 1
+        assert runs[0].trigger == PaperRunTrigger.manual
+        assert runs[0].status == PaperRunStatus.completed
+        assert runs[0].candidates_count == len(summary.candidates)
+        assert runs[0].orders_count == len(summary.orders)
+        assert runs[0].review_id == summary.latest_review.id
+        assert runs[0].finished_at is not None
 
 
 def test_daily_run_is_idempotent_for_current_trading_day():
@@ -131,10 +146,35 @@ def test_daily_run_is_idempotent_for_current_trading_day():
 
         orders = session.exec(select(PaperOrder)).all()
         reviews = session.exec(select(PaperReview)).all()
+        runs = session.exec(select(PaperRun).order_by(PaperRun.started_at)).all()
         assert len(orders) == 1
         assert len(reviews) == 1
+        assert [run.status for run in runs] == [PaperRunStatus.completed, PaperRunStatus.skipped]
         assert second.account.cash == first.account.cash
         assert second.orders[0].id == first.orders[0].id
+
+
+def test_scheduled_daily_run_records_scheduled_trigger():
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, FixtureProvider(), trigger=PaperRunTrigger.scheduled)
+        runs = list_paper_runs(session)
+
+        assert len(runs) == 1
+        assert runs[0].trigger == "scheduled"
+        assert runs[0].status == "completed"
+        assert runs[0].trading_day == summary.latest_review.trading_day
+
+
+def test_daily_run_marks_run_failed_when_provider_raises():
+    with make_session() as session:
+        with pytest.raises(RuntimeError, match="quote source failed"):
+            run_daily_paper_trading_loop(session, FailingQuoteProvider())
+
+        runs = session.exec(select(PaperRun)).all()
+        assert len(runs) == 1
+        assert runs[0].status == PaperRunStatus.failed
+        assert "quote source failed" in runs[0].error_message
+        assert runs[0].finished_at is not None
 
 
 def test_buy_order_fills_and_updates_cash_and_position():

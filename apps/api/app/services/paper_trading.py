@@ -17,6 +17,9 @@ from app.domain.models import (
     PaperPosition,
     PaperReadiness,
     PaperReview,
+    PaperRun,
+    PaperRunStatus,
+    PaperRunTrigger,
     Position,
     WatchlistItem,
     utc_now,
@@ -124,6 +127,20 @@ class PaperReviewPayload(BaseModel):
     created_at: datetime
 
 
+class PaperRunPayload(BaseModel):
+    id: UUID
+    trading_day: str
+    trigger: str
+    status: str
+    candidates_count: int
+    orders_count: int
+    positions_count: int
+    review_id: UUID | None
+    error_message: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
 class PaperTradingSummary(BaseModel):
     account: PaperAccountPayload
     candidates: list[PaperCandidatePayload]
@@ -141,26 +158,53 @@ def get_paper_trading_summary(session: Session, provider: MarketDataProvider) ->
     return _summary_payload(session, account)
 
 
-def run_daily_paper_trading_loop(session: Session, provider: MarketDataProvider) -> PaperTradingSummary:
+def run_daily_paper_trading_loop(
+    session: Session,
+    provider: MarketDataProvider,
+    trigger: PaperRunTrigger = PaperRunTrigger.manual,
+) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
-    if _review_for_trading_day(session, account, _current_trading_day()) is not None:
+    trading_day = _current_trading_day()
+    run = _start_paper_run(session, account, trading_day, trigger)
+    try:
+        existing_review = _review_for_trading_day(session, account, trading_day)
+        if existing_review is not None:
+            _mark_positions_to_market(session, account, provider)
+            _finish_paper_run(session, account, run, PaperRunStatus.skipped, existing_review)
+            session.commit()
+            session.refresh(account)
+            return _summary_payload(session, account)
+
+        _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
+        session.flush()
+        _auto_submit_candidate_orders(session, provider, account)
+        session.refresh(account)
         _mark_positions_to_market(session, account, provider)
+        review = _create_review(session, account)
+        session.add(review)
+        session.flush()
+        _finish_paper_run(session, account, run, PaperRunStatus.completed, review)
+        account.updated_at = utc_now()
         session.commit()
         session.refresh(account)
         return _summary_payload(session, account)
+    except Exception as error:
+        _mark_paper_run_failed(session, run.id, error)
+        raise
 
-    _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
-    session.flush()
-    _auto_submit_candidate_orders(session, provider, account)
-    session.refresh(account)
-    _mark_positions_to_market(session, account, provider)
-    review = _create_review(session, account)
-    session.add(review)
-    account.updated_at = utc_now()
-    session.commit()
-    session.refresh(account)
-    return _summary_payload(session, account)
+
+def list_paper_runs(session: Session, limit: int = 20) -> list[PaperRunPayload]:
+    workspace = get_or_create_default_workspace(session)
+    runs = list(
+        session.exec(
+            select(PaperRun)
+            .where(PaperRun.team_id == workspace.team.id)
+            .order_by(PaperRun.started_at.desc())
+            .limit(limit)
+        ).all()
+    )
+    return [_run_payload(run) for run in runs]
 
 
 def submit_paper_order(
@@ -262,6 +306,61 @@ def _get_or_create_account(session: Session, team_id: UUID) -> PaperAccount:
     session.commit()
     session.refresh(account)
     return account
+
+
+def _start_paper_run(
+    session: Session,
+    account: PaperAccount,
+    trading_day: str,
+    trigger: PaperRunTrigger,
+) -> PaperRun:
+    run = PaperRun(
+        account_id=account.id,
+        team_id=account.team_id,
+        trading_day=trading_day,
+        trigger=trigger,
+        status=PaperRunStatus.started,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def _finish_paper_run(
+    session: Session,
+    account: PaperAccount,
+    run: PaperRun,
+    status: PaperRunStatus,
+    review: PaperReview | None,
+) -> None:
+    run.status = status
+    run.review_id = review.id if review is not None else None
+    run.candidates_count = _candidate_count(session, account.team_id)
+    run.orders_count = _order_count(session, account)
+    run.positions_count = len(_positions(session, account))
+    run.finished_at = utc_now()
+    session.add(run)
+
+
+def _mark_paper_run_failed(session: Session, run_id: UUID, error: Exception) -> None:
+    session.rollback()
+    run = session.get(PaperRun, run_id)
+    if run is None:
+        return
+    run.status = PaperRunStatus.failed
+    run.error_message = str(error)
+    run.finished_at = utc_now()
+    session.add(run)
+    session.commit()
+
+
+def _candidate_count(session: Session, team_id: UUID) -> int:
+    return len(session.exec(select(PaperCandidate).where(PaperCandidate.team_id == team_id)).all())
+
+
+def _order_count(session: Session, account: PaperAccount) -> int:
+    return len(session.exec(select(PaperOrder).where(PaperOrder.account_id == account.id)).all())
 
 
 def _generate_candidates(
@@ -639,6 +738,22 @@ def _review_payload(review: PaperReview) -> PaperReviewPayload:
         readiness=review.readiness.value,
         notes=review.notes,
         created_at=review.created_at,
+    )
+
+
+def _run_payload(run: PaperRun) -> PaperRunPayload:
+    return PaperRunPayload(
+        id=run.id,
+        trading_day=run.trading_day,
+        trigger=run.trigger.value,
+        status=run.status.value,
+        candidates_count=run.candidates_count,
+        orders_count=run.orders_count,
+        positions_count=run.positions_count,
+        review_id=run.review_id,
+        error_message=run.error_message,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
     )
 
 
