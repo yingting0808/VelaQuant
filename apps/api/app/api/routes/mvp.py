@@ -21,6 +21,7 @@ from app.services.lean_backtest import (
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
+    list_paper_runs,
     run_daily_paper_trading_loop,
     submit_paper_order,
 )
@@ -254,6 +255,11 @@ def paper_trading_order(
 @router.get("/paper-trading/scheduler")
 def paper_trading_scheduler_status() -> dict:
     return get_paper_scheduler_status().model_dump()
+
+
+@router.get("/paper-trading/runs")
+def paper_trading_runs(session: Session = Depends(get_session)) -> dict:
+    return {"runs": [run.model_dump() for run in list_paper_runs(session)]}
 
 
 @router.post("/trading-core/dry-run")

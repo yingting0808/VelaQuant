@@ -15,6 +15,7 @@ from app.services.paper_trading import (
     PaperOrderCreate,
     PaperOrderPayload,
     PaperReviewPayload,
+    PaperRunPayload,
     PaperTradingSummary,
 )
 from app.services.research_notebook import ResearchNoteCreate, ResearchNotePayload
@@ -837,3 +838,29 @@ def test_mvp_paper_trading_scheduler_status_route_returns_configuration():
     assert payload["running"] is False
     assert payload["cron"] == "30 6 * * *"
     assert payload["timezone"] == "Asia/Shanghai"
+
+
+def test_mvp_paper_trading_runs_route_returns_recent_runs(monkeypatch):
+    run = PaperRunPayload(
+        id="00000000-0000-0000-0000-000000000014",
+        trading_day="2026-06-13",
+        trigger="scheduled",
+        status="completed",
+        candidates_count=3,
+        orders_count=1,
+        positions_count=1,
+        review_id="00000000-0000-0000-0000-000000000012",
+        error_message=None,
+        started_at="2026-06-13T00:00:00Z",
+        finished_at="2026-06-13T00:01:00Z",
+    )
+    monkeypatch.setattr(mvp, "list_paper_runs", lambda session: [run], raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["runs"][0]["trigger"] == "scheduled"
+    assert payload["runs"][0]["status"] == "completed"
+    assert payload["runs"][0]["orders_count"] == 1
