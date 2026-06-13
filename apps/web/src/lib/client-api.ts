@@ -76,6 +76,12 @@ export type PaperOrderPayload = {
   fill_price: number | null;
   realized_pnl: number;
   rejection_reason: string | null;
+  core_order_id: string | null;
+  core_intent_id: string | null;
+  risk_status: string | null;
+  risk_code: string | null;
+  risk_reason: string | null;
+  state_history: Array<{ state: string; recorded_at: string; reason: string }>;
   submitted_at: string;
   filled_at: string | null;
 };
@@ -115,6 +121,14 @@ export type PaperTradingSummaryPayload = {
   orders: PaperOrderPayload[];
   positions: PaperPositionPayload[];
   latest_review: PaperReviewPayload | null;
+};
+
+export type PaperSchedulerStatusPayload = {
+  enabled: boolean;
+  running: boolean;
+  job_count: number;
+  cron: string;
+  timezone: string;
 };
 
 export type PaperOrderInputPayload = {
@@ -222,6 +236,14 @@ const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   orders: [],
   positions: [],
   latest_review: null
+};
+
+const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
+  cron: "30 6 * * *",
+  enabled: false,
+  job_count: 0,
+  running: false,
+  timezone: "Asia/Shanghai"
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1103,8 +1125,32 @@ function isPaperOrderPayload(value: unknown): value is PaperOrderPayload {
     (typeof value.fill_price === "number" || value.fill_price === null) &&
     typeof value.realized_pnl === "number" &&
     (typeof value.rejection_reason === "string" || value.rejection_reason === null) &&
+    (typeof value.core_order_id === "string" || value.core_order_id === null) &&
+    (typeof value.core_intent_id === "string" || value.core_intent_id === null) &&
+    (typeof value.risk_status === "string" || value.risk_status === null) &&
+    (typeof value.risk_code === "string" || value.risk_code === null) &&
+    (typeof value.risk_reason === "string" || value.risk_reason === null) &&
+    Array.isArray(value.state_history) &&
+    value.state_history.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.state === "string" &&
+        typeof item.recorded_at === "string" &&
+        typeof item.reason === "string"
+    ) &&
     typeof value.submitted_at === "string" &&
     (typeof value.filled_at === "string" || value.filled_at === null)
+  );
+}
+
+function isPaperSchedulerStatusPayload(value: unknown): value is PaperSchedulerStatusPayload {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === "boolean" &&
+    typeof value.running === "boolean" &&
+    typeof value.job_count === "number" &&
+    typeof value.cron === "string" &&
+    typeof value.timezone === "string"
   );
 }
 
@@ -1317,6 +1363,19 @@ export async function getPaperTradingSummary(): Promise<PaperTradingSummaryPaylo
     return isPaperTradingSummaryPayload(payload) ? payload : fallbackPaperTradingSummary;
   } catch {
     return fallbackPaperTradingSummary;
+  }
+}
+
+export async function getPaperSchedulerStatus(): Promise<PaperSchedulerStatusPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/scheduler`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperSchedulerStatus;
+    }
+    const payload: unknown = await response.json();
+    return isPaperSchedulerStatusPayload(payload) ? payload : fallbackPaperSchedulerStatus;
+  } catch {
+    return fallbackPaperSchedulerStatus;
   }
 }
 

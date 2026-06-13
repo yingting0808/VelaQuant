@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { Play, ShoppingCart } from "lucide-react";
 import {
+  getPaperSchedulerStatus,
   getPaperTradingSummary,
   runPaperTradingDailyLoop,
   submitPaperOrder,
   type PaperCandidatePayload,
+  type PaperSchedulerStatusPayload,
   type PaperTradingSummaryPayload
 } from "@/lib/client-api";
 
@@ -51,6 +53,7 @@ function readinessLabel(value: string | undefined): string {
 
 export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
+  const [scheduler, setScheduler] = useState<PaperSchedulerStatusPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isRunning, setIsRunning] = useState(false);
   const [orderingTicker, setOrderingTicker] = useState<string | null>(null);
@@ -63,11 +66,12 @@ export function PaperTradingWorkspace() {
 
   useEffect(() => {
     let active = true;
-    getPaperTradingSummary().then((payload) => {
+    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus()]).then(([payload, schedulerStatus]) => {
       if (!active) {
         return;
       }
       setSummary(payload);
+      setScheduler(schedulerStatus);
       setMessage("模拟盘已同步。");
     });
     return () => {
@@ -112,6 +116,7 @@ export function PaperTradingWorkspace() {
   const candidates = summary?.candidates ?? [];
   const orders = summary?.orders ?? [];
   const positions = summary?.positions ?? [];
+  const schedulerLabel = scheduler?.enabled ? (scheduler.running ? "运行中" : "已启用") : "未启用";
 
   return (
     <div className="module-view">
@@ -152,6 +157,30 @@ export function PaperTradingWorkspace() {
         <p className="workspace-message" aria-live="polite">
           {message}
         </p>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="每日调度">
+        <div className="panel-heading">
+          <div>
+            <h3>每日调度</h3>
+            <p>Docker API 使用 APScheduler 触发同一条模拟盘链路</p>
+          </div>
+          <span className={scheduler?.running ? "status-pill success" : "status-pill neutral"}>{schedulerLabel}</span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>CRON</span>
+            <strong>{scheduler?.cron ?? "30 6 * * *"}</strong>
+          </div>
+          <div>
+            <span>时区</span>
+            <strong>{scheduler?.timezone ?? "Asia/Shanghai"}</strong>
+          </div>
+          <div>
+            <span>任务数</span>
+            <strong>{scheduler?.job_count ?? 0}</strong>
+          </div>
+        </div>
       </section>
 
       <section className="data-panel workspace-panel" aria-label="候选池">
@@ -196,10 +225,10 @@ export function PaperTradingWorkspace() {
                       className="ghost-action"
                       type="button"
                       onClick={() => handleBuy(candidate)}
-                      disabled={orderingTicker === candidate.ticker}
+                      disabled={orderingTicker === candidate.ticker || candidate.status === "ordered"}
                     >
                       <ShoppingCart size={14} aria-hidden="true" />
-                      模拟买入 {candidate.ticker}
+                      {candidate.status === "ordered" ? "已模拟" : `模拟买入 ${candidate.ticker}`}
                     </button>
                   </td>
                 </tr>
@@ -234,6 +263,8 @@ export function PaperTradingWorkspace() {
                   成交价
                 </th>
                 <th scope="col">状态</th>
+                <th scope="col">风控</th>
+                <th scope="col">核心状态机</th>
               </tr>
             </thead>
             <tbody>
@@ -244,11 +275,28 @@ export function PaperTradingWorkspace() {
                   <td className="numeric">{formatNumber(order.quantity)}</td>
                   <td className="numeric">{order.fill_price === null ? "-" : formatCurrency(order.fill_price)}</td>
                   <td>{order.status}</td>
+                  <td>
+                    <strong>{order.risk_status ?? "legacy"}</strong>
+                    <p className="table-note">{order.risk_code ?? "未记录"}</p>
+                  </td>
+                  <td>
+                    <div className="state-chain">
+                      {order.state_history.length ? (
+                        order.state_history.map((item) => (
+                          <span className="state-token" key={`${order.id}-${item.state}-${item.recorded_at}`}>
+                            {item.state}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="state-token muted">未记录</span>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
               {!orders.length ? (
                 <tr>
-                  <td colSpan={5}>暂无模拟订单。</td>
+                  <td colSpan={7}>暂无模拟订单。</td>
                 </tr>
               ) : null}
             </tbody>

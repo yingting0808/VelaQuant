@@ -126,6 +126,18 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
         fill_price: 50,
         realized_pnl: 0,
         rejection_reason: null,
+        core_order_id: "core-order-nvda",
+        core_intent_id: "core-intent-nvda",
+        risk_status: "approved",
+        risk_code: "approved",
+        risk_reason: "Risk engine approved intent.",
+        state_history: [
+          { state: "new", recorded_at: "2026-06-13T00:01:00Z", reason: "Order created." },
+          { state: "validated", recorded_at: "2026-06-13T00:01:01Z", reason: "Intent passed execution payload validation." },
+          { state: "risk_approved", recorded_at: "2026-06-13T00:01:02Z", reason: "Risk engine approved intent." },
+          { state: "sent", recorded_at: "2026-06-13T00:01:03Z", reason: "Sent to mock execution adapter." },
+          { state: "filled", recorded_at: "2026-06-13T00:01:04Z", reason: "Synchronously filled by mock execution adapter." }
+        ],
         submitted_at: "2026-06-13T00:01:00Z",
         filled_at: "2026-06-13T00:01:00Z"
       }
@@ -161,6 +173,18 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     summary = filledSummary;
     await route.fulfill({ contentType: "application/json", json: filledSummary.orders[0] });
   });
+  await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        enabled: true,
+        running: true,
+        job_count: 1,
+        cron: "30 6 * * *",
+        timezone: "Asia/Shanghai"
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "模拟盘" }).click();
@@ -168,6 +192,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page).toHaveURL("/paper-trading");
   await expect(page.getByRole("heading", { level: 2, name: "模拟盘" })).toBeVisible();
   await expect(page.getByText("默认模拟盘")).toBeVisible();
+  await expect(page.getByRole("region", { name: "每日调度" }).getByText("运行中")).toBeVisible();
+  await expect(page.getByText("30 6 * * *")).toBeVisible();
 
   await page.getByRole("button", { name: "运行今日模拟" }).click();
 
@@ -178,7 +204,11 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.getByRole("button", { name: "模拟买入 NVDA" }).click();
 
   await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
-  await expect(page.getByRole("region", { name: "模拟订单" }).getByText("filled")).toBeVisible();
+  await expect(page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "filled", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "approved approved" })
+  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "模拟订单" }).getByText("risk_approved")).toBeVisible();
   await expect(page.getByRole("region", { name: "模拟持仓" }).getByText("NVDA", { exact: true })).toBeVisible();
 });
 
