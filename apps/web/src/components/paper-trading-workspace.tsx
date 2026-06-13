@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { Play, ShoppingCart } from "lucide-react";
 import {
   getPaperSchedulerStatus,
+  getPaperRuns,
   getPaperTradingSummary,
   runPaperTradingDailyLoop,
   submitPaperOrder,
   type PaperCandidatePayload,
+  type PaperRunPayload,
   type PaperSchedulerStatusPayload,
   type PaperTradingSummaryPayload
 } from "@/lib/client-api";
@@ -54,26 +56,31 @@ function readinessLabel(value: string | undefined): string {
 export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
   const [scheduler, setScheduler] = useState<PaperSchedulerStatusPayload | null>(null);
+  const [runs, setRuns] = useState<PaperRunPayload[]>([]);
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isRunning, setIsRunning] = useState(false);
   const [orderingTicker, setOrderingTicker] = useState<string | null>(null);
 
   async function refreshSummary(nextMessage?: string) {
-    const payload = await getPaperTradingSummary();
+    const [payload, runPayload] = await Promise.all([getPaperTradingSummary(), getPaperRuns()]);
     setSummary(payload);
+    setRuns(runPayload.runs);
     setMessage(nextMessage ?? "模拟盘已同步。");
   }
 
   useEffect(() => {
     let active = true;
-    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus()]).then(([payload, schedulerStatus]) => {
-      if (!active) {
-        return;
+    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus(), getPaperRuns()]).then(
+      ([payload, schedulerStatus, runPayload]) => {
+        if (!active) {
+          return;
+        }
+        setSummary(payload);
+        setScheduler(schedulerStatus);
+        setRuns(runPayload.runs);
+        setMessage("模拟盘已同步。");
       }
-      setSummary(payload);
-      setScheduler(schedulerStatus);
-      setMessage("模拟盘已同步。");
-    });
+    );
     return () => {
       active = false;
     };
@@ -84,7 +91,9 @@ export function PaperTradingWorkspace() {
     setMessage("正在运行今日模拟。");
     try {
       const payload = await runPaperTradingDailyLoop();
+      const runPayload = await getPaperRuns();
       setSummary(payload);
+      setRuns(runPayload.runs);
       setMessage("今日模拟已完成。");
     } finally {
       setIsRunning(false);
@@ -180,6 +189,60 @@ export function PaperTradingWorkspace() {
             <span>任务数</span>
             <strong>{scheduler?.job_count ?? 0}</strong>
           </div>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="运行账本">
+        <div className="panel-heading">
+          <div>
+            <h3>运行账本</h3>
+            <p>记录每日模拟是否执行、跳过或失败</p>
+          </div>
+          <span className="status-pill neutral">{runs.length} 条记录</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">交易日</th>
+                <th scope="col">触发</th>
+                <th scope="col">状态</th>
+                <th className="numeric" scope="col">
+                  候选
+                </th>
+                <th className="numeric" scope="col">
+                  订单
+                </th>
+                <th className="numeric" scope="col">
+                  持仓
+                </th>
+                <th scope="col">结果</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run) => (
+                <tr key={run.id}>
+                  <td>{run.trading_day}</td>
+                  <td>{run.trigger}</td>
+                  <td>
+                    <span className={`state-token run-${run.status}`}>{run.status}</span>
+                  </td>
+                  <td className="numeric">{run.candidates_count}</td>
+                  <td className="numeric">订单 {run.orders_count}</td>
+                  <td className="numeric">{run.positions_count}</td>
+                  <td>
+                    <strong>{run.error_message ?? (run.review_id ? "已关联复盘" : "未生成复盘")}</strong>
+                    <p className="table-note">{run.finished_at ?? run.started_at}</p>
+                  </td>
+                </tr>
+              ))}
+              {!runs.length ? (
+                <tr>
+                  <td colSpan={7}>暂无运行记录。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </section>
 

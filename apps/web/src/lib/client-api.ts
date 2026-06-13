@@ -131,6 +131,24 @@ export type PaperSchedulerStatusPayload = {
   timezone: string;
 };
 
+export type PaperRunPayload = {
+  id: string;
+  trading_day: string;
+  trigger: string;
+  status: string;
+  candidates_count: number;
+  orders_count: number;
+  positions_count: number;
+  review_id: string | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type PaperRunsPayload = {
+  runs: PaperRunPayload[];
+};
+
 export type PaperOrderInputPayload = {
   ticker: string;
   side: "buy" | "sell";
@@ -244,6 +262,10 @@ const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
   job_count: 0,
   running: false,
   timezone: "Asia/Shanghai"
+};
+
+const fallbackPaperRuns: PaperRunsPayload = {
+  runs: []
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1154,6 +1176,27 @@ function isPaperSchedulerStatusPayload(value: unknown): value is PaperSchedulerS
   );
 }
 
+function isPaperRunPayload(value: unknown): value is PaperRunPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.trigger === "string" &&
+    typeof value.status === "string" &&
+    typeof value.candidates_count === "number" &&
+    typeof value.orders_count === "number" &&
+    typeof value.positions_count === "number" &&
+    (typeof value.review_id === "string" || value.review_id === null) &&
+    (typeof value.error_message === "string" || value.error_message === null) &&
+    typeof value.started_at === "string" &&
+    (typeof value.finished_at === "string" || value.finished_at === null)
+  );
+}
+
+function isPaperRunsPayload(value: unknown): value is PaperRunsPayload {
+  return isRecord(value) && Array.isArray(value.runs) && value.runs.every(isPaperRunPayload);
+}
+
 function isPaperPositionPayload(value: unknown): value is PaperPositionPayload {
   return (
     isRecord(value) &&
@@ -1376,6 +1419,19 @@ export async function getPaperSchedulerStatus(): Promise<PaperSchedulerStatusPay
     return isPaperSchedulerStatusPayload(payload) ? payload : fallbackPaperSchedulerStatus;
   } catch {
     return fallbackPaperSchedulerStatus;
+  }
+}
+
+export async function getPaperRuns(): Promise<PaperRunsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/runs`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperRuns;
+    }
+    const payload: unknown = await response.json();
+    return isPaperRunsPayload(payload) ? payload : fallbackPaperRuns;
+  } catch {
+    return fallbackPaperRuns;
   }
 }
 

@@ -185,6 +185,28 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       }
     });
   });
+  await page.route("**/api/mvp/paper-trading/runs", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        runs: [
+          {
+            id: "paper-run-today",
+            trading_day: "2026-06-13",
+            trigger: "manual",
+            status: "skipped",
+            candidates_count: 3,
+            orders_count: 1,
+            positions_count: 1,
+            review_id: "paper-review",
+            error_message: null,
+            started_at: "2026-06-13T00:02:00Z",
+            finished_at: "2026-06-13T00:02:03Z"
+          }
+        ]
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "模拟盘" }).click();
@@ -194,6 +216,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByText("默认模拟盘")).toBeVisible();
   await expect(page.getByRole("region", { name: "每日调度" }).getByText("运行中")).toBeVisible();
   await expect(page.getByText("30 6 * * *")).toBeVisible();
+  await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
+  await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
+  await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();
 
   await page.getByRole("button", { name: "运行今日模拟" }).click();
 
