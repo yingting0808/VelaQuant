@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
@@ -26,16 +27,24 @@ from app.domain.models import (
     utc_now,
 )
 from app.services.workspace import get_or_create_default_workspace
+from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic
+from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
 from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState
 from app.trading_core.portfolio import PortfolioPosition, PortfolioState
 from app.trading_core.risk import RiskEngine, RiskLimits
-from app.trading_core.strategy import TradeIntent, TradeIntentSide
+from app.trading_core.strategy import DeterministicWatchlistStrategy, TradeIntent, TradeIntentSide
 
 
 DEFAULT_ACCOUNT_NAME = "默认模拟盘"
 DEFAULT_STARTING_CASH = 100000.0
 DEFAULT_CANDIDATE_NOTIONAL = 2000.0
 DEFAULT_DAILY_AUTO_ORDER_LIMIT = 1
+
+
+@dataclass(frozen=True)
+class CoreEventContext:
+    correlation_id: UUID
+    trade_intent_event_id: UUID
 
 
 class PaperAccountPayload(BaseModel):
@@ -189,9 +198,9 @@ def run_daily_paper_trading_loop(
             session.refresh(account)
             return _summary_payload(session, account)
 
-        _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
+        core_contexts = _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider, run.id)
         session.flush()
-        _auto_submit_candidate_orders(session, provider, account, run.id)
+        _auto_submit_candidate_orders(session, provider, account, run.id, core_contexts)
         session.refresh(account)
         _mark_positions_to_market(session, account, provider)
         review = _create_review(session, account)
@@ -236,6 +245,7 @@ def submit_paper_order(
     provider: MarketDataProvider,
     data: PaperOrderCreate,
     run_id: UUID | None = None,
+    core_context: CoreEventContext | None = None,
 ) -> PaperOrderPayload:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
@@ -255,7 +265,7 @@ def submit_paper_order(
             rejection_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else "Trading Core rejected order.",
         )
         session.add(order)
-        _persist_core_order_events(session, workspace.team.id, core_order, run_id)
+        _persist_core_order_events(session, workspace.team.id, core_order, run_id, core_context)
         account.updated_at = utc_now()
         session.commit()
         session.refresh(order)
@@ -312,7 +322,7 @@ def submit_paper_order(
         filled_at=filled_at,
     )
     session.add(order)
-    _persist_core_order_events(session, workspace.team.id, core_order, run_id)
+    _persist_core_order_events(session, workspace.team.id, core_order, run_id, core_context)
     session.commit()
     session.refresh(order)
     return _order_payload(order)
@@ -396,7 +406,8 @@ def _generate_candidates(
     portfolio_id: UUID,
     account: PaperAccount,
     provider: MarketDataProvider,
-) -> None:
+    run_id: UUID,
+) -> dict[UUID, CoreEventContext]:
     for candidate in session.exec(
         select(PaperCandidate).where(
             PaperCandidate.team_id == team_id,
@@ -413,35 +424,81 @@ def _generate_candidates(
         item.ticker
         for item in session.exec(select(WatchlistItem).where(WatchlistItem.team_id == team_id)).all()
     }
-    ranked: list[tuple[float, PaperCandidate]] = []
+    all_tickers = sorted(portfolio_tickers | watchlist_tickers)
+    strategy = DeterministicWatchlistStrategy(
+        watchlist=all_tickers,
+        notional=min(DEFAULT_CANDIDATE_NOTIONAL, max(account.cash * 0.02, 0)),
+    )
+    portfolio_state = _paper_portfolio_state(session, account)
+    event_bus = InMemoryEventBus()
+    ranked: list[tuple[float, str, PaperCandidate, CoreEventContext]] = []
 
-    for ticker in sorted(portfolio_tickers | watchlist_tickers):
+    for ticker in all_tickers:
         quote = provider.get_quote(ticker)
         if quote.price is None or quote.price <= 0:
             continue
         evidence = provider.get_research_evidence(ticker)
         evidence_count = len(evidence)
         diversification_bonus = 0.15 if ticker not in portfolio_tickers else 0.0
-        score = evidence_count * 0.2 + diversification_bonus + 0.1
-        confidence = round(min(0.95, 0.45 + score), 2)
-        proposed_quantity = max(1, int(min(DEFAULT_CANDIDATE_NOTIONAL, account.cash * 0.02) // quote.price))
+        score = _candidate_score(evidence_count, diversification_bonus)
+        event = _market_event_from_evidence(
+            ticker=ticker,
+            quote_price=float(quote.price),
+            evidence_count=evidence_count,
+            diversification_bonus=diversification_bonus,
+        )
+        market_envelope = event_bus.publish(TradingEventTopic.market_event, event)
+        strategy_input_envelope = event_bus.publish(
+            TradingEventTopic.strategy_input,
+            StrategyInputEvent(market_event=event, portfolio=portfolio_state),
+            causation_id=market_envelope.event_id,
+            correlation_id=market_envelope.correlation_id,
+        )
+        intents = strategy.generate_intents(event, portfolio_state)
+        if not intents:
+            continue
+        intent = intents[0]
+        trade_intent_envelope = event_bus.publish(
+            TradingEventTopic.trade_intent,
+            intent,
+            causation_id=strategy_input_envelope.event_id,
+            correlation_id=strategy_input_envelope.correlation_id,
+        )
+        proposed_quantity = max(1, int(intent.notional // quote.price))
         evidence_summary = _evidence_summary(ticker, evidence_count)
         candidate = PaperCandidate(
             team_id=team_id,
             ticker=ticker,
             action=PaperOrderSide.buy,
             rank=0,
-            confidence=confidence,
-            thesis=f"{ticker} 候选买入：{evidence_summary}，按小额名义本金先进入模拟观察。",
+            confidence=event.confidence,
+            thesis=f"{intent.reason} {evidence_summary}，按小额名义本金先进入模拟观察。",
             risk_notes="风险：行情波动、估值压缩、证据过期；模拟结果不能直接代表实盘。",
             evidence_summary=evidence_summary,
             proposed_quantity=float(proposed_quantity),
         )
-        ranked.append((score, candidate))
+        ranked.append(
+            (
+                score,
+                ticker,
+                candidate,
+                CoreEventContext(
+                    correlation_id=trade_intent_envelope.correlation_id,
+                    trade_intent_event_id=trade_intent_envelope.event_id,
+                ),
+            )
+        )
 
-    for index, (_score, candidate) in enumerate(sorted(ranked, key=lambda item: item[0], reverse=True), start=1):
+    contexts: dict[UUID, CoreEventContext] = {}
+    for index, (_score, _ticker, candidate, context) in enumerate(
+        sorted(ranked, key=lambda item: (-item[0], item[1])),
+        start=1,
+    ):
         candidate.rank = index
         session.add(candidate)
+        contexts[candidate.id] = context
+    _persist_core_event_envelopes(session, team_id, event_bus.history, run_id=run_id)
+    return contexts
 
 
 def _auto_submit_candidate_orders(
@@ -449,6 +506,7 @@ def _auto_submit_candidate_orders(
     provider: MarketDataProvider,
     account: PaperAccount,
     run_id: UUID | None = None,
+    core_contexts: dict[UUID, CoreEventContext] | None = None,
 ) -> None:
     candidates = list(
         session.exec(
@@ -472,6 +530,7 @@ def _auto_submit_candidate_orders(
                 quantity=candidate.proposed_quantity,
             ),
             run_id=run_id,
+            core_context=(core_contexts or {}).get(candidate.id),
         )
         if order.status == PaperOrderStatus.filled.value:
             candidate.status = PaperCandidateStatus.ordered
@@ -596,6 +655,35 @@ def _orders_today(session: Session, account: PaperAccount) -> int:
     )
 
 
+def _candidate_score(evidence_count: int, diversification_bonus: float) -> float:
+    return evidence_count * 0.2 + diversification_bonus + 0.1
+
+
+def _market_event_from_evidence(
+    ticker: str,
+    quote_price: float,
+    evidence_count: int,
+    diversification_bonus: float,
+) -> MarketEvent:
+    score = _candidate_score(evidence_count, diversification_bonus)
+    sentiment = Sentiment.positive if evidence_count > 0 else Sentiment.neutral
+    return MarketEvent(
+        source=EventSource.ai_structured,
+        event_type=MarketEventType.news,
+        ticker=ticker,
+        occurred_at=utc_now(),
+        summary=_evidence_summary(ticker, evidence_count),
+        sentiment=sentiment,
+        confidence=round(min(0.95, 0.45 + score), 2),
+        impact_score=round(min(0.9, 0.35 + evidence_count * 0.15 + diversification_bonus), 2),
+        metadata={
+            "evidence_count": evidence_count,
+            "quote_price": round(quote_price, 6),
+            "diversification_bonus": round(diversification_bonus, 4),
+        },
+    )
+
+
 def _paper_risk_limits() -> RiskLimits:
     return RiskLimits(
         max_order_notional=DEFAULT_CANDIDATE_NOTIONAL,
@@ -656,8 +744,15 @@ def _persist_core_order_events(
     team_id: UUID,
     core_order: CoreOrder,
     run_id: UUID | None,
+    core_context: CoreEventContext | None = None,
 ) -> None:
-    for sequence, record in enumerate(core_order.state_history, start=1):
+    sequence_start = _next_core_event_sequence(session, run_id)
+    correlation_id = str(core_context.correlation_id) if core_context is not None else str(core_order.order_id)
+    causation_id = (
+        str(core_context.trade_intent_event_id) if core_context is not None else str(core_order.intent.intent_id)
+    )
+    for offset, record in enumerate(core_order.state_history):
+        sequence = sequence_start + offset
         payload = {
             "order_id": str(core_order.order_id),
             "intent_id": str(core_order.intent.intent_id),
@@ -670,15 +765,50 @@ def _persist_core_order_events(
             CoreEventLog(
                 team_id=team_id,
                 run_id=run_id,
-                event_id=f"{core_order.order_id}:{sequence}:{record.state.value}",
+                event_id=f"{correlation_id}:{sequence}:{record.state.value}",
                 topic="order_state",
                 sequence=sequence,
-                correlation_id=str(core_order.order_id),
-                causation_id=str(core_order.intent.intent_id),
+                correlation_id=correlation_id,
+                causation_id=causation_id,
                 payload_json=json.dumps(payload),
                 published_at=record.recorded_at,
             )
         )
+
+
+def _persist_core_event_envelopes(
+    session: Session,
+    team_id: UUID,
+    envelopes: list[EventEnvelope],
+    run_id: UUID | None,
+) -> None:
+    for envelope in envelopes:
+        session.add(
+            CoreEventLog(
+                team_id=team_id,
+                run_id=run_id,
+                event_id=str(envelope.event_id),
+                topic=envelope.topic.value,
+                sequence=envelope.sequence,
+                correlation_id=str(envelope.correlation_id),
+                causation_id=str(envelope.causation_id) if envelope.causation_id is not None else None,
+                payload_json=envelope.payload.model_dump_json(),
+                published_at=envelope.published_at,
+            )
+        )
+
+
+def _next_core_event_sequence(session: Session, run_id: UUID | None) -> int:
+    if run_id is None:
+        return 1
+    latest = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.run_id == run_id)
+        .order_by(CoreEventLog.sequence.desc())
+    ).first()
+    if latest is None:
+        return 1
+    return latest.sequence + 1
 
 
 def _summary_payload(session: Session, account: PaperAccount) -> PaperTradingSummary:

@@ -163,15 +163,54 @@ def test_daily_run_persists_core_order_state_events_for_run():
         assert len({event.correlation_id for event in events}) == 1
 
 
+def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
+        run = session.exec(select(PaperRun)).one()
+
+        events = list_paper_run_events(session, run.id)
+        order_correlations = {
+            event.correlation_id
+            for event in events
+            if event.topic == "order_state"
+        }
+        selected_chain = [
+            event
+            for event in events
+            if event.correlation_id in order_correlations
+        ]
+
+        assert [event.topic for event in selected_chain] == [
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+        ]
+        market_payload = json.loads(selected_chain[0].payload_json)
+        assert market_payload["ticker"] == summary.orders[0].ticker
+        assert "action" not in market_payload
+        assert "quantity" not in market_payload
+
+        trade_intent_payload = json.loads(selected_chain[2].payload_json)
+        ordered_candidate = next(candidate for candidate in summary.candidates if candidate.status == "ordered")
+        assert trade_intent_payload["reason"] in ordered_candidate.thesis
+        assert trade_intent_payload["ticker"] == ordered_candidate.ticker
+
+
 def test_list_paper_run_events_returns_persisted_core_events():
     with make_session() as session:
         run_daily_paper_trading_loop(session, FixtureProvider())
         run = session.exec(select(PaperRun)).one()
 
         events = list_paper_run_events(session, run.id)
+        order_events = [event for event in events if event.topic == "order_state"]
 
-        assert [event.topic for event in events] == ["order_state"] * 5
-        assert [json.loads(event.payload_json)["state"] for event in events] == [
+        assert [event.topic for event in order_events] == ["order_state"] * 5
+        assert [json.loads(event.payload_json)["state"] for event in order_events] == [
             "new",
             "validated",
             "risk_approved",
