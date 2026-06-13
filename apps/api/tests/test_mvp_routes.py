@@ -864,3 +864,29 @@ def test_mvp_paper_trading_runs_route_returns_recent_runs(monkeypatch):
     assert payload["runs"][0]["trigger"] == "scheduled"
     assert payload["runs"][0]["status"] == "completed"
     assert payload["runs"][0]["orders_count"] == 1
+
+
+def test_mvp_paper_trading_run_events_route_returns_core_events(monkeypatch):
+    class EventPayload:
+        def model_dump(self):
+            return {
+                "id": "00000000-0000-0000-0000-000000000015",
+                "run_id": "00000000-0000-0000-0000-000000000014",
+                "event_id": "core-order:1:new",
+                "topic": "order_state",
+                "sequence": 1,
+                "correlation_id": "core-order",
+                "causation_id": "core-intent",
+                "payload_json": '{"state":"new"}',
+                "published_at": "2026-06-13T00:00:00Z",
+            }
+
+    monkeypatch.setattr(mvp, "list_paper_run_events", lambda session, run_id: [EventPayload()], raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/runs/00000000-0000-0000-0000-000000000014/events")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["events"][0]["topic"] == "order_state"
+    assert payload["events"][0]["payload_json"] == '{"state":"new"}'

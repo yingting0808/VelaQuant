@@ -1,4 +1,5 @@
 import pytest
+import json
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
@@ -10,10 +11,11 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
-from app.domain.models import PaperOrder, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
+from app.domain.models import CoreEventLog, PaperOrder, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
+    list_paper_run_events,
     list_paper_runs,
     run_daily_paper_trading_loop,
     submit_paper_order,
@@ -135,6 +137,47 @@ def test_daily_run_creates_account_candidates_and_review():
         assert runs[0].orders_count == len(summary.orders)
         assert runs[0].review_id == summary.latest_review.id
         assert runs[0].finished_at is not None
+
+
+def test_daily_run_persists_core_order_state_events_for_run():
+    with make_session() as session:
+        run_daily_paper_trading_loop(session, FixtureProvider())
+
+        run = session.exec(select(PaperRun)).one()
+        events = list(
+            session.exec(
+                select(CoreEventLog)
+                .where(CoreEventLog.run_id == run.id, CoreEventLog.topic == "order_state")
+                .order_by(CoreEventLog.sequence)
+            ).all()
+        )
+
+        assert [json.loads(event.payload_json)["state"] for event in events] == [
+            "new",
+            "validated",
+            "risk_approved",
+            "sent",
+            "filled",
+        ]
+        assert all(event.team_id == run.team_id for event in events)
+        assert len({event.correlation_id for event in events}) == 1
+
+
+def test_list_paper_run_events_returns_persisted_core_events():
+    with make_session() as session:
+        run_daily_paper_trading_loop(session, FixtureProvider())
+        run = session.exec(select(PaperRun)).one()
+
+        events = list_paper_run_events(session, run.id)
+
+        assert [event.topic for event in events] == ["order_state"] * 5
+        assert [json.loads(event.payload_json)["state"] for event in events] == [
+            "new",
+            "validated",
+            "risk_approved",
+            "sent",
+            "filled",
+        ]
 
 
 def test_daily_run_is_idempotent_for_current_trading_day():

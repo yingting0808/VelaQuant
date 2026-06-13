@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
@@ -21,6 +22,7 @@ from app.services.lean_backtest import (
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
+    list_paper_run_events,
     list_paper_runs,
     run_daily_paper_trading_loop,
     submit_paper_order,
@@ -260,6 +262,11 @@ def paper_trading_scheduler_status() -> dict:
 @router.get("/paper-trading/runs")
 def paper_trading_runs(session: Session = Depends(get_session)) -> dict:
     return {"runs": [run.model_dump() for run in list_paper_runs(session)]}
+
+
+@router.get("/paper-trading/runs/{run_id}/events")
+def paper_trading_run_events(run_id: UUID, session: Session = Depends(get_session)) -> dict:
+    return {"events": [event.model_dump() for event in list_paper_run_events(session, run_id)]}
 
 
 @router.post("/trading-core/dry-run")

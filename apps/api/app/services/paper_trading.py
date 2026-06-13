@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from app.data.providers.base import MarketDataProvider
 from app.domain.models import (
+    CoreEventLog,
     PaperAccount,
     PaperCandidate,
     PaperCandidateStatus,
@@ -141,6 +142,18 @@ class PaperRunPayload(BaseModel):
     finished_at: datetime | None
 
 
+class CoreEventLogPayload(BaseModel):
+    id: UUID
+    run_id: UUID | None
+    event_id: str
+    topic: str
+    sequence: int
+    correlation_id: str
+    causation_id: str | None
+    payload_json: str
+    published_at: datetime
+
+
 class PaperTradingSummary(BaseModel):
     account: PaperAccountPayload
     candidates: list[PaperCandidatePayload]
@@ -178,7 +191,7 @@ def run_daily_paper_trading_loop(
 
         _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
         session.flush()
-        _auto_submit_candidate_orders(session, provider, account)
+        _auto_submit_candidate_orders(session, provider, account, run.id)
         session.refresh(account)
         _mark_positions_to_market(session, account, provider)
         review = _create_review(session, account)
@@ -207,10 +220,22 @@ def list_paper_runs(session: Session, limit: int = 20) -> list[PaperRunPayload]:
     return [_run_payload(run) for run in runs]
 
 
+def list_paper_run_events(session: Session, run_id: UUID) -> list[CoreEventLogPayload]:
+    events = list(
+        session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.run_id == run_id)
+            .order_by(CoreEventLog.sequence)
+        ).all()
+    )
+    return [_core_event_payload(event) for event in events]
+
+
 def submit_paper_order(
     session: Session,
     provider: MarketDataProvider,
     data: PaperOrderCreate,
+    run_id: UUID | None = None,
 ) -> PaperOrderPayload:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
@@ -230,6 +255,7 @@ def submit_paper_order(
             rejection_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else "Trading Core rejected order.",
         )
         session.add(order)
+        _persist_core_order_events(session, workspace.team.id, core_order, run_id)
         account.updated_at = utc_now()
         session.commit()
         session.refresh(order)
@@ -286,6 +312,7 @@ def submit_paper_order(
         filled_at=filled_at,
     )
     session.add(order)
+    _persist_core_order_events(session, workspace.team.id, core_order, run_id)
     session.commit()
     session.refresh(order)
     return _order_payload(order)
@@ -421,6 +448,7 @@ def _auto_submit_candidate_orders(
     session: Session,
     provider: MarketDataProvider,
     account: PaperAccount,
+    run_id: UUID | None = None,
 ) -> None:
     candidates = list(
         session.exec(
@@ -443,6 +471,7 @@ def _auto_submit_candidate_orders(
                 side=candidate.action.value,
                 quantity=candidate.proposed_quantity,
             ),
+            run_id=run_id,
         )
         if order.status == PaperOrderStatus.filled.value:
             candidate.status = PaperCandidateStatus.ordered
@@ -622,6 +651,36 @@ def _state_history_json(core_order: CoreOrder) -> str:
     return json.dumps([record.model_dump(mode="json") for record in core_order.state_history])
 
 
+def _persist_core_order_events(
+    session: Session,
+    team_id: UUID,
+    core_order: CoreOrder,
+    run_id: UUID | None,
+) -> None:
+    for sequence, record in enumerate(core_order.state_history, start=1):
+        payload = {
+            "order_id": str(core_order.order_id),
+            "intent_id": str(core_order.intent.intent_id),
+            "ticker": core_order.intent.ticker,
+            "state": record.state.value,
+            "recorded_at": record.recorded_at.isoformat(),
+            "reason": record.reason,
+        }
+        session.add(
+            CoreEventLog(
+                team_id=team_id,
+                run_id=run_id,
+                event_id=f"{core_order.order_id}:{sequence}:{record.state.value}",
+                topic="order_state",
+                sequence=sequence,
+                correlation_id=str(core_order.order_id),
+                causation_id=str(core_order.intent.intent_id),
+                payload_json=json.dumps(payload),
+                published_at=record.recorded_at,
+            )
+        )
+
+
 def _summary_payload(session: Session, account: PaperAccount) -> PaperTradingSummary:
     positions = _positions(session, account)
     unrealized = round(sum(position.unrealized_pnl for position in positions), 2)
@@ -754,6 +813,20 @@ def _run_payload(run: PaperRun) -> PaperRunPayload:
         error_message=run.error_message,
         started_at=run.started_at,
         finished_at=run.finished_at,
+    )
+
+
+def _core_event_payload(event: CoreEventLog) -> CoreEventLogPayload:
+    return CoreEventLogPayload(
+        id=event.id,
+        run_id=event.run_id,
+        event_id=event.event_id,
+        topic=event.topic,
+        sequence=event.sequence,
+        correlation_id=event.correlation_id,
+        causation_id=event.causation_id,
+        payload_json=event.payload_json,
+        published_at=event.published_at,
     )
 
 
