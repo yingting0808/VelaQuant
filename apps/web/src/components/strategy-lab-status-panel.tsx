@@ -5,10 +5,12 @@ import {
   getStrategyAttribution,
   getStrategyEvaluation,
   getStrategyLabStatus,
+  getStrategyLifecycle,
   getStrategyRegistry,
   type StrategyAttributionPayload,
   type StrategyEvaluationPayload,
   type StrategyLabStatusPayload,
+  type StrategyLifecyclePayload,
   type StrategyRegistryPayload
 } from "@/lib/client-api";
 
@@ -17,19 +19,25 @@ export function StrategyLabStatusPanel() {
   const [evaluation, setEvaluation] = useState<StrategyEvaluationPayload | null>(null);
   const [attribution, setAttribution] = useState<StrategyAttributionPayload | null>(null);
   const [registry, setRegistry] = useState<StrategyRegistryPayload | null>(null);
+  const [lifecycle, setLifecycle] = useState<StrategyLifecyclePayload | null>(null);
 
   useEffect(() => {
     let active = true;
-    Promise.all([getStrategyLabStatus(), getStrategyEvaluation(), getStrategyAttribution(), getStrategyRegistry()]).then(
-      ([statusPayload, evaluationPayload, attributionPayload, registryPayload]) => {
+    Promise.all([
+      getStrategyLabStatus(),
+      getStrategyEvaluation(),
+      getStrategyAttribution(),
+      getStrategyRegistry(),
+      getStrategyLifecycle()
+    ]).then(([statusPayload, evaluationPayload, attributionPayload, registryPayload, lifecyclePayload]) => {
         if (active) {
           setStatus(statusPayload);
           setEvaluation(evaluationPayload);
           setAttribution(attributionPayload);
           setRegistry(registryPayload);
+          setLifecycle(lifecyclePayload);
         }
-      }
-    );
+      });
     return () => {
       active = false;
     };
@@ -39,6 +47,7 @@ export function StrategyLabStatusPanel() {
   const readiness = evaluation?.readiness ?? "insufficient_sample";
   const activeRegistryEntry = registry?.entries.find((item) => item.strategy_id === registry.active_strategy_id) ?? null;
   const registryEntries = registry?.entries.slice(0, 4) ?? [];
+  const lifecycleRules = lifecycle?.rules.slice(0, 5) ?? [];
   const topTicker = attribution?.ticker_diagnostics[0] ?? null;
   const volatilityComponent =
     attribution?.expectancy_decomposition.components.find((item) => item.name === "volatility_component") ?? null;
@@ -128,6 +137,61 @@ export function StrategyLabStatusPanel() {
             <span className={activeRegistryEntry?.supports_live ? "state-ok" : "state-warn"}>
               {activeRegistryEntry?.supports_live ? "可实盘" : "实盘关闭"}
             </span>
+          </article>
+        </div>
+      </section>
+
+      <section className="data-panel status-panel" aria-label="策略生命周期">
+        <div className="panel-heading">
+          <div>
+            <h3>策略生命周期</h3>
+            <p>{lifecycle?.summary ?? "正在读取生命周期门禁。"}</p>
+          </div>
+          <span className={lifecycle?.gate_status === "eligible" ? "status-pill success" : "status-pill warning"}>
+            {lifecycle?.gate_status ?? "watch"}
+          </span>
+        </div>
+
+        <div className="module-list compact-list">
+          <article className="module-row">
+            <div>
+              <strong>
+                {lifecycle?.current_stage ?? "paper"} → {lifecycle?.recommended_stage ?? "paper"}
+              </strong>
+              <p>{lifecycle?.recommended_action ?? "continue_collecting_samples"}</p>
+            </div>
+            <span className={lifecycle?.can_promote ? "state-ok" : "state-warn"}>
+              {lifecycle?.can_promote ? "可复核晋级" : "禁止晋级"}
+            </span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>自动动作 {lifecycle?.auto_actions_enabled ? "开启" : "关闭"}</strong>
+              <p>{lifecycle?.promotion_gate ?? "blocked"}</p>
+            </div>
+            <span className={lifecycle?.can_kill ? "state-warn" : "state-ok"}>
+              {lifecycle?.can_kill ? "淘汰复核" : "继续观察"}
+            </span>
+          </article>
+          {lifecycleRules.map((rule) => (
+            <article className="module-row" key={rule.name}>
+              <div>
+                <strong>
+                  {rule.passed ? "通过" : "阻断"} {rule.name}
+                </strong>
+                <p>
+                  {rule.actual} / {rule.required}
+                </p>
+              </div>
+              <span className={rule.passed ? "state-ok" : "state-warn"}>{rule.severity}</span>
+            </article>
+          ))}
+          <article className="module-row">
+            <div>
+              <strong>生命周期缺口 {lifecycle?.missing_capabilities.length ?? 0}</strong>
+              <p>{(lifecycle?.missing_capabilities ?? []).slice(0, 2).join(" / ") || "等待 Lifecycle 数据。"}</p>
+            </div>
+            <span className="state-warn">只读</span>
           </article>
         </div>
       </section>

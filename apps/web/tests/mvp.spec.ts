@@ -592,6 +592,57 @@ test("strategy lab renders readiness status", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/strategy-lab/lifecycle", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategy_id: "deterministic_watchlist_v1",
+        strategy_name: "Deterministic Watchlist Strategy",
+        current_stage: "paper",
+        recommended_stage: "paper",
+        recommended_action: "keep_paper_running",
+        gate_status: "watch",
+        promotion_gate: "keep_paper_running",
+        can_promote: false,
+        can_kill: false,
+        auto_actions_enabled: false,
+        rules: [
+          {
+            name: "minimum_filled_orders",
+            passed: false,
+            severity: "blocker",
+            actual: "21 filled orders",
+            required: ">= 30 filled orders",
+            message: "More filled orders required."
+          },
+          {
+            name: "event_ledger_populated",
+            passed: true,
+            severity: "blocker",
+            actual: "80 events",
+            required: "> 0 events",
+            message: "Event ledger is populated."
+          },
+          {
+            name: "closed_trade_sample",
+            passed: false,
+            severity: "blocker",
+            actual: "5 closed trades",
+            required: ">= 10 closed trades",
+            message: "More closed trades required."
+          }
+        ],
+        missing_capabilities: [
+          "lifecycle_state_persistence",
+          "manual_promotion_approval",
+          "shadow_account_adapter",
+          "live_small_account_adapter",
+          "kill_switch_audit_trail"
+        ],
+        summary: "Positive expectancy is emerging, but paper-stage gates still need more evidence."
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "策略实验室" }).click();
@@ -622,6 +673,15 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(registryPanel.getByText("moving_average_cross · lean_catalog · backtest")).toBeVisible();
   await expect(registryPanel.getByText("控制缺口 5")).toBeVisible();
   await expect(registryPanel.getByText("实盘关闭")).toBeVisible();
+  const lifecyclePanel = page.getByRole("region", { name: "策略生命周期" });
+  await expect(lifecyclePanel.getByText("watch", { exact: true })).toBeVisible();
+  await expect(lifecyclePanel.getByText("paper → paper")).toBeVisible();
+  await expect(lifecyclePanel.getByText("keep_paper_running").first()).toBeVisible();
+  await expect(lifecyclePanel.getByText("自动动作 关闭")).toBeVisible();
+  await expect(lifecyclePanel.getByText("禁止晋级")).toBeVisible();
+  await expect(lifecyclePanel.getByText("通过 event_ledger_populated")).toBeVisible();
+  await expect(lifecyclePanel.getByText("阻断 closed_trade_sample")).toBeVisible();
+  await expect(lifecyclePanel.getByText("生命周期缺口 5")).toBeVisible();
   const attributionPanel = page.getByRole("region", { name: "归因分析" });
   await expect(attributionPanel.getByText("drawdown_pressure")).toBeVisible();
   await expect(attributionPanel.getByText("可行动信号 50.00%")).toBeVisible();

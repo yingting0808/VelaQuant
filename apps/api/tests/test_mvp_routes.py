@@ -35,6 +35,7 @@ from app.services.strategy_attribution import (
     TickerSignalAttribution,
 )
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
+from app.services.strategy_lifecycle import StrategyLifecyclePayload, StrategyLifecycleRule
 from app.services.strategy_registry import StrategyRegistryEntry, StrategyRegistryPayload
 from app.services.workspace import (
     NoteCreate,
@@ -395,6 +396,47 @@ def test_mvp_strategy_lab_registry_route_returns_strategy_control_plane(monkeypa
     assert payload["entries"][0]["supports_live"] is False
     assert payload["missing_capabilities"] == ["automatic_lifecycle_actions"]
     assert captured["provider"] is not None
+
+
+def test_mvp_strategy_lab_lifecycle_route_returns_stage_gate(monkeypatch):
+    lifecycle_payload = StrategyLifecyclePayload(
+        strategy_id="deterministic_watchlist_v1",
+        strategy_name="Deterministic Watchlist Strategy",
+        current_stage="paper",
+        recommended_stage="shadow_candidate",
+        recommended_action="eligible_for_shadow_review",
+        gate_status="eligible",
+        promotion_gate="eligible_for_shadow",
+        can_promote=True,
+        can_kill=False,
+        auto_actions_enabled=False,
+        rules=[
+            StrategyLifecycleRule(
+                name="event_ledger_populated",
+                passed=True,
+                severity="blocker",
+                actual="120 events",
+                required="> 0 events",
+                message="Event ledger is populated.",
+            )
+        ],
+        missing_capabilities=["manual_promotion_approval"],
+        summary="Eligible for manual review.",
+    )
+
+    monkeypatch.setattr(mvp, "get_strategy_lifecycle", lambda session: lifecycle_payload, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/lifecycle")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_stage"] == "paper"
+    assert payload["recommended_stage"] == "shadow_candidate"
+    assert payload["recommended_action"] == "eligible_for_shadow_review"
+    assert payload["can_promote"] is True
+    assert payload["auto_actions_enabled"] is False
+    assert payload["rules"][0]["name"] == "event_ledger_populated"
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):

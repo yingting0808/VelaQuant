@@ -175,6 +175,36 @@ export type StrategyRegistryPayload = {
   summary: string;
 };
 
+export type StrategyLifecycleRulePayload = {
+  name: string;
+  passed: boolean;
+  severity: "blocker" | "warning" | "info";
+  actual: string;
+  required: string;
+  message: string;
+};
+
+export type StrategyLifecyclePayload = {
+  strategy_id: string;
+  strategy_name: string;
+  current_stage: "paper" | "shadow_candidate" | "shadow" | "live_small" | "live" | "killed";
+  recommended_stage: "paper" | "shadow_candidate" | "shadow" | "live_small" | "live" | "killed";
+  recommended_action:
+    | "continue_collecting_samples"
+    | "keep_paper_running"
+    | "eligible_for_shadow_review"
+    | "repair_event_ledger"
+    | "kill_review";
+  gate_status: "blocked" | "watch" | "eligible";
+  promotion_gate: string;
+  can_promote: boolean;
+  can_kill: boolean;
+  auto_actions_enabled: boolean;
+  rules: StrategyLifecycleRulePayload[];
+  missing_capabilities: string[];
+  summary: string;
+};
+
 export type PaperAccountPayload = {
   id: string;
   name: string;
@@ -529,6 +559,37 @@ const fallbackStrategyRegistry: StrategyRegistryPayload = {
   summary: "后端 API 暂不可用，Registry 使用离线占位。"
 };
 
+const fallbackStrategyLifecycle: StrategyLifecyclePayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  strategy_name: "Deterministic Watchlist Strategy",
+  current_stage: "paper",
+  recommended_stage: "paper",
+  recommended_action: "continue_collecting_samples",
+  gate_status: "watch",
+  promotion_gate: "blocked",
+  can_promote: false,
+  can_kill: false,
+  auto_actions_enabled: false,
+  rules: [
+    {
+      name: "minimum_filled_orders",
+      passed: false,
+      severity: "blocker",
+      actual: "0 filled orders",
+      required: ">= 30 filled orders",
+      message: "后端 API 暂不可用，无法确认生命周期门禁。"
+    }
+  ],
+  missing_capabilities: [
+    "lifecycle_state_persistence",
+    "manual_promotion_approval",
+    "shadow_account_adapter",
+    "live_small_account_adapter",
+    "kill_switch_audit_trail"
+  ],
+  summary: "后端 API 暂不可用，Lifecycle 使用离线占位。"
+};
+
 const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   account: {
     id: "offline-paper-account",
@@ -785,6 +846,39 @@ function isStrategyRegistryPayload(value: unknown): value is StrategyRegistryPay
   );
 }
 
+function isStrategyLifecycleRulePayload(value: unknown): value is StrategyLifecycleRulePayload {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.passed === "boolean" &&
+    typeof value.severity === "string" &&
+    typeof value.actual === "string" &&
+    typeof value.required === "string" &&
+    typeof value.message === "string"
+  );
+}
+
+function isStrategyLifecyclePayload(value: unknown): value is StrategyLifecyclePayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.strategy_name === "string" &&
+    typeof value.current_stage === "string" &&
+    typeof value.recommended_stage === "string" &&
+    typeof value.recommended_action === "string" &&
+    typeof value.gate_status === "string" &&
+    typeof value.promotion_gate === "string" &&
+    typeof value.can_promote === "boolean" &&
+    typeof value.can_kill === "boolean" &&
+    typeof value.auto_actions_enabled === "boolean" &&
+    Array.isArray(value.rules) &&
+    value.rules.every(isStrategyLifecycleRulePayload) &&
+    Array.isArray(value.missing_capabilities) &&
+    value.missing_capabilities.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
 export async function runResearchPrompt(question: string, ticker = "AAPL"): Promise<ResearchResultPayload> {
   const normalizedTicker = ticker.trim().toUpperCase() || "AAPL";
   const normalizedQuestion = question.trim() || "解释当前页面";
@@ -891,6 +985,21 @@ export async function getStrategyRegistry(): Promise<StrategyRegistryPayload> {
     return isStrategyRegistryPayload(payload) ? payload : fallbackStrategyRegistry;
   } catch {
     return fallbackStrategyRegistry;
+  }
+}
+
+export async function getStrategyLifecycle(): Promise<StrategyLifecyclePayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyLifecycle;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyLifecyclePayload(payload) ? payload : fallbackStrategyLifecycle;
+  } catch {
+    return fallbackStrategyLifecycle;
   }
 }
 

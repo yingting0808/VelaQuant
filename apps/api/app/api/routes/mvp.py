@@ -34,6 +34,7 @@ from app.services.strategy_catalog import UnknownStrategyError, load_enabled_str
 from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.strategy_evaluation import evaluate_current_paper_strategy
 from app.services.strategy_lab import get_strategy_lab_status
+from app.services.strategy_lifecycle import get_strategy_lifecycle
 from app.services.strategy_registry import get_strategy_registry
 from app.services.workspace import (
     NoteCreate,
@@ -305,6 +306,11 @@ def strategy_lab_registry(
     session: Session = Depends(get_session),
 ) -> dict:
     return get_strategy_registry(session, provider=provider).model_dump()
+
+
+@router.get("/strategy-lab/lifecycle")
+def strategy_lab_lifecycle(session: Session = Depends(get_session)) -> dict:
+    return get_strategy_lifecycle(session).model_dump()
 
 
 @router.get("/strategy-lab/strategies")
