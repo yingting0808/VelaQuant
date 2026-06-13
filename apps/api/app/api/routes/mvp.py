@@ -24,6 +24,7 @@ from app.services.paper_trading import (
     run_daily_paper_trading_loop,
     submit_paper_order,
 )
+from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
 from app.services.strategy_catalog import UnknownStrategyError, load_enabled_strategies
@@ -247,6 +248,11 @@ def paper_trading_order(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return order.model_dump()
+
+
+@router.get("/paper-trading/scheduler")
+def paper_trading_scheduler_status() -> dict:
+    return get_paper_scheduler_status().model_dump()
 
 
 @router.post("/trading-core/dry-run")

@@ -144,6 +144,12 @@ def get_paper_trading_summary(session: Session, provider: MarketDataProvider) ->
 def run_daily_paper_trading_loop(session: Session, provider: MarketDataProvider) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
+    if _review_for_trading_day(session, account, _current_trading_day()) is not None:
+        _mark_positions_to_market(session, account, provider)
+        session.commit()
+        session.refresh(account)
+        return _summary_payload(session, account)
+
     _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
     session.flush()
     _auto_submit_candidate_orders(session, provider, account)
@@ -368,7 +374,7 @@ def _create_review(session: Session, account: PaperAccount) -> PaperReview:
     return PaperReview(
         account_id=account.id,
         team_id=account.team_id,
-        trading_day=datetime.now(timezone.utc).date().isoformat(),
+        trading_day=_current_trading_day(),
         equity=equity,
         cash=account.cash,
         realized_pnl=account.realized_pnl,
@@ -381,6 +387,19 @@ def _create_review(session: Session, account: PaperAccount) -> PaperReview:
         readiness=readiness,
         notes=_review_notes(readiness, trade_count, expectancy),
     )
+
+
+def _current_trading_day() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _review_for_trading_day(session: Session, account: PaperAccount, trading_day: str) -> PaperReview | None:
+    return session.exec(
+        select(PaperReview).where(
+            PaperReview.account_id == account.id,
+            PaperReview.trading_day == trading_day,
+        )
+    ).first()
 
 
 def _mark_positions_to_market(session: Session, account: PaperAccount, provider: MarketDataProvider) -> None:

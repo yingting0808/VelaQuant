@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     sec_user_agent: str = "VelaQuant research app contact@example.com"
     sec_timeout_seconds: float = 3.0
     strategy_command_timeout_seconds: float = 2.0
+    paper_scheduler_enabled: bool = False
+    paper_scheduler_cron: str = "30 6 * * *"
+    paper_scheduler_timezone: str = "Asia/Shanghai"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AI_STOCKS_")
 

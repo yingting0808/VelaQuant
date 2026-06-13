@@ -1,4 +1,4 @@
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
     EvidenceItem,
@@ -9,6 +9,7 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
+from app.domain.models import PaperOrder, PaperReview
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
@@ -119,6 +120,21 @@ def test_daily_run_creates_account_candidates_and_review():
         assert summary.latest_review is not None
         assert summary.latest_review.readiness == "collecting"
         assert summary.latest_review.trade_count == 0
+
+
+def test_daily_run_is_idempotent_for_current_trading_day():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        first = run_daily_paper_trading_loop(session, provider)
+        second = run_daily_paper_trading_loop(session, provider)
+
+        orders = session.exec(select(PaperOrder)).all()
+        reviews = session.exec(select(PaperReview)).all()
+        assert len(orders) == 1
+        assert len(reviews) == 1
+        assert second.account.cash == first.account.cash
+        assert second.orders[0].id == first.orders[0].id
 
 
 def test_buy_order_fills_and_updates_cash_and_position():

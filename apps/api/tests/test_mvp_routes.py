@@ -817,3 +817,16 @@ def test_mvp_paper_trading_order_route_fills_or_rejects(monkeypatch):
     assert fill_response.json()["status"] == "filled"
     assert reject_response.status_code == 400
     assert "Insufficient paper cash" in reject_response.json()["detail"]
+
+
+def test_mvp_paper_trading_scheduler_status_route_returns_configuration():
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/scheduler")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["enabled"] is False
+    assert payload["running"] is False
+    assert payload["cron"] == "30 6 * * *"
+    assert payload["timezone"] == "Asia/Shanghai"
