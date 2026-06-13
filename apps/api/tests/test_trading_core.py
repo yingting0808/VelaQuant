@@ -4,7 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.trading_core.engine import TradingEngine
-from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment
+from app.trading_core.event_bus import InMemoryEventBus, TradingEventTopic
+from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
 from app.trading_core.execution import ExecutionEngine, OrderState
 from app.trading_core.portfolio import PortfolioState
 from app.trading_core.risk import RiskDecisionStatus, RiskEngine, RiskLimits
@@ -48,6 +49,35 @@ def test_market_event_rejects_trade_action_fields_from_ai_payload():
             impact_score=0.74,
             action="buy",
         )
+
+
+def test_strategy_input_event_wraps_market_event_and_portfolio_snapshot():
+    portfolio = PortfolioState(cash=100000, equity=100000)
+    strategy_input = StrategyInputEvent(market_event=_event(), portfolio=portfolio)
+
+    assert strategy_input.market_event.ticker == "NVDA"
+    assert strategy_input.portfolio == portfolio
+
+
+def test_event_bus_records_and_dispatches_events_in_publish_order():
+    bus = InMemoryEventBus()
+    handled_topics: list[TradingEventTopic] = []
+    bus.subscribe(TradingEventTopic.market_event, lambda event: handled_topics.append(event.topic))
+    bus.subscribe(TradingEventTopic.trade_intent, lambda event: handled_topics.append(event.topic))
+
+    first = bus.publish(TradingEventTopic.market_event, _event())
+    second = bus.publish(
+        TradingEventTopic.trade_intent,
+        TradeIntent(ticker="NVDA", side=TradeIntentSide.buy, notional=1500, reason="test"),
+        causation_id=first.event_id,
+        correlation_id=first.correlation_id,
+    )
+
+    assert [event.topic for event in bus.history] == [TradingEventTopic.market_event, TradingEventTopic.trade_intent]
+    assert handled_topics == [TradingEventTopic.market_event, TradingEventTopic.trade_intent]
+    assert second.sequence == first.sequence + 1
+    assert second.causation_id == first.event_id
+    assert second.correlation_id == first.correlation_id
 
 
 def test_strategy_converts_structured_event_to_trade_intent_deterministically():

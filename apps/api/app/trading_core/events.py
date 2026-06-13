@@ -4,6 +4,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.trading_core.portfolio import PortfolioState
+
 
 class EventSource(str, Enum):
     market_data = "market_data"
@@ -60,3 +62,10 @@ class MarketEvent(BaseModel):
         if not stripped:
             raise ValueError("summary must not be empty")
         return stripped
+
+
+class StrategyInputEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    market_event: MarketEvent
+    portfolio: PortfolioState
