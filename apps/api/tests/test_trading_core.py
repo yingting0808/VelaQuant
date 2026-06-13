@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
+import app.trading_core as trading_core
 from app.trading_core.engine import TradingEngine
 from app.trading_core.event_bus import InMemoryEventBus, TradingEventTopic
 from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
@@ -49,6 +50,13 @@ def test_market_event_rejects_trade_action_fields_from_ai_payload():
             impact_score=0.74,
             action="buy",
         )
+
+
+def test_trading_core_package_exports_event_and_execution_boundaries():
+    assert trading_core.InMemoryEventBus is InMemoryEventBus
+    assert trading_core.TradingEventTopic is TradingEventTopic
+    assert trading_core.ExecutionReport is ExecutionReport
+    assert trading_core.ExecutionReportStatus is ExecutionReportStatus
 
 
 def test_strategy_input_event_wraps_market_event_and_portfolio_snapshot():

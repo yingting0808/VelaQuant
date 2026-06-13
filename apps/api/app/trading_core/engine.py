@@ -1,6 +1,6 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.trading_core.event_bus import InMemoryEventBus, TradingEventTopic
+from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic
 from app.trading_core.events import MarketEvent, StrategyInputEvent
 from app.trading_core.execution import CoreOrder, ExecutionEngine, order_state_event
 from app.trading_core.portfolio import PortfolioState
@@ -14,6 +14,7 @@ class TradingEngineResult(BaseModel):
     event: MarketEvent
     intents: list[TradeIntent]
     orders: list[CoreOrder]
+    events: list[EventEnvelope] = Field(default_factory=list)
 
 
 class TradingEngine:
@@ -28,6 +29,7 @@ class TradingEngine:
         self.event_bus = event_bus
 
     def process_event(self, event: MarketEvent, portfolio: PortfolioState) -> TradingEngineResult:
+        event_start_index = len(self.event_bus.history) if self.event_bus is not None else 0
         market_envelope = None
         strategy_input_envelope = None
         if self.event_bus is not None:
@@ -61,4 +63,5 @@ class TradingEngine:
                     causation_id=(trade_intent_envelope.event_id if trade_intent_envelope is not None else None),
                     correlation_id=(trade_intent_envelope.correlation_id if trade_intent_envelope is not None else None),
                 )
-        return TradingEngineResult(event=event, intents=intents, orders=orders)
+        events = self.event_bus.history[event_start_index:] if self.event_bus is not None else []
+        return TradingEngineResult(event=event, intents=intents, orders=orders, events=events)

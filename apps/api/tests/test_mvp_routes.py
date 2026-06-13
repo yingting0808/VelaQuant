@@ -272,6 +272,13 @@ def test_trading_core_dry_run_returns_state_machine():
         "sent",
         "filled",
     ]
+    assert [event["topic"] for event in payload["events"]] == [
+        "market_event",
+        "strategy_input",
+        "trade_intent",
+        "order_state",
+    ]
+    assert payload["events"][-1]["payload"]["current_state"] == "filled"
 
 
 def test_mvp_market_snapshot_route_returns_quote_fundamentals_and_sources():

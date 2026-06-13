@@ -45,6 +45,7 @@ from app.services.workspace import (
     upsert_watchlist_item,
 )
 from app.trading_core.engine import TradingEngine
+from app.trading_core.event_bus import InMemoryEventBus
 from app.trading_core.events import MarketEvent
 from app.trading_core.portfolio import PortfolioState
 from app.trading_core.risk import RiskEngine, RiskLimits
@@ -259,7 +260,8 @@ def paper_trading_scheduler_status() -> dict:
 def trading_core_dry_run(body: TradingCoreDryRunBody) -> dict:
     strategy = DeterministicWatchlistStrategy(watchlist=body.watchlist, notional=body.strategy_notional)
     risk_engine = RiskEngine(body.risk_limits)
-    engine = TradingEngine(strategy=strategy, risk_engine=risk_engine)
+    event_bus = InMemoryEventBus()
+    engine = TradingEngine(strategy=strategy, risk_engine=risk_engine, event_bus=event_bus)
     return engine.process_event(body.event, body.portfolio).model_dump(mode="json")
 
 
