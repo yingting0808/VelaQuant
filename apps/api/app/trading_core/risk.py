@@ -44,6 +44,15 @@ class RiskEngine:
                 code="insufficient_cash",
                 reason=f"Order notional {intent.notional:.2f} exceeds cash {portfolio.cash:.2f}.",
             )
+        if intent.side == TradeIntentSide.sell and intent.notional > portfolio.position_value(intent.ticker):
+            return RiskDecision(
+                status=RiskDecisionStatus.rejected,
+                code="insufficient_position_value",
+                reason=(
+                    f"Sell notional {intent.notional:.2f} exceeds current position value "
+                    f"{portfolio.position_value(intent.ticker):.2f}."
+                ),
+            )
         return RiskDecision(status=RiskDecisionStatus.approved, code="can_trade", reason="Trade passed basic checks.")
 
     def can_open_position(self, intent: TradeIntent, portfolio: PortfolioState) -> RiskDecision:

@@ -194,6 +194,12 @@ class PaperOrder(SQLModel, table=True):
     fill_price: Optional[float] = None
     realized_pnl: float = 0.0
     rejection_reason: Optional[str] = None
+    core_order_id: Optional[str] = Field(default=None, index=True)
+    core_intent_id: Optional[str] = Field(default=None, index=True)
+    risk_status: Optional[str] = Field(default=None, index=True)
+    risk_code: Optional[str] = Field(default=None, index=True)
+    risk_reason: Optional[str] = None
+    state_history_json: str = "[]"
     submitted_at: datetime = Field(default_factory=utc_now)
     filled_at: Optional[datetime] = None
 

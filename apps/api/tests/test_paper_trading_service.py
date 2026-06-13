@@ -99,12 +99,23 @@ def test_daily_run_creates_account_candidates_and_review():
 
         assert summary.account.name == "默认模拟盘"
         assert summary.account.mode == "paper"
-        assert summary.account.cash == 100000.0
+        assert summary.account.cash < 100000.0
         assert summary.candidates
         assert summary.candidates[0].ticker == "NVDA"
         assert summary.candidates[0].action == "buy"
+        assert summary.candidates[0].status == "ordered"
         assert summary.candidates[0].proposed_quantity > 0
         assert "证据" in summary.candidates[0].thesis
+        assert summary.orders
+        assert summary.orders[0].risk_status == "approved"
+        assert [item["state"] for item in summary.orders[0].state_history] == [
+            "new",
+            "validated",
+            "risk_approved",
+            "sent",
+            "filled",
+        ]
+        assert summary.positions
         assert summary.latest_review is not None
         assert summary.latest_review.readiness == "collecting"
         assert summary.latest_review.trade_count == 0
@@ -119,6 +130,17 @@ def test_buy_order_fills_and_updates_cash_and_position():
 
         assert order.status == "filled"
         assert order.fill_price == 100.0
+        assert order.core_order_id is not None
+        assert order.core_intent_id is not None
+        assert order.risk_status == "approved"
+        assert order.risk_code == "approved"
+        assert [item["state"] for item in order.state_history] == [
+            "new",
+            "validated",
+            "risk_approved",
+            "sent",
+            "filled",
+        ]
         assert summary.account.cash == 99800.0
         assert summary.account.equity == 100000.0
         assert len(summary.positions) == 1
@@ -150,16 +172,18 @@ def test_order_rejects_insufficient_cash_and_oversell():
     with make_session() as session:
         provider = FixtureProvider()
 
-        try:
-            submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1000))
-        except ValueError as error:
-            assert "Insufficient paper cash" in str(error)
-        else:
-            raise AssertionError("expected insufficient cash rejection")
+        rejected_buy = submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1000))
+        summary = get_paper_trading_summary(session, provider)
 
-        try:
-            submit_paper_order(session, provider, PaperOrderCreate(ticker="NVDA", side="sell", quantity=1))
-        except ValueError as error:
-            assert "Insufficient paper quantity" in str(error)
-        else:
-            raise AssertionError("expected oversell rejection")
+        assert rejected_buy.status == "rejected"
+        assert rejected_buy.risk_status == "rejected"
+        assert rejected_buy.risk_code == "max_order_notional"
+        assert "exceeds" in rejected_buy.rejection_reason
+        assert summary.account.cash == 100000.0
+        assert summary.positions == []
+
+        rejected_sell = submit_paper_order(session, provider, PaperOrderCreate(ticker="NVDA", side="sell", quantity=1))
+
+        assert rejected_sell.status == "rejected"
+        assert rejected_sell.risk_status == "rejected"
+        assert rejected_sell.risk_code == "insufficient_position_value"

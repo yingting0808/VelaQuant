@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
@@ -21,11 +22,16 @@ from app.domain.models import (
     utc_now,
 )
 from app.services.workspace import get_or_create_default_workspace
+from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState
+from app.trading_core.portfolio import PortfolioPosition, PortfolioState
+from app.trading_core.risk import RiskEngine, RiskLimits
+from app.trading_core.strategy import TradeIntent, TradeIntentSide
 
 
 DEFAULT_ACCOUNT_NAME = "默认模拟盘"
 DEFAULT_STARTING_CASH = 100000.0
 DEFAULT_CANDIDATE_NOTIONAL = 2000.0
+DEFAULT_DAILY_AUTO_ORDER_LIMIT = 1
 
 
 class PaperAccountPayload(BaseModel):
@@ -79,6 +85,12 @@ class PaperOrderPayload(BaseModel):
     fill_price: float | None
     realized_pnl: float
     rejection_reason: str | None
+    core_order_id: str | None = None
+    core_intent_id: str | None = None
+    risk_status: str | None = None
+    risk_code: str | None = None
+    risk_reason: str | None = None
+    state_history: list[dict[str, str]] = Field(default_factory=list)
     submitted_at: datetime
     filled_at: datetime | None
 
@@ -133,6 +145,9 @@ def run_daily_paper_trading_loop(session: Session, provider: MarketDataProvider)
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
     _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider)
+    session.flush()
+    _auto_submit_candidate_orders(session, provider, account)
+    session.refresh(account)
     _mark_positions_to_market(session, account, provider)
     review = _create_review(session, account)
     session.add(review)
@@ -151,13 +166,29 @@ def submit_paper_order(
     account = _get_or_create_account(session, workspace.team.id)
     price = _quote_price(provider, data.ticker)
     side = PaperOrderSide(data.side)
+    cost = round(price * data.quantity, 2)
+    _mark_positions_to_market(session, account, provider)
+    core_order = _submit_core_order(session, account, data, cost)
+    if core_order.current_state == OrderState.rejected:
+        order = _new_paper_order(
+            account=account,
+            team_id=workspace.team.id,
+            data=data,
+            side=side,
+            core_order=core_order,
+            status=PaperOrderStatus.rejected,
+            rejection_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else "Trading Core rejected order.",
+        )
+        session.add(order)
+        account.updated_at = utc_now()
+        session.commit()
+        session.refresh(order)
+        return _order_payload(order)
+
     realized_pnl = 0.0
     filled_at = utc_now()
 
     if side == PaperOrderSide.buy:
-        cost = round(price * data.quantity, 2)
-        if account.cash < cost:
-            raise ValueError(f"Insufficient paper cash for {data.ticker}: required {cost:.2f}.")
         position = _find_position(session, account, data.ticker)
         if position is None:
             position = PaperPosition(
@@ -193,9 +224,15 @@ def submit_paper_order(
         side=side,
         order_type=data.order_type,
         quantity=data.quantity,
-        status=PaperOrderStatus.filled,
         fill_price=price,
+        status=PaperOrderStatus.filled,
         realized_pnl=realized_pnl,
+        core_order_id=str(core_order.order_id),
+        core_intent_id=str(core_order.intent.intent_id),
+        risk_status=core_order.risk_decision.status.value if core_order.risk_decision is not None else None,
+        risk_code=core_order.risk_decision.code if core_order.risk_decision is not None else None,
+        risk_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else None,
+        state_history_json=_state_history_json(core_order),
         filled_at=filled_at,
     )
     session.add(order)
@@ -275,6 +312,38 @@ def _generate_candidates(
         session.add(candidate)
 
 
+def _auto_submit_candidate_orders(
+    session: Session,
+    provider: MarketDataProvider,
+    account: PaperAccount,
+) -> None:
+    candidates = list(
+        session.exec(
+            select(PaperCandidate)
+            .where(
+                PaperCandidate.team_id == account.team_id,
+                PaperCandidate.status == PaperCandidateStatus.proposed,
+            )
+            .order_by(PaperCandidate.rank)
+        ).all()
+    )
+    for candidate in candidates[:DEFAULT_DAILY_AUTO_ORDER_LIMIT]:
+        if candidate.action != PaperOrderSide.buy or candidate.proposed_quantity <= 0:
+            continue
+        order = submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(
+                ticker=candidate.ticker,
+                side=candidate.action.value,
+                quantity=candidate.proposed_quantity,
+            ),
+        )
+        if order.status == PaperOrderStatus.filled.value:
+            candidate.status = PaperCandidateStatus.ordered
+            session.add(candidate)
+
+
 def _create_review(session: Session, account: PaperAccount) -> PaperReview:
     positions = _positions(session, account)
     unrealized = round(sum(position.unrealized_pnl for position in positions), 2)
@@ -351,6 +420,90 @@ def _positions(session: Session, account: PaperAccount) -> list[PaperPosition]:
     )
 
 
+def _paper_portfolio_state(session: Session, account: PaperAccount) -> PortfolioState:
+    positions = _positions(session, account)
+    equity = round(account.cash + sum(position.market_value for position in positions), 2)
+    return PortfolioState(
+        cash=round(account.cash, 2),
+        equity=max(equity, 0.01),
+        positions=[
+            PortfolioPosition(
+                ticker=position.ticker,
+                quantity=position.quantity,
+                market_value=round(position.market_value, 2),
+            )
+            for position in positions
+        ],
+        orders_today=_orders_today(session, account),
+    )
+
+
+def _orders_today(session: Session, account: PaperAccount) -> int:
+    today = datetime.now(timezone.utc).date().isoformat()
+    return len(
+        [
+            order
+            for order in session.exec(select(PaperOrder).where(PaperOrder.account_id == account.id)).all()
+            if order.submitted_at.date().isoformat() == today
+        ]
+    )
+
+
+def _paper_risk_limits() -> RiskLimits:
+    return RiskLimits(
+        max_order_notional=DEFAULT_CANDIDATE_NOTIONAL,
+        max_position_weight=0.1,
+        max_daily_orders=5,
+    )
+
+
+def _submit_core_order(
+    session: Session,
+    account: PaperAccount,
+    data: PaperOrderCreate,
+    notional: float,
+) -> CoreOrder:
+    intent = TradeIntent(
+        ticker=data.ticker,
+        side=TradeIntentSide(data.side),
+        notional=notional,
+        reason=f"Paper {data.side} order for {data.quantity:g} {data.ticker}.",
+    )
+    execution = ExecutionEngine(RiskEngine(_paper_risk_limits()))
+    return execution.submit_intent(intent, _paper_portfolio_state(session, account))
+
+
+def _new_paper_order(
+    account: PaperAccount,
+    team_id: UUID,
+    data: PaperOrderCreate,
+    side: PaperOrderSide,
+    core_order: CoreOrder,
+    status: PaperOrderStatus,
+    rejection_reason: str | None = None,
+) -> PaperOrder:
+    return PaperOrder(
+        account_id=account.id,
+        team_id=team_id,
+        ticker=data.ticker,
+        side=side,
+        order_type=data.order_type,
+        quantity=data.quantity,
+        status=status,
+        rejection_reason=rejection_reason,
+        core_order_id=str(core_order.order_id),
+        core_intent_id=str(core_order.intent.intent_id),
+        risk_status=core_order.risk_decision.status.value if core_order.risk_decision is not None else None,
+        risk_code=core_order.risk_decision.code if core_order.risk_decision is not None else None,
+        risk_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else None,
+        state_history_json=_state_history_json(core_order),
+    )
+
+
+def _state_history_json(core_order: CoreOrder) -> str:
+    return json.dumps([record.model_dump(mode="json") for record in core_order.state_history])
+
+
 def _summary_payload(session: Session, account: PaperAccount) -> PaperTradingSummary:
     positions = _positions(session, account)
     unrealized = round(sum(position.unrealized_pnl for position in positions), 2)
@@ -414,9 +567,27 @@ def _order_payload(order: PaperOrder) -> PaperOrderPayload:
         fill_price=order.fill_price,
         realized_pnl=round(order.realized_pnl, 2),
         rejection_reason=order.rejection_reason,
+        core_order_id=order.core_order_id,
+        core_intent_id=order.core_intent_id,
+        risk_status=order.risk_status,
+        risk_code=order.risk_code,
+        risk_reason=order.risk_reason,
+        state_history=_state_history_payload(order.state_history_json),
         submitted_at=order.submitted_at,
         filled_at=order.filled_at,
     )
+
+
+def _state_history_payload(value: str | None) -> list[dict[str, str]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
 
 
 def _position_payload(position: PaperPosition) -> PaperPositionPayload:
