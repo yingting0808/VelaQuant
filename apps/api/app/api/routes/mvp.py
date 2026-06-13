@@ -13,6 +13,7 @@ from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.db.session import get_session
 from app.services.alerts import AlertCandidate, generate_event_alerts
+from app.services.event_ledger import get_event_ledger_status
 from app.services.lean_backtest import (
     BacktestParameterValidationError,
     read_backtest_history,
@@ -271,6 +272,11 @@ def paper_trading_runs(session: Session = Depends(get_session)) -> dict:
 @router.get("/paper-trading/runs/{run_id}/events")
 def paper_trading_run_events(run_id: UUID, session: Session = Depends(get_session)) -> dict:
     return {"events": [event.model_dump() for event in list_paper_run_events(session, run_id)]}
+
+
+@router.get("/paper-trading/event-ledger")
+def paper_trading_event_ledger(session: Session = Depends(get_session)) -> dict:
+    return get_event_ledger_status(session).model_dump()
 
 
 @router.post("/trading-core/dry-run")

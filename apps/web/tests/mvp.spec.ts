@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { runStrategyBacktest, type PaperTradingSummaryPayload, type PositionPayload } from "../src/lib/client-api";
+import {
+  runStrategyBacktest,
+  type PaperEventLedgerPayload,
+  type PaperTradingSummaryPayload,
+  type PositionPayload
+} from "../src/lib/client-api";
 
 const movingAverageParameters = [
   { name: "symbol", label: "Ticker", kind: "ticker", default: "AAPL", required: true },
@@ -156,7 +161,51 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       }
     ]
   };
+  const emptyLedger: PaperEventLedgerPayload = {
+    total_event_count: 0,
+    latest_run_id: null,
+    latest_run_status: null,
+    latest_run_event_count: 0,
+    latest_topic_counts: [],
+    latest_correlation_count: 0,
+    replay_ready: false,
+    warnings: ["missing_core_events"],
+    summary: "No paper runs found; event replay is not available.",
+    latest_replay: null
+  };
+  const filledLedger: PaperEventLedgerPayload = {
+    total_event_count: 8,
+    latest_run_id: "paper-run-today",
+    latest_run_status: "completed",
+    latest_run_event_count: 8,
+    latest_topic_counts: [
+      { topic: "market_event", count: 1 },
+      { topic: "order_state", count: 5 },
+      { topic: "strategy_input", count: 1 },
+      { topic: "trade_intent", count: 1 }
+    ],
+    latest_correlation_count: 1,
+    replay_ready: true,
+    warnings: [],
+    summary: "Latest paper run is completed with 8 replayable core events across 1 chains.",
+    latest_replay: {
+      run_id: "paper-run-today",
+      event_count: 8,
+      chain_count: 1,
+      chains: [
+        {
+          correlation_id: "core-chain",
+          ticker: "NVDA",
+          topics: ["market_event", "strategy_input", "trade_intent", "order_state"],
+          order_states: ["new", "validated", "risk_approved", "sent", "filled"],
+          terminal_state: "filled",
+          event_count: 8
+        }
+      ]
+    }
+  };
   let summary = baseSummary;
+  let ledger = emptyLedger;
 
   await page.route("**/api/mvp/paper-trading/summary", async (route) => {
     await route.fulfill({ contentType: "application/json", json: summary });
@@ -171,6 +220,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     const payload = route.request().postDataJSON() as { quantity?: number; side?: string; ticker?: string };
     expect(payload).toEqual({ order_type: "market", quantity: 40, side: "buy", ticker: "NVDA" });
     summary = filledSummary;
+    ledger = filledLedger;
     await route.fulfill({ contentType: "application/json", json: filledSummary.orders[0] });
   });
   await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
@@ -207,6 +257,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       }
     });
   });
+  await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: ledger });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "模拟盘" }).click();
@@ -219,6 +272,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("不可回放")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("missing_core_events")).toBeVisible();
 
   await page.getByRole("button", { name: "运行今日模拟" }).click();
 
@@ -229,6 +284,12 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.getByRole("button", { name: "模拟买入 NVDA" }).click();
 
   await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("可回放")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("NVDA · filled")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("order_state 5")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
+  ).toBeVisible();
   await expect(page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "filled", exact: true })).toBeVisible();
   await expect(
     page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "approved approved" })

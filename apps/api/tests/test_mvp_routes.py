@@ -8,6 +8,12 @@ from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
 from app.main import create_app
 from app.services import strategy_catalog
+from app.services.event_ledger import (
+    EventLedgerReplay,
+    EventLedgerReplayChain,
+    EventLedgerStatus,
+    EventLedgerTopicCount,
+)
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
 from app.services.paper_trading import (
     PaperAccountPayload,
@@ -1175,3 +1181,45 @@ def test_mvp_paper_trading_run_events_route_returns_core_events(monkeypatch):
     payload = response.json()
     assert payload["events"][0]["topic"] == "order_state"
     assert payload["events"][0]["payload_json"] == '{"state":"new"}'
+
+
+def test_mvp_paper_trading_event_ledger_route_returns_replay_status(monkeypatch):
+    status = EventLedgerStatus(
+        total_event_count=8,
+        latest_run_id="00000000-0000-0000-0000-000000000014",
+        latest_run_status="completed",
+        latest_run_event_count=8,
+        latest_topic_counts=[
+            EventLedgerTopicCount(topic="market_event", count=1),
+            EventLedgerTopicCount(topic="order_state", count=5),
+        ],
+        latest_correlation_count=1,
+        replay_ready=True,
+        warnings=[],
+        summary="Latest paper run has 8 replayable core events.",
+        latest_replay=EventLedgerReplay(
+            run_id="00000000-0000-0000-0000-000000000014",
+            event_count=8,
+            chain_count=1,
+            chains=[
+                EventLedgerReplayChain(
+                    correlation_id="core-chain",
+                    ticker="NVDA",
+                    topics=["market_event", "strategy_input", "trade_intent", "order_state"],
+                    order_states=["new", "validated", "risk_approved", "sent", "filled"],
+                    terminal_state="filled",
+                    event_count=8,
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr(mvp, "get_event_ledger_status", lambda session: status, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/event-ledger")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_event_count"] == 8
+    assert payload["latest_run_status"] == "completed"
+    assert payload["latest_replay"]["chains"][0]["terminal_state"] == "filled"

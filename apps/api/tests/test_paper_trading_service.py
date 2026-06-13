@@ -20,6 +20,7 @@ from app.services.paper_trading import (
     run_daily_paper_trading_loop,
     submit_paper_order,
 )
+from app.services.event_ledger import get_event_ledger_status, replay_paper_run
 
 
 class FixtureProvider(MarketDataProvider):
@@ -217,6 +218,59 @@ def test_list_paper_run_events_returns_persisted_core_events():
             "sent",
             "filled",
         ]
+
+
+def test_event_ledger_status_replays_latest_completed_run_chain():
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
+        run = session.exec(select(PaperRun)).one()
+
+        status = get_event_ledger_status(session)
+        replay = replay_paper_run(session, run.id)
+        selected_chain = next(chain for chain in status.latest_replay.chains if chain.order_states)
+
+        assert status.total_event_count >= 8
+        assert status.latest_run_id == run.id
+        assert status.latest_run_status == "completed"
+        assert status.latest_run_event_count == replay.event_count
+        assert status.replay_ready is True
+        assert status.warnings == []
+        assert {item.topic for item in status.latest_topic_counts} >= {
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "order_state",
+        }
+        assert selected_chain.ticker == summary.orders[0].ticker
+        assert selected_chain.topics == [
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+        ]
+        assert selected_chain.order_states == ["new", "validated", "risk_approved", "sent", "filled"]
+        assert selected_chain.terminal_state == "filled"
+        assert replay.chains[0].event_count > 0
+
+
+def test_event_ledger_status_warns_when_latest_run_has_no_events():
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider)
+        run_daily_paper_trading_loop(session, provider)
+
+        status = get_event_ledger_status(session)
+
+        assert status.total_event_count > 0
+        assert status.latest_run_status == "skipped"
+        assert status.latest_run_event_count == 0
+        assert status.latest_replay is None
+        assert status.replay_ready is False
+        assert "latest_run_has_no_events" in status.warnings
 
 
 def test_daily_run_is_idempotent_for_current_trading_day():

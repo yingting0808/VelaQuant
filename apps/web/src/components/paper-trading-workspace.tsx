@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { Play, ShoppingCart } from "lucide-react";
 import {
+  getPaperEventLedger,
   getPaperSchedulerStatus,
   getPaperRuns,
   getPaperTradingSummary,
   runPaperTradingDailyLoop,
   submitPaperOrder,
+  type PaperEventLedgerPayload,
   type PaperCandidatePayload,
   type PaperRunPayload,
   type PaperSchedulerStatusPayload,
@@ -57,27 +59,34 @@ export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
   const [scheduler, setScheduler] = useState<PaperSchedulerStatusPayload | null>(null);
   const [runs, setRuns] = useState<PaperRunPayload[]>([]);
+  const [eventLedger, setEventLedger] = useState<PaperEventLedgerPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isRunning, setIsRunning] = useState(false);
   const [orderingTicker, setOrderingTicker] = useState<string | null>(null);
 
   async function refreshSummary(nextMessage?: string) {
-    const [payload, runPayload] = await Promise.all([getPaperTradingSummary(), getPaperRuns()]);
+    const [payload, runPayload, ledgerPayload] = await Promise.all([
+      getPaperTradingSummary(),
+      getPaperRuns(),
+      getPaperEventLedger()
+    ]);
     setSummary(payload);
     setRuns(runPayload.runs);
+    setEventLedger(ledgerPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
   }
 
   useEffect(() => {
     let active = true;
-    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus(), getPaperRuns()]).then(
-      ([payload, schedulerStatus, runPayload]) => {
+    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus(), getPaperRuns(), getPaperEventLedger()]).then(
+      ([payload, schedulerStatus, runPayload, ledgerPayload]) => {
         if (!active) {
           return;
         }
         setSummary(payload);
         setScheduler(schedulerStatus);
         setRuns(runPayload.runs);
+        setEventLedger(ledgerPayload);
         setMessage("模拟盘已同步。");
       }
     );
@@ -91,9 +100,10 @@ export function PaperTradingWorkspace() {
     setMessage("正在运行今日模拟。");
     try {
       const payload = await runPaperTradingDailyLoop();
-      const runPayload = await getPaperRuns();
+      const [runPayload, ledgerPayload] = await Promise.all([getPaperRuns(), getPaperEventLedger()]);
       setSummary(payload);
       setRuns(runPayload.runs);
+      setEventLedger(ledgerPayload);
       setMessage("今日模拟已完成。");
     } finally {
       setIsRunning(false);
@@ -126,6 +136,12 @@ export function PaperTradingWorkspace() {
   const orders = summary?.orders ?? [];
   const positions = summary?.positions ?? [];
   const schedulerLabel = scheduler?.enabled ? (scheduler.running ? "运行中" : "已启用") : "未启用";
+  const replayChain =
+    eventLedger?.latest_replay?.chains.find((chain) => chain.order_states.length > 0) ??
+    eventLedger?.latest_replay?.chains[0] ??
+    null;
+  const topicSummary =
+    eventLedger?.latest_topic_counts.map((item) => `${item.topic} ${item.count}`).join(" / ") ?? "暂无事件";
 
   return (
     <div className="module-view">
@@ -243,6 +259,40 @@ export function PaperTradingWorkspace() {
               ) : null}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="事件账本">
+        <div className="panel-heading">
+          <div>
+            <h3>事件账本</h3>
+            <p>{eventLedger?.summary ?? "正在读取 CoreEventLog。"}</p>
+          </div>
+          <span className={eventLedger?.replay_ready ? "status-pill success" : "status-pill warning"}>
+            {eventLedger?.replay_ready ? "可回放" : "不可回放"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>总事件</span>
+            <strong>{eventLedger?.total_event_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>最新运行事件</span>
+            <strong>{eventLedger?.latest_run_event_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>Correlation</span>
+            <strong>{eventLedger?.latest_correlation_count ?? 0}</strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>{replayChain ? `${replayChain.ticker ?? "UNKNOWN"} · ${replayChain.terminal_state ?? "open"}` : "暂无可回放链路"}</strong>
+          <p>
+            {topicSummary} · 状态序列{" "}
+            {replayChain?.order_states.length ? replayChain.order_states.join(" → ") : "未记录"}
+          </p>
+          <p>警告 {(eventLedger?.warnings ?? []).join(" / ") || "无"}</p>
         </div>
       </section>
 

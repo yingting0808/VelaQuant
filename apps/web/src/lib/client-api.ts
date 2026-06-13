@@ -314,6 +314,40 @@ export type PaperRunsPayload = {
   runs: PaperRunPayload[];
 };
 
+export type EventLedgerTopicCountPayload = {
+  topic: string;
+  count: number;
+};
+
+export type EventLedgerReplayChainPayload = {
+  correlation_id: string;
+  ticker: string | null;
+  topics: string[];
+  order_states: string[];
+  terminal_state: string | null;
+  event_count: number;
+};
+
+export type EventLedgerReplayPayload = {
+  run_id: string;
+  event_count: number;
+  chain_count: number;
+  chains: EventLedgerReplayChainPayload[];
+};
+
+export type PaperEventLedgerPayload = {
+  total_event_count: number;
+  latest_run_id: string | null;
+  latest_run_status: string | null;
+  latest_run_event_count: number;
+  latest_topic_counts: EventLedgerTopicCountPayload[];
+  latest_correlation_count: number;
+  replay_ready: boolean;
+  warnings: string[];
+  summary: string;
+  latest_replay: EventLedgerReplayPayload | null;
+};
+
 export type PaperOrderInputPayload = {
   ticker: string;
   side: "buy" | "sell";
@@ -618,6 +652,19 @@ const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
 
 const fallbackPaperRuns: PaperRunsPayload = {
   runs: []
+};
+
+const fallbackPaperEventLedger: PaperEventLedgerPayload = {
+  total_event_count: 0,
+  latest_run_id: null,
+  latest_run_status: null,
+  latest_run_event_count: 0,
+  latest_topic_counts: [],
+  latest_correlation_count: 0,
+  replay_ready: false,
+  warnings: ["missing_core_events"],
+  summary: "后端 API 暂不可用，无法确认事件账本。",
+  latest_replay: null
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1802,6 +1849,53 @@ function isPaperRunsPayload(value: unknown): value is PaperRunsPayload {
   return isRecord(value) && Array.isArray(value.runs) && value.runs.every(isPaperRunPayload);
 }
 
+function isEventLedgerTopicCount(value: unknown): value is EventLedgerTopicCountPayload {
+  return isRecord(value) && typeof value.topic === "string" && typeof value.count === "number";
+}
+
+function isEventLedgerReplayChain(value: unknown): value is EventLedgerReplayChainPayload {
+  return (
+    isRecord(value) &&
+    typeof value.correlation_id === "string" &&
+    (typeof value.ticker === "string" || value.ticker === null) &&
+    Array.isArray(value.topics) &&
+    value.topics.every((item) => typeof item === "string") &&
+    Array.isArray(value.order_states) &&
+    value.order_states.every((item) => typeof item === "string") &&
+    (typeof value.terminal_state === "string" || value.terminal_state === null) &&
+    typeof value.event_count === "number"
+  );
+}
+
+function isEventLedgerReplay(value: unknown): value is EventLedgerReplayPayload {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.event_count === "number" &&
+    typeof value.chain_count === "number" &&
+    Array.isArray(value.chains) &&
+    value.chains.every(isEventLedgerReplayChain)
+  );
+}
+
+function isPaperEventLedgerPayload(value: unknown): value is PaperEventLedgerPayload {
+  return (
+    isRecord(value) &&
+    typeof value.total_event_count === "number" &&
+    (typeof value.latest_run_id === "string" || value.latest_run_id === null) &&
+    (typeof value.latest_run_status === "string" || value.latest_run_status === null) &&
+    typeof value.latest_run_event_count === "number" &&
+    Array.isArray(value.latest_topic_counts) &&
+    value.latest_topic_counts.every(isEventLedgerTopicCount) &&
+    typeof value.latest_correlation_count === "number" &&
+    typeof value.replay_ready === "boolean" &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every((item) => typeof item === "string") &&
+    typeof value.summary === "string" &&
+    (value.latest_replay === null || isEventLedgerReplay(value.latest_replay))
+  );
+}
+
 function isPaperPositionPayload(value: unknown): value is PaperPositionPayload {
   return (
     isRecord(value) &&
@@ -2037,6 +2131,19 @@ export async function getPaperRuns(): Promise<PaperRunsPayload> {
     return isPaperRunsPayload(payload) ? payload : fallbackPaperRuns;
   } catch {
     return fallbackPaperRuns;
+  }
+}
+
+export async function getPaperEventLedger(): Promise<PaperEventLedgerPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/event-ledger`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperEventLedger;
+    }
+    const payload: unknown = await response.json();
+    return isPaperEventLedgerPayload(payload) ? payload : fallbackPaperEventLedger;
+  } catch {
+    return fallbackPaperEventLedger;
   }
 }
 
