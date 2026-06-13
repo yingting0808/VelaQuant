@@ -57,6 +57,38 @@ export type StrategyEvaluationPayload = {
   notes: string;
 };
 
+export type StrategyAttributionPayload = {
+  strategy_id: string;
+  strategy_name: string;
+  signal_quality: {
+    market_event_count: number;
+    trade_intent_count: number;
+    actionable_signal_rate: number;
+    average_confidence: number;
+    false_positive_rate: number;
+  };
+  expectancy_decomposition: {
+    realized_pnl: number;
+    unrealized_pnl: number;
+    closed_trade_component: number;
+    open_trade_component: number;
+    total_observed_pnl: number;
+  };
+  regime: {
+    regime: "insufficient_data" | "drawdown_pressure" | "uptrend_capture" | "range_bound";
+    basis: string;
+    review_count: number;
+    equity_change: number;
+  };
+  drawdown: {
+    source: "insufficient_data" | "open_position_pressure" | "closed_trade_losses" | "equity_curve_pressure";
+    max_drawdown: number;
+    basis: string;
+  };
+  data_quality_warnings: string[];
+  summary: string;
+};
+
 export type PaperAccountPayload = {
   id: string;
   name: string;
@@ -272,6 +304,38 @@ const fallbackStrategyEvaluation: StrategyEvaluationPayload = {
   notes: "后端 API 暂不可用，无法确认策略评价。"
 };
 
+const fallbackStrategyAttribution: StrategyAttributionPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  strategy_name: "Deterministic Watchlist Strategy",
+  signal_quality: {
+    market_event_count: 0,
+    trade_intent_count: 0,
+    actionable_signal_rate: 0,
+    average_confidence: 0,
+    false_positive_rate: 0
+  },
+  expectancy_decomposition: {
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    closed_trade_component: 0,
+    open_trade_component: 0,
+    total_observed_pnl: 0
+  },
+  regime: {
+    regime: "insufficient_data",
+    basis: "后端 API 暂不可用，无法确认市场环境代理。",
+    review_count: 0,
+    equity_change: 0
+  },
+  drawdown: {
+    source: "insufficient_data",
+    max_drawdown: 0,
+    basis: "后端 API 暂不可用，无法确认回撤来源。"
+  },
+  data_quality_warnings: ["offline_fallback"],
+  summary: "后端 API 暂不可用，无法确认策略归因。"
+};
+
 const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   account: {
     id: "offline-paper-account",
@@ -388,6 +452,38 @@ function isStrategyEvaluationPayload(value: unknown): value is StrategyEvaluatio
   );
 }
 
+function isStrategyAttributionPayload(value: unknown): value is StrategyAttributionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.strategy_name === "string" &&
+    isRecord(value.signal_quality) &&
+    typeof value.signal_quality.market_event_count === "number" &&
+    typeof value.signal_quality.trade_intent_count === "number" &&
+    typeof value.signal_quality.actionable_signal_rate === "number" &&
+    typeof value.signal_quality.average_confidence === "number" &&
+    typeof value.signal_quality.false_positive_rate === "number" &&
+    isRecord(value.expectancy_decomposition) &&
+    typeof value.expectancy_decomposition.realized_pnl === "number" &&
+    typeof value.expectancy_decomposition.unrealized_pnl === "number" &&
+    typeof value.expectancy_decomposition.closed_trade_component === "number" &&
+    typeof value.expectancy_decomposition.open_trade_component === "number" &&
+    typeof value.expectancy_decomposition.total_observed_pnl === "number" &&
+    isRecord(value.regime) &&
+    typeof value.regime.regime === "string" &&
+    typeof value.regime.basis === "string" &&
+    typeof value.regime.review_count === "number" &&
+    typeof value.regime.equity_change === "number" &&
+    isRecord(value.drawdown) &&
+    typeof value.drawdown.source === "string" &&
+    typeof value.drawdown.max_drawdown === "number" &&
+    typeof value.drawdown.basis === "string" &&
+    Array.isArray(value.data_quality_warnings) &&
+    value.data_quality_warnings.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
 export async function runResearchPrompt(question: string, ticker = "AAPL"): Promise<ResearchResultPayload> {
   const normalizedTicker = ticker.trim().toUpperCase() || "AAPL";
   const normalizedQuestion = question.trim() || "解释当前页面";
@@ -464,6 +560,21 @@ export async function getStrategyEvaluation(): Promise<StrategyEvaluationPayload
     return isStrategyEvaluationPayload(payload) ? payload : fallbackStrategyEvaluation;
   } catch {
     return fallbackStrategyEvaluation;
+  }
+}
+
+export async function getStrategyAttribution(): Promise<StrategyAttributionPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/attribution`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyAttribution;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyAttributionPayload(payload) ? payload : fallbackStrategyAttribution;
+  } catch {
+    return fallbackStrategyAttribution;
   }
 }
 

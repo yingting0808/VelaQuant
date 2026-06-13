@@ -21,6 +21,13 @@ from app.services.paper_trading import (
 from app.services.research_notebook import ResearchNoteCreate, ResearchNotePayload
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_evaluation import StrategyEvaluationPayload, StrategyEvaluationReadiness
+from app.services.strategy_attribution import (
+    DrawdownAttribution,
+    ExpectancyDecomposition,
+    MarketRegimeAttribution,
+    SignalQualityAttribution,
+    StrategyAttributionPayload,
+)
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 from app.services.workspace import (
     NoteCreate,
@@ -183,6 +190,53 @@ def test_mvp_strategy_lab_evaluation_route_returns_alpha_report(monkeypatch):
     assert payload["strategy_id"] == "deterministic_watchlist_v1"
     assert payload["readiness"] == "watch"
     assert payload["promotion_gate"] == "keep_paper_running"
+
+
+def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypatch):
+    attribution = StrategyAttributionPayload(
+        strategy_id="deterministic_watchlist_v1",
+        strategy_name="Deterministic Watchlist Strategy",
+        signal_quality=SignalQualityAttribution(
+            market_event_count=12,
+            trade_intent_count=6,
+            actionable_signal_rate=0.5,
+            average_confidence=0.72,
+            false_positive_rate=0.25,
+        ),
+        expectancy_decomposition=ExpectancyDecomposition(
+            realized_pnl=80,
+            unrealized_pnl=-20,
+            closed_trade_component=80,
+            open_trade_component=-20,
+            total_observed_pnl=60,
+        ),
+        regime=MarketRegimeAttribution(
+            regime="drawdown_pressure",
+            basis="复盘权益曲线从峰值回撤超过 10%。",
+            review_count=5,
+            equity_change=-0.04,
+        ),
+        drawdown=DrawdownAttribution(
+            source="open_position_pressure",
+            max_drawdown=0.1161,
+            basis="开放头寸浮亏。",
+        ),
+        data_quality_warnings=["market_regime_is_proxy"],
+        summary="归因测试。",
+    )
+
+    monkeypatch.setattr(mvp, "attribute_current_paper_strategy", lambda session: attribution, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/attribution")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["signal_quality"]["actionable_signal_rate"] == 0.5
+    assert payload["expectancy_decomposition"]["total_observed_pnl"] == 60
+    assert payload["regime"]["regime"] == "drawdown_pressure"
+    assert payload["drawdown"]["source"] == "open_position_pressure"
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):

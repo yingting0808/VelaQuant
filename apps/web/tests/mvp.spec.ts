@@ -411,6 +411,42 @@ test("strategy lab renders readiness status", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/strategy-lab/attribution", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategy_id: "deterministic_watchlist_v1",
+        strategy_name: "Deterministic Watchlist Strategy",
+        signal_quality: {
+          market_event_count: 12,
+          trade_intent_count: 6,
+          actionable_signal_rate: 0.5,
+          average_confidence: 0.72,
+          false_positive_rate: 0.25
+        },
+        expectancy_decomposition: {
+          realized_pnl: 80,
+          unrealized_pnl: -20,
+          closed_trade_component: 80,
+          open_trade_component: -20,
+          total_observed_pnl: 60
+        },
+        regime: {
+          regime: "drawdown_pressure",
+          basis: "复盘权益曲线从峰值回撤超过 10%。",
+          review_count: 5,
+          equity_change: -0.04
+        },
+        drawdown: {
+          source: "open_position_pressure",
+          max_drawdown: 0.1161,
+          basis: "开放头寸浮亏。"
+        },
+        data_quality_warnings: ["market_regime_is_proxy"],
+        summary: "可行动信号率 50.00%，误报率 25.00%。"
+      }
+    });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "策略实验室" }).click();
@@ -431,6 +467,11 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(page.getByText("信号精度 71.43%")).toBeVisible();
   await expect(page.getByText("最大回撤 8.00%")).toBeVisible();
   await expect(page.getByText("keep_paper_running")).toBeVisible();
+  const attributionPanel = page.getByRole("region", { name: "归因分析" });
+  await expect(attributionPanel.getByText("drawdown_pressure")).toBeVisible();
+  await expect(attributionPanel.getByText("可行动信号 50.00%")).toBeVisible();
+  await expect(attributionPanel.getByText("误报率 25.00%", { exact: true })).toBeVisible();
+  await expect(attributionPanel.getByText("open_position_pressure")).toBeVisible();
 });
 
 test("watchlist renders market snapshot from API", async ({ page }) => {
