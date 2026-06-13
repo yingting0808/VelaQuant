@@ -5,7 +5,17 @@ import textwrap
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.domain.models import MemberRole, Portfolio, Position, Team, User
+from app.domain.models import (
+    CoreEventLog,
+    MemberRole,
+    PaperRun,
+    PaperRunStatus,
+    PaperRunTrigger,
+    Portfolio,
+    Position,
+    Team,
+    User,
+)
 
 
 def test_create_db_and_tables_registers_models_on_cold_import(tmp_path):
@@ -78,3 +88,45 @@ def test_member_role_values_are_stable():
     assert MemberRole.owner.value == "owner"
     assert MemberRole.analyst.value == "analyst"
     assert MemberRole.viewer.value == "viewer"
+
+
+def test_paper_run_and_core_event_log_can_be_persisted():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        team = Team(name="Run Ledger")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+
+        run = PaperRun(
+            team_id=team.id,
+            trading_day="2026-06-13",
+            trigger=PaperRunTrigger.manual,
+            status=PaperRunStatus.started,
+        )
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+
+        event = CoreEventLog(
+            team_id=team.id,
+            run_id=run.id,
+            event_id="event-1",
+            topic="order_state",
+            sequence=1,
+            correlation_id="corr-1",
+            payload_json='{"current_state":"filled"}',
+        )
+        session.add(event)
+        session.commit()
+
+    with Session(engine) as session:
+        stored_run = session.exec(select(PaperRun)).one()
+        stored_event = session.exec(select(CoreEventLog)).one()
+
+        assert stored_run.trigger == PaperRunTrigger.manual
+        assert stored_run.status == PaperRunStatus.started
+        assert stored_event.run_id == stored_run.id
+        assert stored_event.topic == "order_state"

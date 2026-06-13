@@ -49,6 +49,18 @@ class PaperReadiness(str, Enum):
     paper_ready = "paper_ready"
 
 
+class PaperRunTrigger(str, Enum):
+    manual = "manual"
+    scheduled = "scheduled"
+
+
+class PaperRunStatus(str, Enum):
+    started = "started"
+    completed = "completed"
+    skipped = "skipped"
+    failed = "failed"
+
+
 class Team(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
@@ -235,3 +247,32 @@ class PaperReview(SQLModel, table=True):
     readiness: PaperReadiness = Field(default=PaperReadiness.collecting, index=True)
     notes: str
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class PaperRun(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    account_id: Optional[UUID] = Field(default=None, foreign_key="paperaccount.id", index=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    review_id: Optional[UUID] = Field(default=None, foreign_key="paperreview.id", index=True)
+    trading_day: str = Field(index=True)
+    trigger: PaperRunTrigger = Field(default=PaperRunTrigger.manual, index=True)
+    status: PaperRunStatus = Field(default=PaperRunStatus.started, index=True)
+    candidates_count: int = 0
+    orders_count: int = 0
+    positions_count: int = 0
+    error_message: Optional[str] = None
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: Optional[datetime] = None
+
+
+class CoreEventLog(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    run_id: Optional[UUID] = Field(default=None, foreign_key="paperrun.id", index=True)
+    event_id: str = Field(index=True)
+    topic: str = Field(index=True)
+    sequence: int
+    correlation_id: str = Field(index=True)
+    causation_id: Optional[str] = Field(default=None, index=True)
+    payload_json: str
+    published_at: datetime = Field(default_factory=utc_now)
