@@ -22,11 +22,15 @@ from app.services.research_notebook import ResearchNoteCreate, ResearchNotePaylo
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_evaluation import StrategyEvaluationPayload, StrategyEvaluationReadiness
 from app.services.strategy_attribution import (
+    AttributionComponent,
+    DrawdownContributor,
     DrawdownAttribution,
     ExpectancyDecomposition,
     MarketRegimeAttribution,
     SignalQualityAttribution,
+    SignalDecayAttribution,
     StrategyAttributionPayload,
+    TickerSignalAttribution,
 )
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 from app.services.workspace import (
@@ -209,6 +213,34 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
             closed_trade_component=80,
             open_trade_component=-20,
             total_observed_pnl=60,
+            components=[
+                AttributionComponent(name="trend_component", value=0, basis="proxy"),
+                AttributionComponent(name="timing_component", value=-20, basis="proxy"),
+                AttributionComponent(name="risk_component", value=-1, basis="proxy"),
+                AttributionComponent(name="noise_component", value=-20, basis="proxy"),
+            ],
+        ),
+        ticker_diagnostics=[
+            TickerSignalAttribution(
+                ticker="NVDA",
+                market_event_count=8,
+                trade_intent_count=4,
+                filled_order_count=3,
+                false_positive_count=1,
+                false_positive_rate=0.3333,
+                average_confidence=0.74,
+                realized_pnl=80,
+                unrealized_pnl=-20,
+                observed_pnl=60,
+            )
+        ],
+        signal_decay=SignalDecayAttribution(
+            threshold_days=5,
+            open_position_count=2,
+            stale_open_position_count=1,
+            stale_tickers=["NVDA"],
+            average_holding_days=6.5,
+            basis="proxy",
         ),
         regime=MarketRegimeAttribution(
             regime="drawdown_pressure",
@@ -220,6 +252,12 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
             source="open_position_pressure",
             max_drawdown=0.1161,
             basis="开放头寸浮亏。",
+            contributors=[
+                DrawdownContributor(name="market_driven", value=0.1161, basis="proxy"),
+                DrawdownContributor(name="signal_failure", value=-20, basis="proxy"),
+                DrawdownContributor(name="execution_lag", value=0, basis="proxy"),
+                DrawdownContributor(name="risk_overreach", value=1, basis="proxy"),
+            ],
         ),
         data_quality_warnings=["market_regime_is_proxy"],
         summary="归因测试。",
@@ -234,9 +272,13 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
     payload = response.json()
     assert payload["strategy_id"] == "deterministic_watchlist_v1"
     assert payload["signal_quality"]["actionable_signal_rate"] == 0.5
+    assert payload["ticker_diagnostics"][0]["ticker"] == "NVDA"
+    assert payload["signal_decay"]["stale_tickers"] == ["NVDA"]
     assert payload["expectancy_decomposition"]["total_observed_pnl"] == 60
+    assert payload["expectancy_decomposition"]["components"][1]["name"] == "timing_component"
     assert payload["regime"]["regime"] == "drawdown_pressure"
     assert payload["drawdown"]["source"] == "open_position_pressure"
+    assert payload["drawdown"]["contributors"][3]["name"] == "risk_overreach"
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):

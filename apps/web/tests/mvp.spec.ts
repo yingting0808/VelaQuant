@@ -429,7 +429,35 @@ test("strategy lab renders readiness status", async ({ page }) => {
           unrealized_pnl: -20,
           closed_trade_component: 80,
           open_trade_component: -20,
-          total_observed_pnl: 60
+          total_observed_pnl: 60,
+          components: [
+            { name: "trend_component", value: 0, basis: "环境代理。" },
+            { name: "timing_component", value: -20, basis: "开放持仓浮亏。" },
+            { name: "risk_component", value: -1, basis: "风控摩擦。" },
+            { name: "noise_component", value: -20, basis: "信号噪声。" }
+          ]
+        },
+        ticker_diagnostics: [
+          {
+            ticker: "NVDA",
+            market_event_count: 8,
+            trade_intent_count: 4,
+            filled_order_count: 3,
+            false_positive_count: 1,
+            false_positive_rate: 0.3333,
+            average_confidence: 0.74,
+            realized_pnl: 80,
+            unrealized_pnl: -20,
+            observed_pnl: 60
+          }
+        ],
+        signal_decay: {
+          threshold_days: 5,
+          open_position_count: 2,
+          stale_open_position_count: 1,
+          stale_tickers: ["NVDA"],
+          average_holding_days: 6.5,
+          basis: "开放持仓超过 5 天。"
         },
         regime: {
           regime: "drawdown_pressure",
@@ -440,7 +468,13 @@ test("strategy lab renders readiness status", async ({ page }) => {
         drawdown: {
           source: "open_position_pressure",
           max_drawdown: 0.1161,
-          basis: "开放头寸浮亏。"
+          basis: "开放头寸浮亏。",
+          contributors: [
+            { name: "market_driven", value: 0.1161, basis: "权益曲线回撤。" },
+            { name: "signal_failure", value: -20, basis: "负盈亏。" },
+            { name: "execution_lag", value: 0, basis: "同步执行。" },
+            { name: "risk_overreach", value: 1, basis: "风控拒单。" }
+          ]
         },
         data_quality_warnings: ["market_regime_is_proxy"],
         summary: "可行动信号率 50.00%，误报率 25.00%。"
@@ -472,6 +506,11 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(attributionPanel.getByText("可行动信号 50.00%")).toBeVisible();
   await expect(attributionPanel.getByText("误报率 25.00%", { exact: true })).toBeVisible();
   await expect(attributionPanel.getByText("open_position_pressure")).toBeVisible();
+  await expect(attributionPanel.getByText("NVDA 贡献 $60.00")).toBeVisible();
+  await expect(attributionPanel.getByText("衰减 1 / 2")).toBeVisible();
+  await expect(attributionPanel.getByText("持仓 6.50 天")).toBeVisible();
+  await expect(attributionPanel.getByText("timing_component -$20.00")).toBeVisible();
+  await expect(attributionPanel.getByText("risk_overreach 1.00")).toBeVisible();
 });
 
 test("watchlist renders market snapshot from API", async ({ page }) => {

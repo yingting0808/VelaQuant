@@ -32,7 +32,14 @@ def _account(session: Session) -> PaperAccount:
     return account
 
 
-def _core_event(session: Session, account: PaperAccount, topic: str, sequence: int, payload: dict) -> CoreEventLog:
+def _core_event(
+    session: Session,
+    account: PaperAccount,
+    topic: str,
+    sequence: int,
+    payload: dict,
+    published_at: datetime | None = None,
+) -> CoreEventLog:
     event = CoreEventLog(
         team_id=account.team_id,
         event_id=f"{topic}-{sequence}",
@@ -40,7 +47,7 @@ def _core_event(session: Session, account: PaperAccount, topic: str, sequence: i
         sequence=sequence,
         correlation_id="paper-run-test",
         payload_json=json.dumps(payload),
-        published_at=datetime(2026, 6, 13, tzinfo=timezone.utc) + timedelta(seconds=sequence),
+        published_at=published_at or datetime(2026, 6, 13, tzinfo=timezone.utc) + timedelta(seconds=sequence),
     )
     session.add(event)
     session.commit()
@@ -59,6 +66,53 @@ def _filled_buy(session: Session, account: PaperAccount, ticker: str = "NVDA") -
         fill_price=100,
         risk_status="approved",
         risk_code="approved",
+    )
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def _filled_sell(
+    session: Session,
+    account: PaperAccount,
+    ticker: str = "NVDA",
+    realized_pnl: float = -12,
+) -> PaperOrder:
+    order = PaperOrder(
+        account_id=account.id,
+        team_id=account.team_id,
+        ticker=ticker,
+        side=PaperOrderSide.sell,
+        quantity=1,
+        status=PaperOrderStatus.filled,
+        fill_price=90,
+        realized_pnl=realized_pnl,
+        risk_status="approved",
+        risk_code="approved",
+    )
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def _rejected_buy(
+    session: Session,
+    account: PaperAccount,
+    ticker: str = "NVDA",
+    risk_code: str = "max_position_weight",
+) -> PaperOrder:
+    order = PaperOrder(
+        account_id=account.id,
+        team_id=account.team_id,
+        ticker=ticker,
+        side=PaperOrderSide.buy,
+        quantity=1,
+        status=PaperOrderStatus.rejected,
+        rejection_reason="Risk limit rejected order.",
+        risk_status="rejected",
+        risk_code=risk_code,
     )
     session.add(order)
     session.commit()
@@ -124,6 +178,42 @@ def test_strategy_attribution_counts_signal_quality_from_core_events():
         assert attribution.signal_quality.average_confidence == 0.7
 
 
+def test_strategy_attribution_reports_per_ticker_signal_diagnostics():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(session, account, "market_event", 1, {"ticker": "NVDA", "confidence": 0.8})
+        _core_event(session, account, "market_event", 2, {"ticker": "NVDA", "confidence": 0.6})
+        _core_event(session, account, "trade_intent", 3, {"ticker": "NVDA", "side": "buy"})
+        _core_event(session, account, "market_event", 4, {"ticker": "MSFT", "confidence": 0.5})
+        _filled_buy(session, account, "NVDA")
+        _filled_sell(session, account, "NVDA", realized_pnl=15)
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="NVDA",
+                quantity=1,
+                average_cost=100,
+                last_price=110,
+                market_value=110,
+                unrealized_pnl=10,
+            )
+        )
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session)
+        diagnostics = {item.ticker: item for item in attribution.ticker_diagnostics}
+
+        assert diagnostics["NVDA"].market_event_count == 2
+        assert diagnostics["NVDA"].trade_intent_count == 1
+        assert diagnostics["NVDA"].filled_order_count == 2
+        assert diagnostics["NVDA"].average_confidence == 0.7
+        assert diagnostics["NVDA"].observed_pnl == 25
+        assert diagnostics["NVDA"].false_positive_rate == 0.0
+        assert diagnostics["MSFT"].market_event_count == 1
+        assert diagnostics["MSFT"].trade_intent_count == 0
+
+
 def test_strategy_attribution_flags_losing_open_position_as_false_positive():
     with make_session() as session:
         account = _account(session)
@@ -148,6 +238,55 @@ def test_strategy_attribution_flags_losing_open_position_as_false_positive():
         assert attribution.expectancy_decomposition.unrealized_pnl == -10
         assert attribution.expectancy_decomposition.open_trade_component == -10
         assert attribution.expectancy_decomposition.total_observed_pnl == -10
+
+
+def test_strategy_attribution_reports_signal_decay_for_stale_open_positions():
+    with make_session() as session:
+        account = _account(session)
+        stale_submitted_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        fresh_submitted_at = datetime(2026, 6, 9, tzinfo=timezone.utc)
+        as_of = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        stale = _filled_buy(session, account, "NVDA")
+        stale.submitted_at = stale_submitted_at
+        fresh = _filled_buy(session, account, "MSFT")
+        fresh.submitted_at = fresh_submitted_at
+        _core_event(session, account, "market_event", 9, {"ticker": "NVDA", "confidence": 0.7}, published_at=as_of)
+        _review(session, account, "2026-06-10", 100000, as_of)
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="NVDA",
+                quantity=1,
+                average_cost=100,
+                last_price=101,
+                market_value=101,
+                unrealized_pnl=1,
+                updated_at=as_of,
+            )
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="MSFT",
+                quantity=1,
+                average_cost=100,
+                last_price=101,
+                market_value=101,
+                unrealized_pnl=1,
+                updated_at=as_of,
+            )
+        )
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session)
+
+        assert attribution.signal_decay.threshold_days == 5
+        assert attribution.signal_decay.open_position_count == 2
+        assert attribution.signal_decay.stale_open_position_count == 1
+        assert attribution.signal_decay.stale_tickers == ["NVDA"]
+        assert attribution.signal_decay.average_holding_days == 5.0
 
 
 def test_strategy_attribution_identifies_drawdown_regime_and_source():
@@ -177,3 +316,38 @@ def test_strategy_attribution_identifies_drawdown_regime_and_source():
         assert attribution.regime.review_count == 3
         assert attribution.drawdown.source == "open_position_pressure"
         assert attribution.drawdown.max_drawdown == 0.1161
+
+
+def test_strategy_attribution_breaks_down_expectancy_and_drawdown_contributors():
+    with make_session() as session:
+        account = _account(session)
+        start = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        _review(session, account, "2026-06-01", 100000, start)
+        _review(session, account, "2026-06-02", 112000, start + timedelta(days=1))
+        _review(session, account, "2026-06-03", 99000, start + timedelta(days=2))
+        _filled_sell(session, account, "NVDA", realized_pnl=-30)
+        _rejected_buy(session, account, "NVDA")
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="NVDA",
+                quantity=1,
+                average_cost=100,
+                last_price=85,
+                market_value=85,
+                unrealized_pnl=-15,
+            )
+        )
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session)
+        components = {item.name: item for item in attribution.expectancy_decomposition.components}
+        contributors = {item.name: item for item in attribution.drawdown.contributors}
+
+        assert components["timing_component"].value == -15
+        assert components["noise_component"].value == -45
+        assert components["risk_component"].value == -1
+        assert contributors["signal_failure"].value == -45
+        assert contributors["risk_overreach"].value == 1
+        assert contributors["execution_lag"].value == 0

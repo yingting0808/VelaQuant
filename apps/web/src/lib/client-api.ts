@@ -57,6 +57,40 @@ export type StrategyEvaluationPayload = {
   notes: string;
 };
 
+export type TickerSignalAttributionPayload = {
+  ticker: string;
+  market_event_count: number;
+  trade_intent_count: number;
+  filled_order_count: number;
+  false_positive_count: number;
+  false_positive_rate: number;
+  average_confidence: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  observed_pnl: number;
+};
+
+export type SignalDecayAttributionPayload = {
+  threshold_days: number;
+  open_position_count: number;
+  stale_open_position_count: number;
+  stale_tickers: string[];
+  average_holding_days: number;
+  basis: string;
+};
+
+export type AttributionComponentPayload = {
+  name: "trend_component" | "timing_component" | "risk_component" | "noise_component";
+  value: number;
+  basis: string;
+};
+
+export type DrawdownContributorPayload = {
+  name: "market_driven" | "signal_failure" | "execution_lag" | "risk_overreach";
+  value: number;
+  basis: string;
+};
+
 export type StrategyAttributionPayload = {
   strategy_id: string;
   strategy_name: string;
@@ -67,12 +101,15 @@ export type StrategyAttributionPayload = {
     average_confidence: number;
     false_positive_rate: number;
   };
+  ticker_diagnostics: TickerSignalAttributionPayload[];
+  signal_decay: SignalDecayAttributionPayload;
   expectancy_decomposition: {
     realized_pnl: number;
     unrealized_pnl: number;
     closed_trade_component: number;
     open_trade_component: number;
     total_observed_pnl: number;
+    components: AttributionComponentPayload[];
   };
   regime: {
     regime: "insufficient_data" | "drawdown_pressure" | "uptrend_capture" | "range_bound";
@@ -84,6 +121,7 @@ export type StrategyAttributionPayload = {
     source: "insufficient_data" | "open_position_pressure" | "closed_trade_losses" | "equity_curve_pressure";
     max_drawdown: number;
     basis: string;
+    contributors: DrawdownContributorPayload[];
   };
   data_quality_warnings: string[];
   summary: string;
@@ -319,7 +357,22 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
     unrealized_pnl: 0,
     closed_trade_component: 0,
     open_trade_component: 0,
-    total_observed_pnl: 0
+    total_observed_pnl: 0,
+    components: [
+      { name: "trend_component", value: 0, basis: "离线模式不能确认趋势组件。" },
+      { name: "timing_component", value: 0, basis: "离线模式不能确认时点组件。" },
+      { name: "risk_component", value: 0, basis: "离线模式不能确认风险摩擦。" },
+      { name: "noise_component", value: 0, basis: "离线模式不能确认噪声组件。" }
+    ]
+  },
+  ticker_diagnostics: [],
+  signal_decay: {
+    threshold_days: 5,
+    open_position_count: 0,
+    stale_open_position_count: 0,
+    stale_tickers: [],
+    average_holding_days: 0,
+    basis: "后端 API 暂不可用，无法确认信号衰减。"
   },
   regime: {
     regime: "insufficient_data",
@@ -330,7 +383,13 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
   drawdown: {
     source: "insufficient_data",
     max_drawdown: 0,
-    basis: "后端 API 暂不可用，无法确认回撤来源。"
+    basis: "后端 API 暂不可用，无法确认回撤来源。",
+    contributors: [
+      { name: "market_driven", value: 0, basis: "离线模式不能确认市场贡献。" },
+      { name: "signal_failure", value: 0, basis: "离线模式不能确认信号失效。" },
+      { name: "execution_lag", value: 0, basis: "离线模式不能确认执行延迟。" },
+      { name: "risk_overreach", value: 0, basis: "离线模式不能确认风险越界。" }
+    ]
   },
   data_quality_warnings: ["offline_fallback"],
   summary: "后端 API 暂不可用，无法确认策略归因。"
@@ -452,6 +511,43 @@ function isStrategyEvaluationPayload(value: unknown): value is StrategyEvaluatio
   );
 }
 
+function isTickerSignalAttributionPayload(value: unknown): value is TickerSignalAttributionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    typeof value.market_event_count === "number" &&
+    typeof value.trade_intent_count === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.false_positive_count === "number" &&
+    typeof value.false_positive_rate === "number" &&
+    typeof value.average_confidence === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.observed_pnl === "number"
+  );
+}
+
+function isSignalDecayAttributionPayload(value: unknown): value is SignalDecayAttributionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.threshold_days === "number" &&
+    typeof value.open_position_count === "number" &&
+    typeof value.stale_open_position_count === "number" &&
+    Array.isArray(value.stale_tickers) &&
+    value.stale_tickers.every((item) => typeof item === "string") &&
+    typeof value.average_holding_days === "number" &&
+    typeof value.basis === "string"
+  );
+}
+
+function isAttributionComponentPayload(value: unknown): value is AttributionComponentPayload {
+  return isRecord(value) && typeof value.name === "string" && typeof value.value === "number" && typeof value.basis === "string";
+}
+
+function isDrawdownContributorPayload(value: unknown): value is DrawdownContributorPayload {
+  return isRecord(value) && typeof value.name === "string" && typeof value.value === "number" && typeof value.basis === "string";
+}
+
 function isStrategyAttributionPayload(value: unknown): value is StrategyAttributionPayload {
   return (
     isRecord(value) &&
@@ -463,12 +559,17 @@ function isStrategyAttributionPayload(value: unknown): value is StrategyAttribut
     typeof value.signal_quality.actionable_signal_rate === "number" &&
     typeof value.signal_quality.average_confidence === "number" &&
     typeof value.signal_quality.false_positive_rate === "number" &&
+    Array.isArray(value.ticker_diagnostics) &&
+    value.ticker_diagnostics.every(isTickerSignalAttributionPayload) &&
+    isSignalDecayAttributionPayload(value.signal_decay) &&
     isRecord(value.expectancy_decomposition) &&
     typeof value.expectancy_decomposition.realized_pnl === "number" &&
     typeof value.expectancy_decomposition.unrealized_pnl === "number" &&
     typeof value.expectancy_decomposition.closed_trade_component === "number" &&
     typeof value.expectancy_decomposition.open_trade_component === "number" &&
     typeof value.expectancy_decomposition.total_observed_pnl === "number" &&
+    Array.isArray(value.expectancy_decomposition.components) &&
+    value.expectancy_decomposition.components.every(isAttributionComponentPayload) &&
     isRecord(value.regime) &&
     typeof value.regime.regime === "string" &&
     typeof value.regime.basis === "string" &&
@@ -478,6 +579,8 @@ function isStrategyAttributionPayload(value: unknown): value is StrategyAttribut
     typeof value.drawdown.source === "string" &&
     typeof value.drawdown.max_drawdown === "number" &&
     typeof value.drawdown.basis === "string" &&
+    Array.isArray(value.drawdown.contributors) &&
+    value.drawdown.contributors.every(isDrawdownContributorPayload) &&
     Array.isArray(value.data_quality_warnings) &&
     value.data_quality_warnings.every((item) => typeof item === "string") &&
     typeof value.summary === "string"

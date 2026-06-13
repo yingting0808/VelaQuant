@@ -33,6 +33,10 @@ export function StrategyLabStatusPanel() {
 
   const canRun = status?.can_run_backtests ?? false;
   const readiness = evaluation?.readiness ?? "insufficient_sample";
+  const topTicker = attribution?.ticker_diagnostics[0] ?? null;
+  const timingComponent =
+    attribution?.expectancy_decomposition.components.find((item) => item.name === "timing_component") ?? null;
+  const riskContributor = attribution?.drawdown.contributors.find((item) => item.name === "risk_overreach") ?? null;
 
   return (
     <>
@@ -108,6 +112,41 @@ export function StrategyLabStatusPanel() {
             </div>
             <span className="state-warn">警告 {attribution?.data_quality_warnings.length ?? 0}</span>
           </article>
+          <article className="module-row">
+            <div>
+              <strong>
+                {topTicker?.ticker ?? "暂无 Ticker"} 贡献 {formatSignedCurrency(topTicker?.observed_pnl ?? 0)}
+              </strong>
+              <p>
+                事件 {topTicker?.market_event_count ?? 0} / 意图 {topTicker?.trade_intent_count ?? 0} · 误报{" "}
+                {formatPercent(topTicker?.false_positive_rate ?? 0)}
+              </p>
+            </div>
+            <span className="state-ok">置信 {formatPercent(topTicker?.average_confidence ?? 0)}</span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>
+                衰减 {attribution?.signal_decay.stale_open_position_count ?? 0} /{" "}
+                {attribution?.signal_decay.open_position_count ?? 0}
+              </strong>
+              <p>{attribution?.signal_decay.basis ?? "等待持仓和订单样本。"}</p>
+            </div>
+            <span className="state-warn">
+              持仓 {formatNumber(attribution?.signal_decay.average_holding_days ?? 0)} 天
+            </span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>
+                {timingComponent?.name ?? "timing_component"} {formatSignedCurrency(timingComponent?.value ?? 0)}
+              </strong>
+              <p>{timingComponent?.basis ?? "等待时点组件样本。"}</p>
+            </div>
+            <span className="state-warn">
+              {riskContributor?.name ?? "risk_overreach"} {formatNumber(riskContributor?.value ?? 0)}
+            </span>
+          </article>
         </div>
       </section>
 
@@ -159,5 +198,12 @@ function formatNumber(value: number): string {
 }
 
 function formatCurrency(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function formatSignedCurrency(value: number): string {
+  if (value < 0) {
+    return `-$${Math.abs(value).toFixed(2)}`;
+  }
   return `$${value.toFixed(2)}`;
 }
