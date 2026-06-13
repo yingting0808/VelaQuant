@@ -377,6 +377,7 @@ def test_strategy_attribution_breaks_down_expectancy_and_drawdown_contributors()
         contributors = {item.name: item for item in attribution.drawdown.contributors}
 
         assert components["timing_component"].value == -15
+        assert components["volatility_component"].value == 0
         assert components["noise_component"].value == -45
         assert components["risk_component"].value == -1
         assert contributors["signal_failure"].value == -45
@@ -401,11 +402,20 @@ def test_strategy_attribution_breaks_down_performance_by_market_regime():
 
         assert breakdown["trend_market"].ticker_count == 1
         assert breakdown["trend_market"].observed_pnl == 25
+        assert breakdown["trend_market"].sample_count == 2
+        assert breakdown["trend_market"].sharpe_proxy == 3.9231
         assert breakdown["trend_market"].tickers == ["NVDA"]
         assert breakdown["range_market"].observed_pnl == -4
+        assert breakdown["range_market"].sample_count == 2
         assert breakdown["range_market"].tickers == ["MSFT"]
         assert breakdown["high_volatility"].observed_pnl == -15
+        assert breakdown["high_volatility"].sample_count == 2
+        assert breakdown["high_volatility"].sharpe_proxy == -0.1008
         assert breakdown["high_volatility"].tickers == ["TSLA"]
         assert breakdown["insufficient_data"].observed_pnl == 3
+        assert breakdown["insufficient_data"].sample_count == 0
+        assert breakdown["insufficient_data"].sharpe_proxy == 0
         assert breakdown["insufficient_data"].tickers == ["AMZN"]
         assert attribution.regime_breakdown.primary_regime == "trend_market"
+        components = {item.name: item for item in attribution.expectancy_decomposition.components}
+        assert components["volatility_component"].value == -15

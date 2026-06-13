@@ -217,6 +217,7 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
             total_observed_pnl=60,
             components=[
                 AttributionComponent(name="trend_component", value=0, basis="proxy"),
+                AttributionComponent(name="volatility_component", value=0, basis="proxy"),
                 AttributionComponent(name="timing_component", value=-20, basis="proxy"),
                 AttributionComponent(name="risk_component", value=-1, basis="proxy"),
                 AttributionComponent(name="noise_component", value=-20, basis="proxy"),
@@ -259,6 +260,8 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
                     observed_pnl=60,
                     average_return=0.08,
                     average_volatility=0.01,
+                    sample_count=2,
+                    sharpe_proxy=3.2,
                     tickers=["NVDA"],
                     basis="proxy",
                 ),
@@ -268,6 +271,8 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
                     observed_pnl=0,
                     average_return=0,
                     average_volatility=0,
+                    sample_count=0,
+                    sharpe_proxy=0,
                     tickers=[],
                     basis="proxy",
                 ),
@@ -277,6 +282,8 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
                     observed_pnl=0,
                     average_return=0,
                     average_volatility=0,
+                    sample_count=0,
+                    sharpe_proxy=0,
                     tickers=[],
                     basis="proxy",
                 ),
@@ -286,6 +293,8 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
                     observed_pnl=0,
                     average_return=0,
                     average_volatility=0,
+                    sample_count=0,
+                    sharpe_proxy=0,
                     tickers=[],
                     basis="proxy",
                 ),
@@ -325,9 +334,13 @@ def test_mvp_strategy_lab_attribution_route_returns_explanation_report(monkeypat
     assert payload["ticker_diagnostics"][0]["ticker"] == "NVDA"
     assert payload["signal_decay"]["stale_tickers"] == ["NVDA"]
     assert payload["expectancy_decomposition"]["total_observed_pnl"] == 60
-    assert payload["expectancy_decomposition"]["components"][1]["name"] == "timing_component"
+    component_names = {item["name"] for item in payload["expectancy_decomposition"]["components"]}
+    assert "volatility_component" in component_names
+    assert "timing_component" in component_names
     assert payload["regime"]["regime"] == "drawdown_pressure"
     assert payload["regime_breakdown"]["primary_regime"] == "trend_market"
+    assert payload["regime_breakdown"]["items"][0]["sample_count"] == 2
+    assert payload["regime_breakdown"]["items"][0]["sharpe_proxy"] == 3.2
     assert payload["regime_breakdown"]["items"][0]["tickers"] == ["NVDA"]
     assert payload["drawdown"]["source"] == "open_position_pressure"
     assert payload["drawdown"]["contributors"][3]["name"] == "risk_overreach"

@@ -432,6 +432,7 @@ test("strategy lab renders readiness status", async ({ page }) => {
           total_observed_pnl: 60,
           components: [
             { name: "trend_component", value: 0, basis: "环境代理。" },
+            { name: "volatility_component", value: 12, basis: "高波动市场贡献。" },
             { name: "timing_component", value: -20, basis: "开放持仓浮亏。" },
             { name: "risk_component", value: -1, basis: "风控摩擦。" },
             { name: "noise_component", value: -20, basis: "信号噪声。" }
@@ -474,6 +475,8 @@ test("strategy lab renders readiness status", async ({ page }) => {
               observed_pnl: 60,
               average_return: 0.08,
               average_volatility: 0.01,
+              sample_count: 2,
+              sharpe_proxy: 3.2,
               tickers: ["NVDA"],
               basis: "趋势市场表现。"
             },
@@ -483,6 +486,8 @@ test("strategy lab renders readiness status", async ({ page }) => {
               observed_pnl: 0,
               average_return: 0,
               average_volatility: 0,
+              sample_count: 0,
+              sharpe_proxy: 0,
               tickers: [],
               basis: "震荡市场表现。"
             },
@@ -492,6 +497,8 @@ test("strategy lab renders readiness status", async ({ page }) => {
               observed_pnl: 0,
               average_return: 0,
               average_volatility: 0,
+              sample_count: 0,
+              sharpe_proxy: 0,
               tickers: [],
               basis: "高波动市场表现。"
             },
@@ -501,6 +508,8 @@ test("strategy lab renders readiness status", async ({ page }) => {
               observed_pnl: 0,
               average_return: 0,
               average_volatility: 0,
+              sample_count: 0,
+              sharpe_proxy: 0,
               tickers: [],
               basis: "行情不足。"
             }
@@ -552,9 +561,10 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(attributionPanel.getByText("衰减 1 / 2")).toBeVisible();
   await expect(attributionPanel.getByText("持仓 6.50 天")).toBeVisible();
   await expect(attributionPanel.getByText("timing_component -$20.00")).toBeVisible();
+  await expect(attributionPanel.getByText("volatility_component $12.00")).toBeVisible();
   await expect(attributionPanel.getByText("risk_overreach 1.00")).toBeVisible();
   await expect(attributionPanel.getByText("市场环境 trend_market")).toBeVisible();
-  await expect(attributionPanel.getByText("收益 8.00% / 波动 1.00%")).toBeVisible();
+  await expect(attributionPanel.getByText("收益 8.00% / 波动 1.00% / Sharpe 3.20")).toBeVisible();
 });
 
 test("watchlist renders market snapshot from API", async ({ page }) => {
@@ -985,7 +995,7 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   await expect(page.getByText("MovingAverageCross")).toBeVisible();
   await expect(page.getByText("Backtest completed.")).toBeVisible();
   await expect(panel.locator(".backtest-metrics").getByText("12.34%")).toBeVisible();
-  await expect(page.getByText("Sharpe")).toBeVisible();
+  await expect(panel.locator(".backtest-metrics").getByText("Sharpe", { exact: true })).toBeVisible();
   await expect(page.getByText("TRACE:: Backtest completed")).toBeVisible();
   await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("回测完成");
   await expect(panel.getByRole("heading", { name: "历史记录" })).toBeVisible();

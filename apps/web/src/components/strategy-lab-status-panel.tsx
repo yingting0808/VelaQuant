@@ -34,6 +34,8 @@ export function StrategyLabStatusPanel() {
   const canRun = status?.can_run_backtests ?? false;
   const readiness = evaluation?.readiness ?? "insufficient_sample";
   const topTicker = attribution?.ticker_diagnostics[0] ?? null;
+  const volatilityComponent =
+    attribution?.expectancy_decomposition.components.find((item) => item.name === "volatility_component") ?? null;
   const timingComponent =
     attribution?.expectancy_decomposition.components.find((item) => item.name === "timing_component") ?? null;
   const riskContributor = attribution?.drawdown.contributors.find((item) => item.name === "risk_overreach") ?? null;
@@ -142,6 +144,16 @@ export function StrategyLabStatusPanel() {
           <article className="module-row">
             <div>
               <strong>
+                {volatilityComponent?.name ?? "volatility_component"}{" "}
+                {formatSignedCurrency(volatilityComponent?.value ?? 0)}
+              </strong>
+              <p>{volatilityComponent?.basis ?? "等待波动环境组件样本。"}</p>
+            </div>
+            <span className="state-warn">高波动桶</span>
+          </article>
+          <article className="module-row">
+            <div>
+              <strong>
                 {timingComponent?.name ?? "timing_component"} {formatSignedCurrency(timingComponent?.value ?? 0)}
               </strong>
               <p>{timingComponent?.basis ?? "等待时点组件样本。"}</p>
@@ -160,7 +172,8 @@ export function StrategyLabStatusPanel() {
             </div>
             <span className="state-ok">
               收益 {formatPercent(primaryRegime?.average_return ?? 0)} / 波动{" "}
-              {formatPercent(primaryRegime?.average_volatility ?? 0)}
+              {formatPercent(primaryRegime?.average_volatility ?? 0)} / Sharpe{" "}
+              {formatNumber(primaryRegime?.sharpe_proxy ?? 0)}
             </span>
           </article>
         </div>

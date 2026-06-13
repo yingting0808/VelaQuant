@@ -80,7 +80,7 @@ export type SignalDecayAttributionPayload = {
 };
 
 export type AttributionComponentPayload = {
-  name: "trend_component" | "timing_component" | "risk_component" | "noise_component";
+  name: "trend_component" | "volatility_component" | "timing_component" | "risk_component" | "noise_component";
   value: number;
   basis: string;
 };
@@ -97,6 +97,8 @@ export type RegimePerformancePayload = {
   observed_pnl: number;
   average_return: number;
   average_volatility: number;
+  sample_count: number;
+  sharpe_proxy: number;
   tickers: string[];
   basis: string;
 };
@@ -377,6 +379,7 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
     total_observed_pnl: 0,
     components: [
       { name: "trend_component", value: 0, basis: "离线模式不能确认趋势组件。" },
+      { name: "volatility_component", value: 0, basis: "离线模式不能确认波动组件。" },
       { name: "timing_component", value: 0, basis: "离线模式不能确认时点组件。" },
       { name: "risk_component", value: 0, basis: "离线模式不能确认风险摩擦。" },
       { name: "noise_component", value: 0, basis: "离线模式不能确认噪声组件。" }
@@ -406,6 +409,8 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
         observed_pnl: 0,
         average_return: 0,
         average_volatility: 0,
+        sample_count: 0,
+        sharpe_proxy: 0,
         tickers: [],
         basis: "离线模式不能确认趋势市场表现。"
       },
@@ -415,6 +420,8 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
         observed_pnl: 0,
         average_return: 0,
         average_volatility: 0,
+        sample_count: 0,
+        sharpe_proxy: 0,
         tickers: [],
         basis: "离线模式不能确认震荡市场表现。"
       },
@@ -424,6 +431,8 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
         observed_pnl: 0,
         average_return: 0,
         average_volatility: 0,
+        sample_count: 0,
+        sharpe_proxy: 0,
         tickers: [],
         basis: "离线模式不能确认高波动市场表现。"
       },
@@ -433,6 +442,8 @@ const fallbackStrategyAttribution: StrategyAttributionPayload = {
         observed_pnl: 0,
         average_return: 0,
         average_volatility: 0,
+        sample_count: 0,
+        sharpe_proxy: 0,
         tickers: [],
         basis: "行情历史不足。"
       }
@@ -615,6 +626,8 @@ function isRegimePerformancePayload(value: unknown): value is RegimePerformanceP
     typeof value.observed_pnl === "number" &&
     typeof value.average_return === "number" &&
     typeof value.average_volatility === "number" &&
+    typeof value.sample_count === "number" &&
+    typeof value.sharpe_proxy === "number" &&
     Array.isArray(value.tickers) &&
     value.tickers.every((item) => typeof item === "string") &&
     typeof value.basis === "string"

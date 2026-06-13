@@ -50,7 +50,7 @@ class SignalDecayAttribution(BaseModel):
 class AttributionComponent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["trend_component", "timing_component", "risk_component", "noise_component"]
+    name: Literal["trend_component", "volatility_component", "timing_component", "risk_component", "noise_component"]
     value: float
     basis: str
 
@@ -83,6 +83,8 @@ class RegimePerformanceItem(BaseModel):
     observed_pnl: float
     average_return: float
     average_volatility: float
+    sample_count: int
+    sharpe_proxy: float
     tickers: list[str]
     basis: str
 
@@ -151,7 +153,7 @@ def attribute_current_paper_strategy(
     ticker_diagnostics = _ticker_diagnostics(events, orders, positions, warnings)
     regime_breakdown = _regime_breakdown(ticker_diagnostics, provider, warnings)
     signal_decay = _signal_decay(events, orders, positions, reviews)
-    expectancy.components = _expectancy_components(expectancy, signal_quality, orders, regime)
+    expectancy.components = _expectancy_components(expectancy, signal_quality, orders, regime, regime_breakdown)
     drawdown.contributors = _drawdown_contributors(drawdown, expectancy, orders)
 
     if signal_quality.market_event_count == 0:
@@ -373,15 +375,25 @@ def _expectancy_components(
     signal_quality: SignalQualityAttribution,
     orders: list[PaperOrder],
     regime: MarketRegimeAttribution,
+    regime_breakdown: RegimeBreakdownPayload,
 ) -> list[AttributionComponent]:
     rejected_order_count = len([order for order in orders if order.status == PaperOrderStatus.rejected])
     noise_value = round(min(expectancy.realized_pnl, 0.0) + min(expectancy.unrealized_pnl, 0.0), 2)
     trend_value = expectancy.total_observed_pnl if regime.regime == "uptrend_capture" else 0.0
+    high_volatility_pnl = round(
+        sum(item.observed_pnl for item in regime_breakdown.items if item.regime == "high_volatility"),
+        2,
+    )
     return [
         AttributionComponent(
             name="trend_component",
             value=round(trend_value, 2),
             basis="环境代理为 uptrend_capture 时，把观测盈亏标记为趋势捕获组件。",
+        ),
+        AttributionComponent(
+            name="volatility_component",
+            value=high_volatility_pnl,
+            basis="高波动市场桶内的观测盈亏，作为波动环境贡献代理。",
         ),
         AttributionComponent(
             name="timing_component",
@@ -443,7 +455,7 @@ def _regime_breakdown(
     if provider is None:
         warnings.append("missing_market_history_provider")
         for diagnostic in ticker_diagnostics:
-            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0)
+            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0, 0, 0.0)
         return _regime_payload(rows)
 
     for diagnostic in ticker_diagnostics:
@@ -451,10 +463,10 @@ def _regime_breakdown(
             history = provider.get_price_history(diagnostic.ticker)
         except Exception:
             warnings.append("market_history_unavailable")
-            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0)
+            _add_regime_row(rows["insufficient_data"], diagnostic, 0.0, 0.0, 0, 0.0)
             continue
-        label, total_return, volatility = _classify_price_history(history)
-        _add_regime_row(rows[label], diagnostic, total_return, volatility)
+        label, total_return, volatility, sample_count, sharpe_proxy = _classify_price_history(history)
+        _add_regime_row(rows[label], diagnostic, total_return, volatility, sample_count, sharpe_proxy)
     return _regime_payload(rows)
 
 
@@ -465,6 +477,8 @@ def _regime_row(regime: str, basis: str) -> dict:
         "observed_pnl": 0.0,
         "returns": [],
         "volatilities": [],
+        "sample_count": 0,
+        "sharpe_values": [],
         "tickers": [],
         "basis": basis,
     }
@@ -475,11 +489,15 @@ def _add_regime_row(
     diagnostic: TickerSignalAttribution,
     total_return: float,
     volatility: float,
+    sample_count: int,
+    sharpe_proxy: float,
 ) -> None:
     row["ticker_count"] += 1
     row["observed_pnl"] = round(row["observed_pnl"] + diagnostic.observed_pnl, 2)
     row["returns"].append(total_return)
     row["volatilities"].append(volatility)
+    row["sample_count"] += sample_count
+    row["sharpe_values"].append(sharpe_proxy)
     row["tickers"].append(diagnostic.ticker)
 
 
@@ -489,6 +507,7 @@ def _regime_payload(rows: dict[str, dict]) -> RegimeBreakdownPayload:
         row = rows[regime]
         returns = row["returns"]
         volatilities = row["volatilities"]
+        sharpe_values = row["sharpe_values"]
         items.append(
             RegimePerformanceItem(
                 regime=regime,
@@ -496,6 +515,8 @@ def _regime_payload(rows: dict[str, dict]) -> RegimeBreakdownPayload:
                 observed_pnl=row["observed_pnl"],
                 average_return=round(sum(returns) / len(returns), 4) if returns else 0.0,
                 average_volatility=round(sum(volatilities) / len(volatilities), 4) if volatilities else 0.0,
+                sample_count=row["sample_count"],
+                sharpe_proxy=round(sum(sharpe_values) / len(sharpe_values), 4) if sharpe_values else 0.0,
                 tickers=sorted(row["tickers"]),
                 basis=row["basis"],
             )
@@ -511,18 +532,19 @@ def _regime_payload(rows: dict[str, dict]) -> RegimeBreakdownPayload:
 
 def _classify_price_history(
     history: list[PriceHistoryBar],
-) -> tuple[Literal["trend_market", "range_market", "high_volatility", "insufficient_data"], float, float]:
+) -> tuple[Literal["trend_market", "range_market", "high_volatility", "insufficient_data"], float, float, int, float]:
     closes = [float(bar.close) for bar in history if bar.close is not None and bar.close > 0]
     if len(closes) < 3:
-        return "insufficient_data", 0.0, 0.0
+        return "insufficient_data", 0.0, 0.0, 0, 0.0
     total_return = (closes[-1] - closes[0]) / closes[0]
     returns = [(closes[index] - closes[index - 1]) / closes[index - 1] for index in range(1, len(closes))]
     volatility = _sample_volatility(returns)
+    sharpe_proxy = _sharpe_proxy(returns)
     if volatility >= 0.04:
-        return "high_volatility", round(total_return, 4), volatility
+        return "high_volatility", round(total_return, 4), volatility, len(returns), sharpe_proxy
     if abs(total_return) >= 0.02:
-        return "trend_market", round(total_return, 4), volatility
-    return "range_market", round(total_return, 4), volatility
+        return "trend_market", round(total_return, 4), volatility, len(returns), sharpe_proxy
+    return "range_market", round(total_return, 4), volatility, len(returns), sharpe_proxy
 
 
 def _sample_volatility(returns: list[float]) -> float:
@@ -531,6 +553,15 @@ def _sample_volatility(returns: list[float]) -> float:
     average = sum(returns) / len(returns)
     variance = sum((item - average) ** 2 for item in returns) / len(returns)
     return round(variance ** 0.5, 4)
+
+
+def _sharpe_proxy(returns: list[float]) -> float:
+    if len(returns) < 2:
+        return 0.0
+    average = sum(returns) / len(returns)
+    variance = sum((item - average) ** 2 for item in returns) / len(returns)
+    volatility = variance ** 0.5
+    return round(average / max(volatility, 0.01), 4)
 
 
 def _drawdown_source(
