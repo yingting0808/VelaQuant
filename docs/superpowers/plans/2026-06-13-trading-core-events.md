@@ -54,6 +54,6 @@
 **Files:**
 - Existing backend test suite.
 
-- [ ] Run `python -m pytest apps/api/tests/test_trading_core.py apps/api/tests/test_paper_trading_service.py -q`.
-- [ ] Run full API tests with `python -m pytest apps/api/tests -q`.
+- [ ] From `apps/api`, run `python -m pytest tests/test_trading_core.py tests/test_paper_trading_service.py -q`.
+- [ ] From `apps/api`, run full API tests with `python -m pytest tests -q`.
 - [ ] Merge the branch back to `master` only after tests pass.
