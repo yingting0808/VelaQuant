@@ -38,6 +38,10 @@ from app.services.strategy_control import (
     assert_strategy_execution_allowed,
     get_strategy_execution_binding,
 )
+from app.services.strategy_candidate_backtest import (
+    StrategyCandidateBacktestItem,
+    run_strategy_candidate_backtests,
+)
 from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic, build_event_bus
 from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
 from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState, order_state_event
@@ -656,6 +660,7 @@ def _generate_candidates(
     event_bus = _build_trading_event_bus()
     ranked: list[tuple[float, str, PaperCandidate, CoreEventContext]] = []
     candidate_created_at = _order_timestamp(trading_day)
+    backtest_items = _daily_candidate_backtest_items(provider, all_tickers, trading_day=trading_day)
 
     for ticker in all_tickers:
         quote = provider.get_quote(ticker)
@@ -703,6 +708,10 @@ def _generate_candidates(
             proposed_quantity=float(proposed_quantity),
             created_at=candidate_created_at,
         )
+        backtest_item = backtest_items.get(ticker)
+        if backtest_item is not None:
+            _apply_backtest_evidence(candidate, backtest_item)
+            score = _candidate_score_with_backtest(score, backtest_item)
         ranked.append(
             (
                 score,
@@ -948,6 +957,88 @@ def _order_timestamp(trading_day: str | None = None) -> datetime:
 
 def _candidate_score(evidence_count: int, diversification_bonus: float) -> float:
     return evidence_count * 0.2 + diversification_bonus + 0.1
+
+
+def _daily_candidate_backtest_items(
+    provider: MarketDataProvider,
+    tickers: list[str],
+    *,
+    trading_day: str | None,
+) -> dict[str, StrategyCandidateBacktestItem]:
+    if len(tickers) < 2 or not _provider_has_real_history(provider, tickers, trading_day=trading_day):
+        return {}
+    try:
+        payload = run_strategy_candidate_backtests(
+            strategy_id=DEFAULT_PAPER_STRATEGY_ID,
+            tickers=tickers,
+            parameter_overrides=_daily_candidate_backtest_parameters(trading_day),
+            market_data_provider=provider,
+        )
+    except Exception:
+        return {}
+    if payload.real_market_candidate_count <= 0:
+        return {}
+    return {item.ticker: item for item in payload.items}
+
+
+def _provider_has_real_history(
+    provider: MarketDataProvider,
+    tickers: list[str],
+    *,
+    trading_day: str | None,
+) -> bool:
+    parameters = _daily_candidate_backtest_parameters(trading_day)
+    for ticker in tickers[:3]:
+        try:
+            history = provider.get_price_history(
+                ticker,
+                start_date=parameters["start_date"],
+                end_date=parameters["end_date"],
+                interval="1d",
+            )
+        except Exception:
+            continue
+        if any(_is_real_market_source(getattr(bar, "source", "")) and bar.close is not None for bar in history):
+            return True
+    return False
+
+
+def _daily_candidate_backtest_parameters(trading_day: str | None) -> dict[str, str]:
+    end_date = datetime.fromisoformat(trading_day or _current_trading_day()).date()
+    start_date = end_date - timedelta(days=365)
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "cash": str(int(DEFAULT_STARTING_CASH)),
+    }
+
+
+def _is_real_market_source(source: str) -> bool:
+    normalized = source.strip().lower()
+    return normalized.startswith(("openbb_", "alpaca", "polygon")) or normalized == "mixed_real_market_data"
+
+
+def _candidate_score_with_backtest(base_score: float, item: StrategyCandidateBacktestItem) -> float:
+    gate_score = {"candidate": 1000.0, "watch": 100.0, "reject": -1000.0}[item.recommendation]
+    return gate_score + max(0.0, 50.0 - float(item.rank)) + item.score + base_score
+
+
+def _apply_backtest_evidence(candidate: PaperCandidate, item: StrategyCandidateBacktestItem) -> None:
+    metrics = _backtest_metric_summary(item)
+    candidate.thesis = f"{candidate.thesis} 回测结论：{item.reason}。"
+    candidate.evidence_summary = f"{candidate.evidence_summary}；回测 {metrics}"
+    candidate.risk_notes = f"{candidate.risk_notes} 回测风控：{item.reason}。"
+    if item.recommendation != "candidate":
+        candidate.status = PaperCandidateStatus.dismissed
+
+
+def _backtest_metric_summary(item: StrategyCandidateBacktestItem) -> str:
+    return (
+        f"收益 {item.total_net_profit or 'n/a'}，"
+        f"Sharpe {item.sharpe_ratio or 'n/a'}，"
+        f"回撤 {item.drawdown or 'n/a'}，"
+        f"交易 {item.total_trades or '0'} 笔"
+    )
 
 
 def _market_event_from_evidence(

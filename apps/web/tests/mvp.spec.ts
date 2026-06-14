@@ -151,9 +151,19 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     status: "proposed",
     created_at: "2026-06-13T00:00:00Z"
   };
+  const rejectedCandidate = {
+    ...candidate,
+    id: "paper-candidate-amzn",
+    ticker: "AMZN",
+    thesis: "AMZN 回测未通过，不进入模拟买入。",
+    risk_notes: "回测风控：真实历史数据；收益未通过；Sharpe 0.03；回撤 17.20%；交易 8 笔；结论 reject。",
+    evidence_summary: "7 条证据支持继续跟踪 AMZN；回测 收益 -1.46%，Sharpe 0.03，回撤 17.20%，交易 8 笔",
+    proposed_quantity: 8,
+    status: "dismissed"
+  };
   const dailySummary: PaperTradingSummaryPayload = {
     ...baseSummary,
-    candidates: [candidate],
+    candidates: [candidate, rejectedCandidate],
     latest_review: {
       id: "paper-review",
       trading_day: "2026-06-13",
@@ -762,6 +772,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
 
   await expect(page.getByRole("region", { name: "候选池" }).getByText("NVDA", { exact: true })).toBeVisible();
   await expect(page.getByText("3 条证据支持继续跟踪 NVDA")).toBeVisible();
+  await expect(page.getByText("回测 收益 -1.46%")).toBeVisible();
+  await expect(page.getByRole("button", { name: "已排除 AMZN" })).toBeDisabled();
   await expect(page.getByText("正在收集模拟盘样本。")).toBeVisible();
 
   await page.getByRole("button", { name: "模拟买入 NVDA" }).click();

@@ -37,6 +37,10 @@ from app.services.paper_trading import (
     submit_paper_order,
 )
 from app.services.event_ledger import get_event_ledger_status, replay_paper_run
+from app.services.strategy_candidate_backtest import (
+    StrategyCandidateBacktestItem,
+    StrategyCandidateBacktestPayload,
+)
 from app.services.workspace import get_or_create_default_workspace
 from app.trading_core.event_bus import RedisStreamEventBus
 
@@ -225,6 +229,93 @@ def test_daily_run_creates_account_candidates_and_review():
         assert competition_snapshots[0].trading_day == summary.latest_review.trading_day
         assert competition_snapshots[0].strategy_count >= 1
         assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
+
+
+def test_daily_run_prioritizes_real_backtest_candidate(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    class RealHistoryProvider(FixtureProvider):
+        def get_price_history(
+            self,
+            ticker: str,
+            start_date: str | None = None,
+            end_date: str | None = None,
+            interval: str = "1d",
+        ) -> list[PriceHistoryBar]:
+            normalized = ticker.strip().upper()
+            return [
+                PriceHistoryBar(
+                    ticker=normalized,
+                    date=f"2025-01-{day:02d}",
+                    open=100.0 + day,
+                    high=101.0 + day,
+                    low=99.0 + day,
+                    close=100.0 + day,
+                    volume=1_000_000,
+                    source="openbb_yfinance",
+                )
+                for day in range(1, 8)
+            ]
+
+    def fake_candidate_backtests(**kwargs):
+        calls.append(kwargs)
+        return StrategyCandidateBacktestPayload(
+            strategy_id="deterministic_watchlist_v1",
+            candidate_count=2,
+            real_market_candidate_count=2,
+            best_ticker="AAPL",
+            summary="Ranked 2 candidates; 1 passed, best ticker AAPL.",
+            items=[
+                StrategyCandidateBacktestItem(
+                    rank=1,
+                    ticker="AAPL",
+                    recommendation="candidate",
+                    score=2.12,
+                    reason="真实历史数据；收益为正；Sharpe 1.45；回撤 17.91%；交易 8 笔；结论 candidate",
+                    run_id="bt-aapl",
+                    status="success",
+                    engine="vectorbt",
+                    data_source="openbb_yfinance",
+                    uses_real_market_data=True,
+                    total_net_profit="38.60%",
+                    sharpe_ratio="1.45",
+                    drawdown="17.91%",
+                    total_trades="8",
+                ),
+                StrategyCandidateBacktestItem(
+                    rank=2,
+                    ticker="NVDA",
+                    recommendation="reject",
+                    score=-0.2,
+                    reason="真实历史数据；收益未通过；Sharpe 0.21；回撤 39.44%；交易 6 笔；结论 reject",
+                    run_id="bt-nvda",
+                    status="success",
+                    engine="vectorbt",
+                    data_source="openbb_yfinance",
+                    uses_real_market_data=True,
+                    total_net_profit="-0.79%",
+                    sharpe_ratio="0.21",
+                    drawdown="39.44%",
+                    total_trades="6",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(paper_trading, "run_strategy_candidate_backtests", fake_candidate_backtests, raising=False)
+
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, RealHistoryProvider())
+
+        assert calls
+        assert "AAPL" in calls[0]["tickers"]
+        assert "NVDA" in calls[0]["tickers"]
+        ordered = next(candidate for candidate in summary.candidates if candidate.status == "ordered")
+        assert ordered.ticker == "AAPL"
+        assert ordered.rank == 1
+        assert "真实历史数据" in ordered.thesis
+        assert "收益为正" in ordered.thesis
+        assert "38.60%" in ordered.evidence_summary
+        assert "Sharpe 1.45" in ordered.risk_notes
 
 
 def test_daily_run_auto_exits_profitable_open_position_before_review():

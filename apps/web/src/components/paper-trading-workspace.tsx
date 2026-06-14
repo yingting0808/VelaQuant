@@ -1290,31 +1290,40 @@ export function PaperTradingWorkspace() {
               </tr>
             </thead>
             <tbody>
-              {candidates.map((candidate) => (
-                <tr key={candidate.id}>
-                  <td>
-                    <span className="ticker-chip">{candidate.ticker}</span>
-                  </td>
-                  <td>{candidate.action}</td>
-                  <td className="numeric">{percentFormatter.format(candidate.confidence)}</td>
-                  <td className="numeric">{formatNumber(candidate.proposed_quantity)}</td>
-                  <td>
-                    <strong>{candidate.evidence_summary}</strong>
-                    <p className="table-note">{candidate.risk_notes}</p>
-                  </td>
-                  <td>
-                    <button
-                      className="ghost-action"
-                      type="button"
-                      onClick={() => handleBuy(candidate)}
-                      disabled={orderingTicker === candidate.ticker || candidate.status === "ordered"}
-                    >
-                      <ShoppingCart size={14} aria-hidden="true" />
-                      {candidate.status === "ordered" ? "已模拟" : `模拟买入 ${candidate.ticker}`}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {candidates.map((candidate) => {
+                const actionDisabled = orderingTicker === candidate.ticker || candidate.status !== "proposed";
+                const actionLabel =
+                  candidate.status === "ordered"
+                    ? `已模拟 ${candidate.ticker}`
+                    : candidate.status === "dismissed"
+                      ? `已排除 ${candidate.ticker}`
+                      : `模拟买入 ${candidate.ticker}`;
+                return (
+                  <tr key={candidate.id}>
+                    <td>
+                      <span className="ticker-chip">{candidate.ticker}</span>
+                    </td>
+                    <td>{candidate.action}</td>
+                    <td className="numeric">{percentFormatter.format(candidate.confidence)}</td>
+                    <td className="numeric">{formatNumber(candidate.proposed_quantity)}</td>
+                    <td>
+                      <strong>{candidate.evidence_summary}</strong>
+                      <p className="table-note">{candidate.risk_notes}</p>
+                    </td>
+                    <td>
+                      <button
+                        className="ghost-action"
+                        type="button"
+                        onClick={() => handleBuy(candidate)}
+                        disabled={actionDisabled}
+                      >
+                        <ShoppingCart size={14} aria-hidden="true" />
+                        {actionLabel}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {!candidates.length ? (
                 <tr>
                   <td colSpan={6}>点击运行今日模拟生成候选。</td>
