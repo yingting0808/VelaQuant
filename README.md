@@ -1,8 +1,34 @@
 # VelaQuant
 
-**VelaQuant has its own event-driven Trading Core. It is not a LEAN, OpenBB, LangGraph, or frontend wrapper.**
+## 30-Second Architecture Check / 30 秒架构判断
 
-**VelaQuant 有自己的事件驱动 Trading Core，不是 LEAN、OpenBB、LangGraph 或前端页面的套壳。**
+**VelaQuant has its own event-driven Trading Core. It is not a LEAN, OpenBB, LangGraph, vectorbt, or frontend wrapper.**
+
+**VelaQuant 有自己的事件驱动 Trading Core，不是 LEAN、OpenBB、LangGraph、vectorbt 或前端页面的套壳。**
+
+| Question | Answer |
+| --- | --- |
+| Does VelaQuant own its Trading Core? | **Yes.** See `apps/api/app/trading_core/`. |
+| What owns paper/live-small execution flow? | VelaQuant `TradingEngine -> RiskEngine -> ExecutionEngine -> EventLedger`. |
+| Does LEAN or vectorbt replace the runtime? | **No.** They are research/backtest tools only. |
+| Does OpenBB execute trades? | **No.** OpenBB is data/research access only. |
+| Does LangGraph or AI generate executable orders? | **No.** LangGraph is research workflow orchestration only. |
+
+| 问题 | 回答 |
+| --- | --- |
+| VelaQuant 是否有自研 Trading Core？ | **有。** 代码在 `apps/api/app/trading_core/`。 |
+| 模拟盘 / live-small 执行主路径由谁负责？ | VelaQuant `TradingEngine -> RiskEngine -> ExecutionEngine -> EventLedger`。 |
+| LEAN 或 vectorbt 是否替代交易运行时？ | **不是。** 它们只用于研究 / 回测。 |
+| OpenBB 是否负责下单？ | **不是。** OpenBB 只用于数据 / 研究访问。 |
+| LangGraph 或 AI 是否生成可执行订单？ | **不是。** LangGraph 只编排投研 workflow。 |
+
+If you are judging this repository from GitHub at a glance, the intended About description is:
+
+如果你只从 GitHub 首屏判断，本仓库推荐使用的 About 描述是：
+
+```text
+VelaQuant: event-driven US equities trading infrastructure with its own Trading Core.
+```
 
 Runtime proof path:
 
@@ -550,7 +576,7 @@ Recommended GitHub About description:
 建议 GitHub About 描述：
 
 ```text
-Event-driven US equities research and paper trading system with its own VelaQuant Trading Core.
+VelaQuant: event-driven US equities trading infrastructure with its own Trading Core.
 ```
 
 Recommended GitHub topics:
