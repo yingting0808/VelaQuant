@@ -740,6 +740,18 @@ export type PaperTradingSummaryPayload = {
   latest_review: PaperReviewPayload | null;
 };
 
+export type PaperExitWatchItemPayload = {
+  ticker: string;
+  quantity: number;
+  return_pct: number;
+  unrealized_pnl: number;
+  trigger: "take_profit" | "stop_loss" | string;
+  triggered: boolean;
+  threshold_pct: number;
+  distance_to_trigger_pct: number;
+  next_exit_quantity: number;
+};
+
 export type PaperDailyReportPayload = {
   trading_day: string;
   run_state: string;
@@ -773,6 +785,7 @@ export type PaperDailyReportPayload = {
   alpha_ready: boolean;
   alpha_blockers: string[];
   open_alpha_gates: AlphaGateProgressItemPayload[];
+  exit_watchlist: PaperExitWatchItemPayload[];
   data_quality_warnings: string[];
   summary: string;
 };
@@ -1734,6 +1747,7 @@ const fallbackPaperDailyReport: PaperDailyReportPayload = {
   alpha_ready: false,
   alpha_blockers: ["api_unavailable"],
   open_alpha_gates: [],
+  exit_watchlist: [],
   data_quality_warnings: ["api_unavailable"],
   summary: "后端 API 暂不可用，无法生成今日简报。"
 };
@@ -4708,6 +4722,21 @@ function isPaperReviewPayload(value: unknown): value is PaperReviewPayload {
   );
 }
 
+function isPaperExitWatchItemPayload(value: unknown): value is PaperExitWatchItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.ticker === "string" &&
+    typeof value.quantity === "number" &&
+    typeof value.return_pct === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.trigger === "string" &&
+    typeof value.triggered === "boolean" &&
+    typeof value.threshold_pct === "number" &&
+    typeof value.distance_to_trigger_pct === "number" &&
+    typeof value.next_exit_quantity === "number"
+  );
+}
+
 function isPaperTradingSummaryPayload(value: unknown): value is PaperTradingSummaryPayload {
   return (
     isRecord(value) &&
@@ -4764,6 +4793,8 @@ function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPay
     value.alpha_blockers.every((item) => typeof item === "string") &&
     Array.isArray(value.open_alpha_gates) &&
     value.open_alpha_gates.every(isAlphaGateProgressItemPayload) &&
+    Array.isArray(value.exit_watchlist) &&
+    value.exit_watchlist.every(isPaperExitWatchItemPayload) &&
     Array.isArray(value.data_quality_warnings) &&
     value.data_quality_warnings.every((item) => typeof item === "string") &&
     typeof value.summary === "string"

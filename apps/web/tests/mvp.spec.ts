@@ -473,6 +473,30 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
         passed: false
       }
     ],
+    exit_watchlist: [
+      {
+        ticker: "AAPL",
+        quantity: 2,
+        return_pct: 0.15,
+        unrealized_pnl: 30,
+        trigger: "take_profit",
+        triggered: true,
+        threshold_pct: 0.1,
+        distance_to_trigger_pct: 0,
+        next_exit_quantity: 2
+      },
+      {
+        ticker: "MSFT",
+        quantity: 1,
+        return_pct: -0.1,
+        unrealized_pnl: -20,
+        trigger: "stop_loss",
+        triggered: true,
+        threshold_pct: -0.05,
+        distance_to_trigger_pct: 0,
+        next_exit_quantity: 1
+      }
+    ],
     data_quality_warnings: [],
     summary: "Daily paper report: operations blocked, run not_started, latest expectancy 0.00; continue paper validation before live capital."
   };
@@ -818,6 +842,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(dailyReportPanel.getByText("Daily paper report: operations blocked")).toBeVisible();
   await expect(dailyReportPanel.getByText("成交订单 10 / 30，还差 20笔")).toBeVisible();
   await expect(dailyReportPanel.getByText("闭环交易 6 / 10，还差 4笔")).toBeVisible();
+  await expect(dailyReportPanel.getByText("AAPL 止盈 15.0% · 下次 2")).toBeVisible();
+  await expect(dailyReportPanel.getByText("MSFT 止损 -10.0% · 下次 1")).toBeVisible();
   await expect(dailyReportPanel.getByText("阻断 review_day_sample")).toBeVisible();
   const operationsPanel = page.getByRole("region", { name: "运行健康" });
   await expect(operationsPanel.getByText("blocked", { exact: true })).toBeVisible();
@@ -1000,6 +1026,7 @@ test("paper trading disables daily run when today's operations are complete", as
         alpha_ready: false,
         alpha_blockers: ["review_day_sample"],
         open_alpha_gates: [],
+        exit_watchlist: [],
         data_quality_warnings: [],
         summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
       }
@@ -1283,6 +1310,7 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
     alpha_ready: false,
     alpha_blockers: ["review_day_sample"],
     open_alpha_gates: [],
+    exit_watchlist: [],
     data_quality_warnings: ["future_runs_excluded_from_as_of_report"],
     summary: "Daily paper report: operations ready, run skipped, latest expectancy 1.00; continue paper validation before live capital."
   };

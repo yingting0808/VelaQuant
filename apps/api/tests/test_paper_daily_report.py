@@ -15,7 +15,7 @@ from app.domain.models import (
 from app.services import paper_daily_report
 from app.services import paper_operations
 from app.services.paper_daily_report import get_paper_daily_report
-from app.services.paper_trading import run_daily_paper_trading_loop
+from app.services.paper_trading import PaperOrderCreate, run_daily_paper_trading_loop, submit_paper_order
 from tests.test_paper_trading_service import FixtureProvider
 
 
@@ -65,6 +65,28 @@ def test_paper_daily_report_breaks_down_candidate_quality_counts():
         assert report.actionable_candidate_count == 1
         assert report.ordered_candidate_count == 1
         assert report.dismissed_candidate_count == len(candidates) - 2
+
+
+def test_paper_daily_report_surfaces_exit_watchlist_for_open_positions():
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1))
+        provider.prices["AAPL"] = 115.0
+        provider.prices["MSFT"] = 180.0
+
+        report = get_paper_daily_report(session, provider)
+
+        aapl = next(item for item in report.exit_watchlist if item.ticker == "AAPL")
+        assert aapl.trigger == "take_profit"
+        assert aapl.triggered is True
+        assert aapl.return_pct == 0.15
+        assert aapl.next_exit_quantity == 2
+        msft = next(item for item in report.exit_watchlist if item.ticker == "MSFT")
+        assert msft.trigger == "stop_loss"
+        assert msft.triggered is True
+        assert msft.return_pct == -0.1
+        assert msft.next_exit_quantity == 1
 
 
 def test_paper_daily_report_surfaces_next_actionable_sample_and_alpha_forecast(monkeypatch):

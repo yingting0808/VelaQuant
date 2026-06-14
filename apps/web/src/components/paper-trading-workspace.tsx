@@ -128,6 +128,14 @@ function dataQualityWarningLabel(value: string): string {
   return labels[value] ?? value;
 }
 
+function exitTriggerLabel(value: string): string {
+  const labels: Record<string, string> = {
+    stop_loss: "止损",
+    take_profit: "止盈"
+  };
+  return labels[value] ?? value;
+}
+
 function schedulerGateLabel(value: PaperSchedulerStatusPayload | null): string {
   if (!value) {
     return "未同步";
@@ -639,6 +647,18 @@ export function PaperTradingWorkspace() {
                   `${item.label} ${formatNumber(item.current)} / ${formatNumber(item.required)}，还差 ${formatNumber(
                     item.remaining
                   )}${item.unit}`
+              )
+              .join("；") || "无"}
+          </p>
+          <p>
+            退出观察{" "}
+            {(dailyReport?.exit_watchlist ?? [])
+              .slice(0, 5)
+              .map(
+                (item) =>
+                  `${item.ticker} ${exitTriggerLabel(item.trigger)} ${percentFormatter.format(
+                    item.return_pct
+                  )} · 下次 ${formatNumber(item.next_exit_quantity)}`
               )
               .join("；") || "无"}
           </p>

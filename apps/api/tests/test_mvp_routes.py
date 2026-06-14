@@ -43,7 +43,7 @@ from app.services.paper_operations import (
     PaperOperationsRepairPayload,
     PaperOperationsStatusPayload,
 )
-from app.services.paper_daily_report import PaperDailyReportPayload
+from app.services.paper_daily_report import PaperDailyReportPayload, PaperExitWatchItem
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, PaperExecutionRejectionReason
 from app.services.paper_risk_profile import PaperRiskProfilePayload
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
@@ -2439,6 +2439,19 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
                 passed=False,
             )
         ],
+        exit_watchlist=[
+            PaperExitWatchItem(
+                ticker="AAPL",
+                quantity=2,
+                return_pct=0.15,
+                unrealized_pnl=30,
+                trigger="take_profit",
+                triggered=True,
+                threshold_pct=0.1,
+                distance_to_trigger_pct=0,
+                next_exit_quantity=2,
+            )
+        ],
         data_quality_warnings=[],
         summary="Daily paper report.",
     )
@@ -2460,6 +2473,8 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
     assert payload["alpha_blockers"] == ["review_day_sample"]
     assert payload["open_alpha_gates"][0]["gate"] == "filled_order_sample"
     assert payload["open_alpha_gates"][0]["remaining"] == 20
+    assert payload["exit_watchlist"][0]["ticker"] == "AAPL"
+    assert payload["exit_watchlist"][0]["trigger"] == "take_profit"
     assert payload["scheduler_next_run_will_execute"] is False
     assert payload["scheduler_next_actionable_trading_day"] == "2026-06-14"
     assert payload["estimated_sessions_to_alpha_ready"] == 4

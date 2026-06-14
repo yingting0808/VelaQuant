@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
@@ -12,7 +13,26 @@ from app.services.event_ledger import get_event_ledger_status
 from app.services.paper_operations import get_paper_operations_status
 from app.services.paper_review_trend import get_paper_review_trend
 from app.services.paper_scheduler import get_paper_scheduler_status
-from app.services.paper_trading import get_paper_trading_summary
+from app.services.paper_trading import (
+    DEFAULT_CANDIDATE_NOTIONAL,
+    DEFAULT_EXIT_STOP_LOSS_PCT,
+    DEFAULT_EXIT_TAKE_PROFIT_PCT,
+    get_paper_trading_summary,
+)
+
+
+class PaperExitWatchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticker: str
+    quantity: float
+    return_pct: float
+    unrealized_pnl: float
+    trigger: Literal["take_profit", "stop_loss"]
+    triggered: bool
+    threshold_pct: float
+    distance_to_trigger_pct: float
+    next_exit_quantity: float
 
 
 class PaperDailyReportPayload(BaseModel):
@@ -50,6 +70,7 @@ class PaperDailyReportPayload(BaseModel):
     alpha_ready: bool
     alpha_blockers: list[str]
     open_alpha_gates: list[AlphaGateProgressItem]
+    exit_watchlist: list[PaperExitWatchItem]
     data_quality_warnings: list[str]
     summary: str
 
@@ -100,6 +121,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         alpha_ready=alpha_validation.alpha_ready,
         alpha_blockers=alpha_validation.blockers,
         open_alpha_gates=[item for item in alpha_gate_progress.items if not item.passed],
+        exit_watchlist=_exit_watchlist(trading_summary.positions),
         data_quality_warnings=data_quality_warnings,
         summary=_summary(
             health_status=operations.health_status,
@@ -108,6 +130,63 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
             alpha_ready=alpha_validation.alpha_ready,
         ),
     )
+
+
+def _exit_watchlist(positions) -> list[PaperExitWatchItem]:
+    items: list[PaperExitWatchItem] = []
+    for position in positions:
+        if position.quantity <= 0 or position.average_cost <= 0 or position.last_price is None or position.last_price <= 0:
+            continue
+        return_pct = round((position.last_price - position.average_cost) / position.average_cost, 4)
+        if return_pct >= DEFAULT_EXIT_TAKE_PROFIT_PCT:
+            trigger = "take_profit"
+            threshold_pct = DEFAULT_EXIT_TAKE_PROFIT_PCT
+            triggered = True
+            distance_to_trigger_pct = 0.0
+        elif return_pct <= DEFAULT_EXIT_STOP_LOSS_PCT:
+            trigger = "stop_loss"
+            threshold_pct = DEFAULT_EXIT_STOP_LOSS_PCT
+            triggered = True
+            distance_to_trigger_pct = 0.0
+        elif return_pct >= 0:
+            trigger = "take_profit"
+            threshold_pct = DEFAULT_EXIT_TAKE_PROFIT_PCT
+            triggered = False
+            distance_to_trigger_pct = round(DEFAULT_EXIT_TAKE_PROFIT_PCT - return_pct, 4)
+        else:
+            trigger = "stop_loss"
+            threshold_pct = DEFAULT_EXIT_STOP_LOSS_PCT
+            triggered = False
+            distance_to_trigger_pct = round(return_pct - DEFAULT_EXIT_STOP_LOSS_PCT, 4)
+        items.append(
+            PaperExitWatchItem(
+                ticker=position.ticker,
+                quantity=position.quantity,
+                return_pct=return_pct,
+                unrealized_pnl=round(position.unrealized_pnl, 2),
+                trigger=trigger,
+                triggered=triggered,
+                threshold_pct=threshold_pct,
+                distance_to_trigger_pct=max(distance_to_trigger_pct, 0.0),
+                next_exit_quantity=_next_exit_quantity(position.quantity, position.last_price),
+            )
+        )
+    return sorted(
+        items,
+        key=lambda item: (
+            not item.triggered,
+            item.distance_to_trigger_pct,
+            -abs(item.unrealized_pnl),
+            item.ticker,
+        ),
+    )
+
+
+def _next_exit_quantity(quantity: float, last_price: float) -> float:
+    max_quantity = int(DEFAULT_CANDIDATE_NOTIONAL // last_price)
+    if max_quantity <= 0:
+        return 0.0
+    return min(quantity, float(max_quantity))
 
 
 def _candidate_status_counts(candidates) -> dict[str, int]:
