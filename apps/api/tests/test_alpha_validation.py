@@ -341,6 +341,110 @@ def test_alpha_validation_reads_runtime_score_pnl_inversion_gate(monkeypatch):
         assert payload.blockers == ["score_pnl_inversion_review"]
 
 
+def test_alpha_validation_excludes_after_hours_reviewed_score_pnl_inversion_from_open_gate(monkeypatch):
+    monkeypatch.setattr("app.services.alpha_validation._has_real_market_backtest", lambda strategy_id: True)
+    with make_session() as session:
+        team = Team(name="Alpha Reviewed Score PnL Inversion")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+        account = PaperAccount(team_id=team.id, name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        for day in range(1, 6):
+            session.add(
+                PaperReview(
+                    account_id=account.id,
+                    team_id=team.id,
+                    trading_day=f"2026-06-0{day}",
+                    equity=100000 + day * 100,
+                    cash=90000,
+                    realized_pnl=day * 10,
+                    unrealized_pnl=day * 20,
+                    trade_count=day,
+                    win_rate=0.6,
+                    average_win=20,
+                    average_loss=-10,
+                    expectancy=1.0,
+                    notes="fixture",
+                )
+            )
+        run = PaperRun(
+            account_id=account.id,
+            team_id=team.id,
+            trading_day="2026-06-05",
+            trigger=PaperRunTrigger.manual,
+            status=PaperRunStatus.completed,
+        )
+        session.add(run)
+        session.flush()
+        for index, order in enumerate(_orders(filled=34, closed=12)):
+            order.team_id = team.id
+            order.account_id = account.id
+            order.submitted_at = datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc)
+            session.add(order)
+            session.add(
+                CoreEventLog(
+                    team_id=team.id,
+                    run_id=run.id,
+                    event_id=f"event-{index}",
+                    topic="order_state",
+                    sequence=index + 1,
+                    correlation_id=str(uuid4()),
+                    payload_json="{}",
+                    published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.add(
+            CoreEventLog(
+                team_id=team.id,
+                run_id=run.id,
+                event_id="amzn-candidate-score",
+                topic="trade_explanation",
+                sequence=1000,
+                correlation_id="amzn-score-pnl",
+                payload_json='{"ticker":"AMZN","evidence":["final_score=-950.00"]}',
+                published_at=datetime(2026, 6, 5, 21, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            CoreEventLog(
+                team_id=team.id,
+                run_id=None,
+                event_id="paper_action:review_score_pnl_inversion:AMZN:1:strategy_review",
+                topic="strategy_review",
+                sequence=1001,
+                correlation_id="paper_action:review_score_pnl_inversion:AMZN",
+                payload_json=(
+                    '{"action_code":"review_score_pnl_inversion",'
+                    '"inverted_tickers":["AMZN"],'
+                    '"review_status":"required"}'
+                ),
+                published_at=datetime(2026, 6, 6, 1, 2, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=team.id,
+                ticker="AMZN",
+                quantity=1,
+                average_cost=100,
+                last_price=115,
+                market_value=115,
+                unrealized_pnl=15,
+            )
+        )
+        session.commit()
+
+        payload = get_alpha_validation(session, team_id=team.id, as_of_trading_day="2026-06-05")
+
+        assert payload.alpha_ready is True
+        assert payload.score_pnl_inversion_count == 0
+        assert "score_pnl_inversion_review" not in payload.blockers
+
+
 def test_alpha_validation_excludes_manual_override_orders_from_strategy_sample():
     with make_session() as session:
         team = Team(name="Alpha Manual Override Filter")

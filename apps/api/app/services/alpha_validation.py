@@ -1,3 +1,4 @@
+import json
 from typing import Literal
 from uuid import UUID
 from datetime import datetime, timezone
@@ -274,7 +275,50 @@ def _score_pnl_inversion_count_as_of(
         team_id=team_id,
         as_of_trading_day=as_of_trading_day,
     )
-    return sum(1 for item in attribution.ticker_diagnostics if item.score_pnl_alignment == "inverted")
+    quarantined_tickers = _score_pnl_review_quarantined_tickers(
+        session,
+        team_id=team_id,
+    )
+    return sum(
+        1
+        for item in attribution.ticker_diagnostics
+        if item.score_pnl_alignment == "inverted" and item.ticker not in quarantined_tickers
+    )
+
+
+def _score_pnl_review_quarantined_tickers(
+    session: Session,
+    *,
+    team_id: UUID,
+) -> set[str]:
+    events = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .order_by(CoreEventLog.published_at, CoreEventLog.sequence)
+    ).all()
+    status_by_ticker: dict[str, str] = {}
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("action_code") != "review_score_pnl_inversion":
+            continue
+        status = str(payload.get("review_status") or "required").strip().lower()
+        tickers = payload.get("inverted_tickers", [])
+        if not isinstance(tickers, list):
+            continue
+        for ticker in tickers:
+            normalized = str(ticker).strip().upper()
+            if normalized:
+                status_by_ticker[normalized] = status
+    return {
+        ticker
+        for ticker, status in status_by_ticker.items()
+        if status in {"required", "review_required", "pending"}
+    }
 
 
 def _current_trading_day() -> str:
