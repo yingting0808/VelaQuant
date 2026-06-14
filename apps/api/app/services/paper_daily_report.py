@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 from app.domain.models import PaperRun, PaperRunTrigger
 from app.data.providers.base import MarketDataProvider
 from app.services.alpha_validation import get_alpha_validation
+from app.services.alpha_validation_forecast import build_alpha_validation_forecast
 from app.services.event_ledger import get_event_ledger_status
 from app.services.paper_operations import get_paper_operations_status
 from app.services.paper_review_trend import get_paper_review_trend
@@ -22,6 +23,13 @@ class PaperDailyReportPayload(BaseModel):
     recommended_action: str
     scheduler_running: bool
     scheduler_next_run_at: datetime | None
+    scheduler_next_run_will_execute: bool | None
+    scheduler_next_run_execution_gate: str | None
+    scheduler_next_actionable_run_at: datetime | None
+    scheduler_next_actionable_trading_day: str | None
+    scheduler_next_actionable_execution_gate: str | None
+    estimated_sessions_to_alpha_ready: int | None
+    limiting_alpha_gate: str | None
     account_equity: float
     cash: float
     realized_pnl: float
@@ -49,6 +57,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
     scheduler = get_paper_scheduler_status()
     event_ledger = get_event_ledger_status(session, as_of_trading_day=trading_day)
     alpha_validation = get_alpha_validation(session, as_of_trading_day=trading_day)
+    alpha_forecast = build_alpha_validation_forecast(alpha_validation)
     data_quality_warnings = _data_quality_warnings(session, trading_day)
     latest_trend_item = review_trend.items[0] if review_trend.items else None
     return PaperDailyReportPayload(
@@ -58,6 +67,13 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         recommended_action=operations.recommended_action,
         scheduler_running=scheduler.running,
         scheduler_next_run_at=scheduler.next_run_at,
+        scheduler_next_run_will_execute=scheduler.next_run_will_execute,
+        scheduler_next_run_execution_gate=scheduler.next_run_execution_gate,
+        scheduler_next_actionable_run_at=scheduler.next_actionable_run_at,
+        scheduler_next_actionable_trading_day=scheduler.next_actionable_trading_day,
+        scheduler_next_actionable_execution_gate=scheduler.next_actionable_execution_gate,
+        estimated_sessions_to_alpha_ready=alpha_forecast.estimated_sessions_to_alpha_ready,
+        limiting_alpha_gate=alpha_forecast.limiting_gate,
         account_equity=round(trading_summary.account.equity, 2),
         cash=round(trading_summary.account.cash, 2),
         realized_pnl=round(trading_summary.account.realized_pnl, 2),

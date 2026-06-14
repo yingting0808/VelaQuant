@@ -594,6 +594,23 @@ export function PaperTradingWorkspace() {
             <span>Alpha</span>
             <strong>{dailyReport?.alpha_ready ? "已达标" : "未达标"}</strong>
           </div>
+          <div>
+            <span>有效采样</span>
+            <strong>
+              {formatTimestamp(dailyReport?.scheduler_next_actionable_run_at, "未计划")}
+              <small>{dailyReport?.scheduler_next_actionable_trading_day ?? "无交易日"}</small>
+            </strong>
+          </div>
+          <div>
+            <span>Alpha 剩余</span>
+            <strong>
+              {dailyReport?.estimated_sessions_to_alpha_ready === null ||
+              dailyReport?.estimated_sessions_to_alpha_ready === undefined
+                ? "未知"
+                : `${dailyReport.estimated_sessions_to_alpha_ready} 次`}
+              <small>{dailyReport?.limiting_alpha_gate ?? "无门禁"}</small>
+            </strong>
+          </div>
         </div>
         <div className="import-result">
           <strong>
@@ -604,6 +621,11 @@ export function PaperTradingWorkspace() {
             已实现 {formatCurrency(dailyReport?.realized_pnl ?? 0)} · 未实现{" "}
             {formatCurrency(dailyReport?.unrealized_pnl ?? 0)} · 事件链{" "}
             {dailyReport?.event_ledger_ready ? "可回放" : "缺失"}
+          </p>
+          <p>
+            下次 cron {formatTimestamp(dailyReport?.scheduler_next_run_at, "未计划")} ·{" "}
+            {dailyReport?.scheduler_next_run_will_execute ? "将执行" : "会守门"} ·{" "}
+            {dailyReport?.scheduler_next_run_execution_gate ?? "未知"}
           </p>
           <p>阻断 {(dailyReport?.alpha_blockers ?? []).join(" / ") || "无"}</p>
           <p>数据警告 {(dailyReport?.data_quality_warnings ?? []).map(dataQualityWarningLabel).join(" / ") || "无"}</p>

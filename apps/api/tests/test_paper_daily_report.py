@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.domain.models import PaperAccount, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
+from app.services import paper_daily_report
 from app.services import paper_operations
 from app.services.paper_daily_report import get_paper_daily_report
 from app.services.paper_trading import run_daily_paper_trading_loop
@@ -27,6 +29,39 @@ def test_paper_daily_report_summarizes_runtime_facts_after_daily_run():
         assert report.event_ledger_ready is True
         assert report.alpha_ready is False
         assert "review_day_sample" in report.alpha_blockers
+
+
+def test_paper_daily_report_surfaces_next_actionable_sample_and_alpha_forecast(monkeypatch):
+    skipped_cron = datetime(2026, 6, 15, 6, 30, tzinfo=timezone.utc)
+    actionable_cron = datetime(2026, 6, 16, 6, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        paper_daily_report,
+        "get_paper_scheduler_status",
+        lambda: SimpleNamespace(
+            running=True,
+            next_run_at=skipped_cron,
+            next_run_will_execute=False,
+            next_run_execution_gate="market_closed",
+            next_actionable_run_at=actionable_cron,
+            next_actionable_trading_day="2026-06-15",
+            next_actionable_execution_gate="ready_to_run",
+        ),
+    )
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider)
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.scheduler_next_run_at == skipped_cron
+        assert report.scheduler_next_run_will_execute is False
+        assert report.scheduler_next_run_execution_gate == "market_closed"
+        assert report.scheduler_next_actionable_run_at == actionable_cron
+        assert report.scheduler_next_actionable_trading_day == "2026-06-15"
+        assert report.scheduler_next_actionable_execution_gate == "ready_to_run"
+        assert report.estimated_sessions_to_alpha_ready is None
+        assert report.limiting_alpha_gate is not None
 
 
 def test_paper_daily_report_ignores_future_simulation_reviews(monkeypatch):

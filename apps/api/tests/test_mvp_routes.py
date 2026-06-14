@@ -2402,6 +2402,13 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
         recommended_action="hold_until_next_session",
         scheduler_running=True,
         scheduler_next_run_at="2026-06-14T06:30:00+08:00",
+        scheduler_next_run_will_execute=False,
+        scheduler_next_run_execution_gate="market_closed",
+        scheduler_next_actionable_run_at="2026-06-15T06:30:00+08:00",
+        scheduler_next_actionable_trading_day="2026-06-14",
+        scheduler_next_actionable_execution_gate="ready_to_run",
+        estimated_sessions_to_alpha_ready=4,
+        limiting_alpha_gate="review_day_sample",
         account_equity=100000,
         cash=98000,
         realized_pnl=0,
@@ -2433,6 +2440,10 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
     assert payload["daily_pnl"] == 125.5
     assert payload["daily_return"] == 0.0013
     assert payload["alpha_blockers"] == ["review_day_sample"]
+    assert payload["scheduler_next_run_will_execute"] is False
+    assert payload["scheduler_next_actionable_trading_day"] == "2026-06-14"
+    assert payload["estimated_sessions_to_alpha_ready"] == 4
+    assert payload["limiting_alpha_gate"] == "review_day_sample"
 
 
 def test_mvp_paper_simulation_route_runs_lab_window(monkeypatch):

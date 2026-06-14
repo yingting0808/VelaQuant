@@ -990,6 +990,7 @@ tbody tr:last-child td {
 .scheduler-grid div {
   display: grid;
   gap: 5px;
+  min-width: 0;
   padding: 14px 16px;
 }
 
@@ -1002,6 +1003,18 @@ tbody tr:last-child td {
 .scheduler-grid strong {
   color: #111827;
   font-size: 0.98rem;
+  line-height: 1.25;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.scheduler-grid strong small {
+  color: #667085;
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .state-chain {

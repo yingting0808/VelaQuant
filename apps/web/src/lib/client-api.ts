@@ -747,6 +747,13 @@ export type PaperDailyReportPayload = {
   recommended_action: string;
   scheduler_running: boolean;
   scheduler_next_run_at: string | null;
+  scheduler_next_run_will_execute: boolean | null;
+  scheduler_next_run_execution_gate: string | null;
+  scheduler_next_actionable_run_at: string | null;
+  scheduler_next_actionable_trading_day: string | null;
+  scheduler_next_actionable_execution_gate: string | null;
+  estimated_sessions_to_alpha_ready: number | null;
+  limiting_alpha_gate: string | null;
   account_equity: number;
   cash: number;
   realized_pnl: number;
@@ -1697,6 +1704,13 @@ const fallbackPaperDailyReport: PaperDailyReportPayload = {
   recommended_action: "run_daily_paper_trading",
   scheduler_running: false,
   scheduler_next_run_at: null,
+  scheduler_next_run_will_execute: null,
+  scheduler_next_run_execution_gate: null,
+  scheduler_next_actionable_run_at: null,
+  scheduler_next_actionable_trading_day: null,
+  scheduler_next_actionable_execution_gate: null,
+  estimated_sessions_to_alpha_ready: null,
+  limiting_alpha_gate: null,
   account_equity: 0,
   cash: 0,
   realized_pnl: 0,
@@ -4709,6 +4723,18 @@ function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPay
     typeof value.recommended_action === "string" &&
     typeof value.scheduler_running === "boolean" &&
     (typeof value.scheduler_next_run_at === "string" || value.scheduler_next_run_at === null) &&
+    (typeof value.scheduler_next_run_will_execute === "boolean" || value.scheduler_next_run_will_execute === null) &&
+    (typeof value.scheduler_next_run_execution_gate === "string" ||
+      value.scheduler_next_run_execution_gate === null) &&
+    (typeof value.scheduler_next_actionable_run_at === "string" ||
+      value.scheduler_next_actionable_run_at === null) &&
+    (typeof value.scheduler_next_actionable_trading_day === "string" ||
+      value.scheduler_next_actionable_trading_day === null) &&
+    (typeof value.scheduler_next_actionable_execution_gate === "string" ||
+      value.scheduler_next_actionable_execution_gate === null) &&
+    (typeof value.estimated_sessions_to_alpha_ready === "number" ||
+      value.estimated_sessions_to_alpha_ready === null) &&
+    (typeof value.limiting_alpha_gate === "string" || value.limiting_alpha_gate === null) &&
     typeof value.account_equity === "number" &&
     typeof value.cash === "number" &&
     typeof value.realized_pnl === "number" &&
