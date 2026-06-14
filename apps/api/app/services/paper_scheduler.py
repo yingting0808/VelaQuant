@@ -173,19 +173,30 @@ def run_scheduled_paper_trading_once() -> PaperScheduledRunResult:
     settings = get_settings()
     provider = build_market_data_provider(settings)
     try:
-        with Session(engine) as session:
-            run_daily_paper_trading_loop(session, provider, trigger=PaperRunTrigger.scheduled)
-            try:
-                record_shadow_observation(session)
-            except ValueError:
-                pass
-            result = _scheduled_result(
-                market_status,
-                executed=True,
-                summary="Scheduled paper trading completed for the closed market session.",
-            )
-            _persist_scheduler_decision(session, market_status, result)
-            session.commit()
+        try:
+            with Session(engine) as session:
+                run_daily_paper_trading_loop(session, provider, trigger=PaperRunTrigger.scheduled)
+                try:
+                    record_shadow_observation(session)
+                except ValueError:
+                    pass
+                result = _scheduled_result(
+                    market_status,
+                    executed=True,
+                    summary="Scheduled paper trading completed for the closed market session.",
+                )
+                _persist_scheduler_decision(session, market_status, result)
+                session.commit()
+        except Exception as exc:
+            with Session(engine) as session:
+                result = _scheduled_result(
+                    market_status,
+                    executed=False,
+                    summary=f"Scheduled paper trading failed: {exc}.",
+                )
+                _persist_scheduler_decision(session, market_status, result)
+                session.commit()
+            raise
         return result
     finally:
         close = getattr(provider, "close", None)

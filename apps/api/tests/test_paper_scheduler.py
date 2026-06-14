@@ -409,6 +409,53 @@ def test_scheduled_job_persists_executed_scheduler_decision(monkeypatch):
     assert payload["trading_day"] == "2026-06-15"
 
 
+def test_scheduled_job_persists_failed_scheduler_decision(monkeypatch):
+    captured = {}
+    db_engine = _isolated_db_engine()
+
+    class Provider:
+        def close(self):
+            captured["closed"] = True
+
+    def fail_paper_loop(session, provider, trigger=PaperRunTrigger.manual):
+        captured["trigger"] = trigger
+        raise RuntimeError("paper loop failed")
+
+    monkeypatch.setattr(paper_scheduler, "engine", db_engine)
+    monkeypatch.setattr(paper_scheduler, "build_market_data_provider", lambda settings: Provider())
+    monkeypatch.setattr(paper_scheduler, "get_market_session_status", _closed_session_status)
+    monkeypatch.setattr(paper_scheduler, "run_daily_paper_trading_loop", fail_paper_loop)
+    monkeypatch.setattr(
+        paper_scheduler,
+        "record_shadow_observation",
+        lambda session: captured.update({"shadow_recorded": True}),
+    )
+
+    try:
+        run_scheduled_paper_trading_once()
+    except RuntimeError as exc:
+        assert str(exc) == "paper loop failed"
+    else:
+        raise AssertionError("scheduled paper loop failure was not raised")
+
+    with Session(db_engine) as session:
+        events = session.exec(select(CoreEventLog)).all()
+
+    assert captured["trigger"] == PaperRunTrigger.scheduled
+    assert captured["closed"] is True
+    assert "shadow_recorded" not in captured
+    assert len(events) == 1
+    assert events[0].run_id is None
+    assert events[0].topic == "scheduler_decision"
+    assert events[0].correlation_id == "paper_scheduler:2026-06-15"
+    payload = json.loads(events[0].payload_json)
+    assert payload["executed"] is False
+    assert payload["execution_gate"] == "ready_to_run"
+    assert payload["reason"] == "current_session_closed"
+    assert payload["trading_day"] == "2026-06-15"
+    assert payload["summary"] == "Scheduled paper trading failed: paper loop failed."
+
+
 def _closed_session_status() -> MarketSessionStatus:
     return MarketSessionStatus(
         market_date="2026-06-15",
