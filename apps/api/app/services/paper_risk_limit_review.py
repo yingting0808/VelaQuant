@@ -1,3 +1,4 @@
+import json
 from math import ceil
 from typing import Literal
 from uuid import UUID
@@ -5,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
-from app.domain.models import PaperOrder, PaperOrderSide, PaperOrderStatus, PaperRun, PaperRunStatus, utc_now
+from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperRun, PaperRunStatus, utc_now
 from app.services.alpha_gate_progress import AlphaGateProgressPayload, get_alpha_gate_progress
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, get_paper_execution_diagnostics
 from app.services.paper_risk_profile import PaperRiskProfilePayload, get_paper_risk_profile
@@ -46,6 +47,20 @@ def get_paper_risk_limit_review(session: Session, *, team_id: UUID | None = None
         and review.status == "review_required"
         and not _has_buy_daily_order_rejection_after(session, team_id=resolved_team_id, since=setting.updated_at)
     ):
+        if _has_completed_run_after(session, team_id=resolved_team_id, since=setting.updated_at):
+            return review.model_copy(
+                update={
+                    "status": "hold",
+                    "recommended_paper_max_daily_orders": review.current_max_daily_orders,
+                    "sample_collection_blocked": False,
+                    "blockers": [],
+                    "summary": (
+                        "Paper risk limit review: hold max_daily_orders at "
+                        f"{review.current_max_daily_orders}; latest post-limit sample completed without a new "
+                        "buy max_daily_orders rejection."
+                    ),
+                }
+            )
         return review.model_copy(
             update={
                 "status": "hold",
@@ -142,21 +157,49 @@ def _has_buy_daily_order_rejection_after(session: Session, *, team_id: UUID, sin
         .where(PaperRun.finished_at.is_not(None))
         .where(PaperRun.finished_at > since)
     ).all()
-    completed_trading_days = {run.trading_day for run in runs if run.finished_at is not None}
-    if not completed_trading_days:
-        return False
+    return any(_run_has_buy_daily_order_rejection(session, run.id) for run in runs)
 
-    anchored_orders = session.exec(
-        select(PaperOrder)
-        .where(PaperOrder.team_id == team_id)
-        .where(PaperOrder.side == PaperOrderSide.buy)
-        .where(PaperOrder.status == PaperOrderStatus.rejected)
-        .where(PaperOrder.risk_code == "max_daily_orders")
-    ).all()
-    return any(
-        order.submitted_at.date() <= as_of and order.submitted_at.date().isoformat() in completed_trading_days
-        for order in anchored_orders
+
+def _has_completed_run_after(session: Session, *, team_id: UUID, since) -> bool:
+    return (
+        session.exec(
+            select(PaperRun.id)
+            .where(PaperRun.team_id == team_id)
+            .where(PaperRun.status == PaperRunStatus.completed)
+            .where(PaperRun.finished_at.is_not(None))
+            .where(PaperRun.finished_at > since)
+        ).first()
+        is not None
     )
+
+
+def _run_has_buy_daily_order_rejection(session: Session, run_id: UUID) -> bool:
+    events = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.run_id == run_id)
+        .where(CoreEventLog.topic.in_(["trade_intent", "risk_decision"]))
+    ).all()
+    buy_correlations: set[str] = set()
+    daily_limit_rejections: set[str] = set()
+    for event in events:
+        payload = _json_payload(event.payload_json)
+        if event.topic == "trade_intent" and payload.get("side") == PaperOrderSide.buy.value:
+            buy_correlations.add(event.correlation_id)
+        if (
+            event.topic == "risk_decision"
+            and payload.get("status") == "rejected"
+            and payload.get("code") == "max_daily_orders"
+        ):
+            daily_limit_rejections.add(event.correlation_id)
+    return bool(buy_correlations & daily_limit_rejections)
+
+
+def _json_payload(value: str) -> dict:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _summary(

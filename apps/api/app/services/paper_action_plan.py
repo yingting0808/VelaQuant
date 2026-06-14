@@ -150,7 +150,11 @@ def build_paper_action_plan(
                 ],
             )
         )
-    elif execution.max_daily_order_rejections > 0 and (closed_trade_gate is not None or filled_order_gate is not None):
+    elif (
+        risk_limit_review is None
+        and execution.max_daily_order_rejections > 0
+        and (closed_trade_gate is not None or filled_order_gate is not None)
+    ):
         items.append(
             PaperActionPlanItem(
                 priority=2,

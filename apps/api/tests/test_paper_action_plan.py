@@ -127,6 +127,39 @@ def test_paper_action_plan_collects_post_limit_sample_after_risk_limit_update():
     assert all(item.action_code != "review_daily_order_limit" for item in plan.items)
 
 
+def test_paper_action_plan_does_not_reopen_daily_limit_review_after_clear_post_limit_sample():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("filled_order_sample", "成交订单", 10, 30, 20, "笔"),
+                _gate("closed_trade_sample", "闭环交易", 6, 10, 4, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=1),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        risk_limit_review=PaperRiskLimitReviewPayload(
+            status="hold",
+            current_max_daily_orders=10,
+            recommended_paper_max_daily_orders=10,
+            live_change_allowed=False,
+            max_daily_order_rejections=1,
+            max_daily_order_buy_rejections=1,
+            max_daily_order_sell_rejections=0,
+            filled_order_count=10,
+            closed_trade_count=6,
+            sample_collection_blocked=False,
+            blockers=[],
+            summary="Paper risk limit review: hold max_daily_orders at 10; no paper-only capacity change is recommended.",
+        ),
+    )
+
+    assert plan.primary_action == "continue_paper_validation"
+    assert all(item.action_code != "review_daily_order_limit" for item in plan.items)
+    assert all(item.action_code != "apply_paper_risk_limit_recommendation" for item in plan.items)
+    assert all(item.action_code != "collect_post_limit_sample" for item in plan.items)
+
+
 def test_paper_action_plan_prioritizes_legacy_manual_future_run_quarantine():
     plan = build_paper_action_plan(
         operations=_operations(

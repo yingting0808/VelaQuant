@@ -98,7 +98,7 @@ def test_risk_limit_review_does_not_reapply_same_historical_rejections_after_set
         assert "awaiting_post_limit_sample" in review.blockers
 
 
-def test_risk_limit_review_counts_completed_run_after_limit_update_even_when_orders_are_trading_day_anchored():
+def test_risk_limit_review_does_not_reapply_when_post_limit_run_has_no_new_rejection_events():
     with make_session() as session:
         team = Team(name="Risk Settings")
         session.add(team)
@@ -148,6 +148,56 @@ def test_risk_limit_review_counts_completed_run_after_limit_update_even_when_ord
 
         review = get_paper_risk_limit_review(session, team_id=team.id)
 
+        assert review.status == "hold"
+        assert review.current_max_daily_orders == 6
+        assert review.recommended_paper_max_daily_orders == 6
+        assert review.blockers == []
+
+
+def test_risk_limit_review_counts_post_limit_rejection_from_run_event_chain():
+    with make_session() as session:
+        team = Team(name="Risk Settings")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+        account = PaperAccount(team_id=team.id, name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        for index in range(6):
+            session.add(
+                _order(
+                    account,
+                    side=PaperOrderSide.buy,
+                    risk_code="max_daily_orders",
+                    submitted_at=datetime(2026, 6, 1, 14, index, tzinfo=timezone.utc),
+                )
+            )
+        session.commit()
+
+        apply_paper_risk_limit_recommendation(session, team_id=team.id)
+        setting_event = session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.team_id == team.id)
+            .where(CoreEventLog.topic == "risk_config_audit")
+        ).one()
+        setting_time = setting_event.published_at
+        run = PaperRun(
+            account_id=account.id,
+            team_id=team.id,
+            trading_day="2026-06-12",
+            trigger=PaperRunTrigger.manual,
+            status=PaperRunStatus.completed,
+            started_at=setting_time + timedelta(minutes=1),
+            finished_at=setting_time + timedelta(minutes=2),
+        )
+        session.add(run)
+        session.flush()
+        _add_buy_max_daily_order_rejection_events(session, team.id, run.id)
+        session.commit()
+
+        review = get_paper_risk_limit_review(session, team_id=team.id)
+
         assert review.status == "review_required"
         assert review.current_max_daily_orders == 6
         assert review.recommended_paper_max_daily_orders == 7
@@ -180,3 +230,43 @@ def _order(
         rejection_reason="Orders today 5 reached limit 5.",
         submitted_at=submitted_at,
     )
+
+
+def _add_buy_max_daily_order_rejection_events(session: Session, team_id, run_id) -> None:
+    correlation_id = "post-limit-buy-rejection"
+    events = [
+        (
+            "intent",
+            "trade_intent",
+            1,
+            None,
+            '{"intent_id":"00000000-0000-0000-0000-000000000001","ticker":"NVDA","side":"buy","notional":2000.0,"reason":"test"}',
+        ),
+        (
+            "risk",
+            "risk_decision",
+            2,
+            "intent",
+            '{"status":"rejected","code":"max_daily_orders","reason":"Orders today 6 reached limit 6."}',
+        ),
+        (
+            "rejected",
+            "order_state",
+            3,
+            "risk",
+            '{"order_id":"00000000-0000-0000-0000-000000000002","intent_id":"00000000-0000-0000-0000-000000000001","ticker":"NVDA","state":"rejected","reason":"Orders today 6 reached limit 6."}',
+        ),
+    ]
+    for event_id, topic, sequence, causation_id, payload_json in events:
+        session.add(
+            CoreEventLog(
+                team_id=team_id,
+                run_id=run_id,
+                event_id=f"{correlation_id}:{event_id}",
+                topic=topic,
+                sequence=sequence,
+                correlation_id=correlation_id,
+                causation_id=f"{correlation_id}:{causation_id}" if causation_id is not None else None,
+                payload_json=payload_json,
+            )
+        )
