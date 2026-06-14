@@ -761,6 +761,9 @@ export type PaperDailyReportPayload = {
   daily_pnl: number;
   daily_return: number;
   candidate_count: number;
+  actionable_candidate_count: number;
+  ordered_candidate_count: number;
+  dismissed_candidate_count: number;
   order_count: number;
   open_position_count: number;
   latest_expectancy: number;
@@ -1718,6 +1721,9 @@ const fallbackPaperDailyReport: PaperDailyReportPayload = {
   daily_pnl: 0,
   daily_return: 0,
   candidate_count: 0,
+  actionable_candidate_count: 0,
+  ordered_candidate_count: 0,
+  dismissed_candidate_count: 0,
   order_count: 0,
   open_position_count: 0,
   latest_expectancy: 0,
@@ -4742,6 +4748,9 @@ function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPay
     typeof value.daily_pnl === "number" &&
     typeof value.daily_return === "number" &&
     typeof value.candidate_count === "number" &&
+    typeof value.actionable_candidate_count === "number" &&
+    typeof value.ordered_candidate_count === "number" &&
+    typeof value.dismissed_candidate_count === "number" &&
     typeof value.order_count === "number" &&
     typeof value.open_position_count === "number" &&
     typeof value.latest_expectancy === "number" &&

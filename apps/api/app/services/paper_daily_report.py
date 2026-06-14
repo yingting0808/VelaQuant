@@ -37,6 +37,9 @@ class PaperDailyReportPayload(BaseModel):
     daily_pnl: float
     daily_return: float
     candidate_count: int
+    actionable_candidate_count: int
+    ordered_candidate_count: int
+    dismissed_candidate_count: int
     order_count: int
     open_position_count: int
     latest_expectancy: float
@@ -60,6 +63,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
     alpha_forecast = build_alpha_validation_forecast(alpha_validation)
     data_quality_warnings = _data_quality_warnings(session, trading_day)
     latest_trend_item = review_trend.items[0] if review_trend.items else None
+    candidate_status_counts = _candidate_status_counts(trading_summary.candidates)
     return PaperDailyReportPayload(
         trading_day=trading_day,
         run_state=operations.run_state,
@@ -81,6 +85,9 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         daily_pnl=latest_trend_item.daily_pnl if latest_trend_item is not None else 0.0,
         daily_return=latest_trend_item.daily_return if latest_trend_item is not None else 0.0,
         candidate_count=len(trading_summary.candidates),
+        actionable_candidate_count=candidate_status_counts["proposed"],
+        ordered_candidate_count=candidate_status_counts["ordered"],
+        dismissed_candidate_count=candidate_status_counts["dismissed"],
         order_count=len(trading_summary.orders),
         open_position_count=len(trading_summary.positions),
         latest_expectancy=review_trend.latest_expectancy,
@@ -97,6 +104,15 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
             alpha_ready=alpha_validation.alpha_ready,
         ),
     )
+
+
+def _candidate_status_counts(candidates) -> dict[str, int]:
+    counts = {"proposed": 0, "ordered": 0, "dismissed": 0}
+    for candidate in candidates:
+        status = str(getattr(candidate, "status", "") or "").strip().lower()
+        if status in counts:
+            counts[status] += 1
+    return counts
 
 
 def _data_quality_warnings(session: Session, trading_day: str) -> list[str]:

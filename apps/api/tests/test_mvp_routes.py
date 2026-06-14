@@ -2416,6 +2416,9 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
         daily_pnl=125.5,
         daily_return=0.0013,
         candidate_count=3,
+        actionable_candidate_count=2,
+        ordered_candidate_count=1,
+        dismissed_candidate_count=0,
         order_count=1,
         open_position_count=1,
         latest_expectancy=0,
@@ -2436,6 +2439,9 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
     payload = response.json()
     assert payload["health_status"] == "ready"
     assert payload["candidate_count"] == 3
+    assert payload["actionable_candidate_count"] == 2
+    assert payload["ordered_candidate_count"] == 1
+    assert payload["dismissed_candidate_count"] == 0
     assert payload["event_ledger_ready"] is True
     assert payload["daily_pnl"] == 125.5
     assert payload["daily_return"] == 0.0013

@@ -3,7 +3,15 @@ from types import SimpleNamespace
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.domain.models import PaperAccount, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
+from app.domain.models import (
+    PaperAccount,
+    PaperCandidate,
+    PaperCandidateStatus,
+    PaperReview,
+    PaperRun,
+    PaperRunStatus,
+    PaperRunTrigger,
+)
 from app.services import paper_daily_report
 from app.services import paper_operations
 from app.services.paper_daily_report import get_paper_daily_report
@@ -29,6 +37,27 @@ def test_paper_daily_report_summarizes_runtime_facts_after_daily_run():
         assert report.event_ledger_ready is True
         assert report.alpha_ready is False
         assert "review_day_sample" in report.alpha_blockers
+
+
+def test_paper_daily_report_breaks_down_candidate_quality_counts():
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider)
+        candidates = list(session.exec(select(PaperCandidate).order_by(PaperCandidate.rank)).all())
+        assert len(candidates) >= 3
+        candidates[0].status = PaperCandidateStatus.proposed
+        candidates[1].status = PaperCandidateStatus.ordered
+        for candidate in candidates[2:]:
+            candidate.status = PaperCandidateStatus.dismissed
+        session.add_all(candidates)
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.candidate_count == len(candidates)
+        assert report.actionable_candidate_count == 1
+        assert report.ordered_candidate_count == 1
+        assert report.dismissed_candidate_count == len(candidates) - 2
 
 
 def test_paper_daily_report_surfaces_next_actionable_sample_and_alpha_forecast(monkeypatch):

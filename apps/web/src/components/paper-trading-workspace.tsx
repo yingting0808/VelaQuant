@@ -575,9 +575,13 @@ export function PaperTradingWorkspace() {
             <strong>{dailyReport?.recommended_action ?? "run_daily_paper_trading"}</strong>
           </div>
           <div>
-            <span>候选 / 订单</span>
+            <span>可下单 / 订单</span>
             <strong>
-              {dailyReport?.candidate_count ?? 0} / {dailyReport?.order_count ?? 0}
+              {dailyReport?.actionable_candidate_count ?? 0} / {dailyReport?.order_count ?? 0}
+              <small>
+                总候选 {dailyReport?.candidate_count ?? 0} · 过滤{" "}
+                {dailyReport?.dismissed_candidate_count ?? 0}
+              </small>
             </strong>
           </div>
           <div>

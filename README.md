@@ -1,8 +1,8 @@
-# VelaQuant — Owned Event-Driven Trading Core for US Equities
+# VelaQuant — Self-Owned Trading Core for US Equities
 
-> **VelaQuant owns its trading runtime.** The core order path is implemented in `apps/api/app/trading_core/`; LEAN/vectorbt, OpenBB, LangGraph, and AI models are surrounding research, data, backtest, and explanation tools only.
+> **30-second answer: VelaQuant has its own Trading Core.** The runtime order path is implemented by VelaQuant in `apps/api/app/trading_core/`; LEAN/vectorbt, OpenBB, LangGraph, and AI models are surrounding research, data, backtest, and explanation tools only.
 >
-> **VelaQuant 有自己的交易运行时。** 核心订单链路实现于 `apps/api/app/trading_core/`；LEAN/vectorbt、OpenBB、LangGraph 和 AI 模型只是外围的研究、数据、回测和解释工具，不替代 Trading Core。
+> **30 秒结论：VelaQuant 有自己的 Trading Core。** 运行时订单链路由 VelaQuant 自研实现于 `apps/api/app/trading_core/`；LEAN/vectorbt、OpenBB、LangGraph 和 AI 模型只是外围的研究、数据、回测和解释工具，不替代 Trading Core。
 
 ## GitHub Quick Proof / GitHub 首屏证据
 
@@ -30,15 +30,19 @@ The quickest proof is the runtime code path, not a marketing label:
 | OpenBB 是否负责下单？ | **不是。** OpenBB 只用于数据 / 研究访问。 |
 | LangGraph 或 AI 是否生成可执行订单？ | **不是。** LangGraph 只编排投研 workflow。 |
 
-Repository proof path:
+Repository proof path for the owned Trading Core:
 
-仓库证据路径：
+自研 Trading Core 的仓库证据路径：
 
 ```text
-apps/api/app/trading_core/engine.py
-apps/api/app/trading_core/risk.py
-apps/api/app/trading_core/execution.py
-apps/api/app/trading_core/event_bus.py
+apps/api/app/trading_core/
+  engine.py           TradingEngine orchestration
+  strategy_engine.py  Strategy boundary
+  risk.py             Risk gatekeeper
+  execution.py        Order state machine
+  event_bus.py        EventEnvelope + Redis stream bus
+  portfolio.py        Portfolio state
+
 apps/api/app/services/strategy_runtime.py
 apps/api/app/services/paper_trading.py
 ```
@@ -49,6 +53,18 @@ If you are judging this repository from GitHub at a glance, the intended About d
 
 ```text
 VelaQuant: event-driven US equities trading infrastructure with its own Trading Core.
+```
+
+Recommended GitHub topics are lowercase:
+
+推荐 GitHub topics 全部用小写：
+
+```text
+trading-core
+event-driven
+paper-trading
+quant-research
+us-equities
 ```
 
 Runtime proof path:
@@ -202,6 +218,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - The `hold_until_next_session` action now includes Alpha sampling forecast and the next actionable scheduler sample, so waiting states still show how many paper sessions remain and when the next useful sample is expected.
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
+- The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
 - Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
 - Current scheduler runtime shows the next cron trigger will be guarded as `market_closed`, while the next actionable paper sample is `2026-06-16T06:30:00+08:00` for trading day `2026-06-15`.
@@ -238,6 +255,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - `hold_until_next_session` 动作现在会带上 Alpha 样本预测和下一次有效调度采样，因此等待状态也能显示还需要多少次 paper sessions、下一次有效样本预计何时发生。
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
+- Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
 - Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
 - 当前调度器运行态显示，下一次 cron 会因 `market_closed` 守门跳过，而下一次真正有效的 paper 采样时间是 `2026-06-16T06:30:00+08:00`，对应交易日 `2026-06-15`。
