@@ -1179,6 +1179,304 @@ test("paper trading disables daily run when today's operations are complete", as
   await expect(actionPlanPanel.getByText("limiting_gate=review_day_sample")).toBeVisible();
 });
 
+test("paper trading shows daily report before slower summary endpoints finish", async ({ page }) => {
+  await page.route("**/api/mvp/paper-trading/summary", async (route) => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10_000);
+    });
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        account: {
+          id: "paper-account",
+          name: "默认模拟盘",
+          mode: "paper",
+          starting_cash: 100000,
+          cash: 100000,
+          realized_pnl: 0,
+          unrealized_pnl: 0,
+          equity: 100000,
+          updated_at: "2026-06-12T21:00:00Z"
+        },
+        candidates: [],
+        orders: [],
+        positions: [],
+        latest_review: null
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/daily-report", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        trading_day: "2026-06-12",
+        run_state: "completed",
+        health_status: "ready",
+        recommended_action: "hold_until_next_session",
+        scheduler_running: true,
+        scheduler_next_run_at: "2026-06-15T06:30:00+08:00",
+        scheduler_next_run_will_execute: false,
+        scheduler_next_run_execution_gate: "market_closed",
+        scheduler_next_actionable_run_at: "2026-06-16T06:30:00+08:00",
+        scheduler_next_actionable_trading_day: "2026-06-15",
+        scheduler_next_actionable_execution_gate: "ready_to_run",
+        estimated_sessions_to_alpha_ready: 4,
+        limiting_alpha_gate: "review_day_sample",
+        account_equity: 104931.08,
+        cash: 80613.94,
+        realized_pnl: 1256.86,
+        unrealized_pnl: 3674.22,
+        daily_pnl: 0,
+        daily_return: 0,
+        candidate_count: 6,
+        actionable_candidate_count: 3,
+        ordered_candidate_count: 0,
+        dismissed_candidate_count: 3,
+        order_count: 51,
+        open_position_count: 6,
+        latest_expectancy: 151.4,
+        average_expectancy: 151.4,
+        consecutive_positive_expectancy_days: 1,
+        event_ledger_ready: true,
+        alpha_ready: false,
+        alpha_blockers: ["review_day_sample"],
+        open_alpha_gates: [],
+        exit_watchlist: [
+          {
+            ticker: "AAPL",
+            quantity: 29,
+            return_pct: 0.118,
+            unrealized_pnl: 891.11,
+            trigger: "take_profit",
+            triggered: true,
+            threshold_pct: 0.1,
+            distance_to_trigger_pct: 0,
+            next_exit_quantity: 6
+          }
+        ],
+        data_quality_warnings: [],
+        summary:
+          "Daily paper report: operations ready, run completed, latest expectancy 151.40; continue paper validation before live capital."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        enabled: true,
+        running: true,
+        cron: "30 6 * * *",
+        timezone: "Asia/Shanghai",
+        next_run_at: "2026-06-15T06:30:00+08:00",
+        next_run_will_execute: false,
+        next_run_execution_gate: "market_closed",
+        next_run_trading_day: "2026-06-12",
+        next_actionable_run_at: "2026-06-16T06:30:00+08:00",
+        next_actionable_trading_day: "2026-06-15",
+        next_actionable_execution_gate: "ready_to_run",
+        summary: "scheduler"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/market-session", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        mode: "market_calendar",
+        now: "2026-06-15T00:00:00+08:00",
+        timezone: "Asia/Shanghai",
+        market_date: "2026-06-12",
+        effective_trading_day: "2026-06-12",
+        execution_gate: "market_closed",
+        is_open_now: false,
+        source: "pandas_market_calendars",
+        summary: "market closed"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        trading_day: "2026-06-12",
+        run_state: "completed",
+        health_status: "ready",
+        latest_run_id: "run-1",
+        latest_run_trading_day: "2026-06-12",
+        latest_run_status: "completed",
+        today_run_id: "run-1",
+        review_id: "review-1",
+        latest_error: null,
+        can_retry_today: false,
+        event_ledger_ready: true,
+        latest_run_event_count: 1,
+        legacy_manual_future_run_count: 0,
+        latest_legacy_manual_future_trading_day: null,
+        data_quality_warnings: [],
+        latest_scheduler_decision: "skipped",
+        latest_scheduler_decision_at: "2026-06-15T06:30:00+08:00",
+        latest_scheduler_decision_trading_day: "2026-06-12",
+        latest_scheduler_decision_reason: "market_closed",
+        latest_scheduler_decision_summary: "skipped",
+        blockers: [],
+        recommended_action: "hold_until_next_session",
+        summary: "ready"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/history", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        window_size: 0,
+        completed_days: 0,
+        failed_days: 0,
+        blocked_days: 0,
+        replayable_days: 0,
+        review_days: 0,
+        completion_rate: 0,
+        replay_rate: 0,
+        latest_health_status: "ready",
+        items: [],
+        summary: "No paper operations history is available yet."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/review-trend", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        sample_size: 0,
+        positive_expectancy_days: 0,
+        consecutive_positive_expectancy_days: 0,
+        average_expectancy: 0,
+        latest_expectancy: 0,
+        items: [],
+        summary: "No paper reviews are available yet."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/execution-diagnostics", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        order_count: 0,
+        filled_order_count: 0,
+        rejected_order_count: 0,
+        buy_order_count: 0,
+        sell_order_count: 0,
+        closed_trade_count: 0,
+        fill_rate: 0,
+        rejection_rate: 0,
+        realized_pnl: 0,
+        average_realized_pnl: 0,
+        latest_rejection_code: null,
+        max_daily_order_rejections: 0,
+        max_daily_order_buy_rejections: 0,
+        max_daily_order_sell_rejections: 0,
+        rejection_reasons: [],
+        summary: "No paper execution orders are available yet."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/risk-profile", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        risk_engine: "Trading Core RiskEngine",
+        max_order_notional: 2000,
+        max_position_weight: 0.1,
+        max_daily_orders: 5,
+        exit_take_profit_pct: 0.1,
+        exit_stop_loss_pct: -0.05,
+        summary: "risk"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/risk-limit-review", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        status: "stable",
+        current_max_daily_orders: 5,
+        recommended_paper_max_daily_orders: 5,
+        live_change_allowed: false,
+        max_daily_order_rejections: 0,
+        max_daily_order_buy_rejections: 0,
+        max_daily_order_sell_rejections: 0,
+        filled_order_count: 0,
+        closed_trade_count: 0,
+        sample_collection_blocked: false,
+        blockers: [],
+        summary: "stable"
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-gates", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        alpha_ready: false,
+        validation_level: "collecting",
+        passed_gates: 0,
+        total_gates: 0,
+        items: [],
+        summary: "Alpha gate progress: 0/0 gates passed"
+      }
+    });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-forecast", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        alpha_ready: false,
+        status: "blocked",
+        estimated_sessions_to_alpha_ready: null,
+        limiting_gate: null,
+        items: [],
+        summary: "forecast"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        readiness: "ready",
+        primary_action: "hold_until_next_session",
+        items: [],
+        summary: "hold"
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/runs", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { runs: [] } });
+  });
+  await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        total_event_count: 0,
+        latest_run_id: null,
+        latest_run_status: null,
+        latest_run_event_count: 0,
+        latest_topic_counts: [],
+        latest_correlation_count: 0,
+        replay_ready: true,
+        warnings: [],
+        summary: "ledger",
+        latest_replay: null
+      }
+    });
+  });
+
+  await page.goto("/paper-trading");
+
+  const dailyReportPanel = page.getByRole("region", { name: "今日简报" });
+  await expect(dailyReportPanel.getByText("AAPL 止盈 11.8% · 下次 6")).toBeVisible({ timeout: 3000 });
+});
+
 test("paper trading can repair missing historical event ledgers", async ({ page }) => {
   const summary = {
     account: {

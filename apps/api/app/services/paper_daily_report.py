@@ -78,7 +78,7 @@ class PaperDailyReportPayload(BaseModel):
 def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> PaperDailyReportPayload:
     operations = get_paper_operations_status(session)
     trading_day = operations.trading_day
-    trading_summary = get_paper_trading_summary(session, provider, as_of_trading_day=trading_day)
+    trading_summary = get_paper_trading_summary(session, provider, use_live_quotes=False)
     review_trend = get_paper_review_trend(session, as_of_trading_day=trading_day)
     scheduler = get_paper_scheduler_status()
     event_ledger = get_event_ledger_status(session, as_of_trading_day=trading_day)

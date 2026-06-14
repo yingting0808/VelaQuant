@@ -71,6 +71,7 @@ class OpenBBOptionalProvider:
         openbb_client: object | None = None,
     ) -> None:
         self._client = openbb_client
+        self._disabled_reason: str | None = None
         self.available = openbb_client is not None or module_finder("openbb") is not None
 
     @property
@@ -85,13 +86,16 @@ class OpenBBOptionalProvider:
 
     def get_quote(self, ticker: str) -> Quote:
         normalized = _normalize_ticker(ticker)
+        if self._disabled_reason is not None:
+            return self._unavailable_quote(normalized, self._disabled_message())
         client = self.client
         if client is None:
             return self._unavailable_quote(normalized, "OpenBB package is not installed.")
         try:
             result = client.equity.price.quote(symbol=normalized, provider="yfinance")
             record = _records_from_result(result)[0]
-        except (IndexError, AttributeError, RuntimeError, ValueError, TypeError) as error:
+        except Exception as error:
+            self._disable(error)
             return self._unavailable_quote(normalized, str(error))
 
         return Quote(
@@ -115,6 +119,8 @@ class OpenBBOptionalProvider:
         interval: str = "1d",
     ) -> list[PriceHistoryBar]:
         normalized = _normalize_ticker(ticker)
+        if self._disabled_reason is not None:
+            return []
         client = self.client
         if client is None:
             return []
@@ -126,11 +132,13 @@ class OpenBBOptionalProvider:
                 start_date=start_date,
                 end_date=end_date,
             )
-        except (AttributeError, RuntimeError, ValueError, TypeError):
+            records = _records_from_result(result)
+        except Exception as error:
+            self._disable(error)
             return []
 
         bars: list[PriceHistoryBar] = []
-        for record in _records_from_result(result):
+        for record in records:
             bars.append(
                 PriceHistoryBar(
                     ticker=normalized,
@@ -147,13 +155,16 @@ class OpenBBOptionalProvider:
 
     def get_fundamentals(self, ticker: str) -> FundamentalSnapshot:
         normalized = _normalize_ticker(ticker)
+        if self._disabled_reason is not None:
+            return self._unavailable_fundamentals(normalized, self._disabled_message())
         client = self.client
         if client is None:
             return self._unavailable_fundamentals(normalized, "OpenBB package is not installed.")
         try:
             result = client.equity.fundamental.metrics(symbol=normalized, provider="yfinance")
             record = _records_from_result(result)[0]
-        except (IndexError, AttributeError, RuntimeError, ValueError, TypeError) as error:
+        except Exception as error:
+            self._disable(error)
             return self._unavailable_fundamentals(normalized, str(error))
 
         return FundamentalSnapshot(
@@ -229,3 +240,9 @@ class OpenBBOptionalProvider:
             is_fallback=False,
             message=message,
         )
+
+    def _disable(self, error: Exception) -> None:
+        self._disabled_reason = str(error) or error.__class__.__name__
+
+    def _disabled_message(self) -> str:
+        return f"OpenBB disabled after runtime failure: {self._disabled_reason}"

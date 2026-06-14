@@ -32,6 +32,15 @@ class FakeDataFrameOpenBBResult:
         return frame
 
 
+class UnexpectedOpenBBError(Exception):
+    pass
+
+
+class BrokenOpenBBResult:
+    def to_df(self):
+        raise UnexpectedOpenBBError("Results not found.")
+
+
 class FakePriceApi:
     def quote(self, symbol: str, provider: str):
         assert provider == "yfinance"
@@ -127,6 +136,51 @@ class RaisingOpenBBClient:
     equity = RaisingEquityApi()
 
 
+class BrokenConversionPriceApi:
+    def quote(self, symbol: str, provider: str):
+        return BrokenOpenBBResult()
+
+    def historical(self, symbol: str, provider: str, interval: str, start_date=None, end_date=None):
+        return BrokenOpenBBResult()
+
+
+class BrokenConversionFundamentalApi:
+    def metrics(self, symbol: str, provider: str):
+        return BrokenOpenBBResult()
+
+
+class BrokenConversionEquityApi:
+    price = BrokenConversionPriceApi()
+    fundamental = BrokenConversionFundamentalApi()
+
+
+class BrokenConversionOpenBBClient:
+    equity = BrokenConversionEquityApi()
+
+
+class CountingBrokenConversionPriceApi:
+    def __init__(self):
+        self.quote_calls = 0
+
+    def quote(self, symbol: str, provider: str):
+        self.quote_calls += 1
+        return BrokenOpenBBResult()
+
+    def historical(self, symbol: str, provider: str, interval: str, start_date=None, end_date=None):
+        return BrokenOpenBBResult()
+
+
+class CountingBrokenConversionEquityApi:
+    def __init__(self):
+        self.price = CountingBrokenConversionPriceApi()
+        self.fundamental = BrokenConversionFundamentalApi()
+
+
+class CountingBrokenConversionOpenBBClient:
+    def __init__(self):
+        self.equity = CountingBrokenConversionEquityApi()
+
+
 def test_openbb_provider_reports_missing_package_without_client():
     provider = OpenBBOptionalProvider(module_finder=lambda _: None)
 
@@ -177,4 +231,30 @@ def test_openbb_provider_returns_unavailable_payloads_when_client_raises():
     assert quote.price is None
     assert "provider unavailable" in quote.message
     assert history == []
-    assert "fundamentals unavailable" in fundamentals.message
+    assert "OpenBB disabled" in fundamentals.message
+
+
+def test_openbb_provider_returns_unavailable_payloads_when_result_conversion_raises():
+    provider = OpenBBOptionalProvider(openbb_client=BrokenConversionOpenBBClient())
+
+    quote = provider.get_quote("MSFT")
+    history = provider.get_price_history("MSFT")
+    fundamentals = provider.get_fundamentals("MSFT")
+
+    assert quote.price is None
+    assert "Results not found" in quote.message
+    assert history == []
+    assert "Results not found" in fundamentals.message
+
+
+def test_openbb_provider_disables_further_calls_after_first_runtime_failure():
+    client = CountingBrokenConversionOpenBBClient()
+    provider = OpenBBOptionalProvider(openbb_client=client)
+
+    first = provider.get_quote("AAPL")
+    second = provider.get_quote("MSFT")
+
+    assert first.price is None
+    assert second.price is None
+    assert client.equity.price.quote_calls == 1
+    assert "OpenBB disabled" in second.message

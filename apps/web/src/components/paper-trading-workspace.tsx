@@ -245,61 +245,28 @@ export function PaperTradingWorkspace() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      getPaperTradingSummary(),
-      getPaperDailyReport(),
-      getPaperSchedulerStatus(),
-      getPaperMarketSession(),
-      getPaperOperationsStatus(),
-      getPaperOperationsHistory(),
-      getPaperReviewTrend(),
-      getPaperExecutionDiagnostics(),
-      getPaperRiskProfile(),
-      getPaperRiskLimitReview(),
-      getAlphaGateProgress(),
-      getAlphaValidationForecast(),
-      getPaperActionPlan(),
-      getPaperRuns(),
-      getPaperEventLedger()
-    ]).then(
-      ([
-        payload,
-        reportPayload,
-        schedulerStatus,
-        marketSessionPayload,
-        operationsPayload,
-        historyPayload,
-        reviewTrendPayload,
-        executionDiagnosticsPayload,
-        riskProfilePayload,
-        riskLimitReviewPayload,
-        alphaGateProgressPayload,
-        alphaForecastPayload,
-        actionPlanPayload,
-        runPayload,
-        ledgerPayload
-      ]) => {
-        if (!active) {
-          return;
-        }
-        setSummary(payload);
-        setDailyReport(reportPayload);
-        setScheduler(schedulerStatus);
-        setMarketSession(marketSessionPayload);
-        setOperations(operationsPayload);
-        setOperationsHistory(historyPayload);
-        setReviewTrend(reviewTrendPayload);
-        setExecutionDiagnostics(executionDiagnosticsPayload);
-        setRiskProfile(riskProfilePayload);
-        setRiskLimitReview(riskLimitReviewPayload);
-        setAlphaGateProgress(alphaGateProgressPayload);
-        setAlphaForecast(alphaForecastPayload);
-        setActionPlan(actionPlanPayload);
-        setRuns(runPayload.runs);
-        setEventLedger(ledgerPayload);
+    const requests = [
+      getPaperTradingSummary().then((payload) => active && setSummary(payload)),
+      getPaperDailyReport().then((payload) => active && setDailyReport(payload)),
+      getPaperSchedulerStatus().then((payload) => active && setScheduler(payload)),
+      getPaperMarketSession().then((payload) => active && setMarketSession(payload)),
+      getPaperOperationsStatus().then((payload) => active && setOperations(payload)),
+      getPaperOperationsHistory().then((payload) => active && setOperationsHistory(payload)),
+      getPaperReviewTrend().then((payload) => active && setReviewTrend(payload)),
+      getPaperExecutionDiagnostics().then((payload) => active && setExecutionDiagnostics(payload)),
+      getPaperRiskProfile().then((payload) => active && setRiskProfile(payload)),
+      getPaperRiskLimitReview().then((payload) => active && setRiskLimitReview(payload)),
+      getAlphaGateProgress().then((payload) => active && setAlphaGateProgress(payload)),
+      getAlphaValidationForecast().then((payload) => active && setAlphaForecast(payload)),
+      getPaperActionPlan().then((payload) => active && setActionPlan(payload)),
+      getPaperRuns().then((payload) => active && setRuns(payload.runs)),
+      getPaperEventLedger().then((payload) => active && setEventLedger(payload))
+    ];
+    Promise.allSettled(requests).then(() => {
+      if (active) {
         setMessage("模拟盘已同步。");
       }
-    );
+    });
     return () => {
       active = false;
     };

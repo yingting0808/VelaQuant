@@ -215,13 +215,21 @@ def get_paper_trading_summary(
     provider: MarketDataProvider,
     *,
     as_of_trading_day: str | None = None,
+    use_live_quotes: bool = True,
 ) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
-    _mark_positions_to_market(session, account, provider)
-    session.commit()
-    session.refresh(account)
-    return _summary_payload(session, account, provider, as_of_trading_day=as_of_trading_day)
+    if use_live_quotes:
+        _mark_positions_to_market(session, account, provider)
+        session.commit()
+        session.refresh(account)
+    return _summary_payload(
+        session,
+        account,
+        provider,
+        as_of_trading_day=as_of_trading_day,
+        use_live_quotes=use_live_quotes,
+    )
 
 
 def run_daily_paper_trading_loop(
@@ -1482,6 +1490,7 @@ def _summary_payload(
     provider: MarketDataProvider,
     *,
     as_of_trading_day: str | None = None,
+    use_live_quotes: bool = True,
 ) -> PaperTradingSummary:
     summary_as_of_trading_day = as_of_trading_day or utc_now().date().isoformat()
     review_as_of_trading_day = as_of_trading_day or _current_trading_day()
@@ -1501,7 +1510,12 @@ def _summary_payload(
         ).all()
     )
     orders = [order for order in orders if _is_on_or_before_trading_day(order.submitted_at, summary_as_of_trading_day)]
-    projected_account, projected_positions = _project_as_of_account(account, orders, provider)
+    projected_account, projected_positions = _project_as_of_account(
+        account,
+        orders,
+        provider,
+        use_live_quotes=use_live_quotes,
+    )
     latest_review = session.exec(
         select(PaperReview)
         .where(PaperReview.account_id == account.id)
@@ -1521,17 +1535,21 @@ def _project_as_of_account(
     account: PaperAccount,
     orders: list[PaperOrder],
     provider: MarketDataProvider,
+    *,
+    use_live_quotes: bool = True,
 ) -> tuple[PaperAccountPayload, list[PaperPositionPayload]]:
     cash = account.starting_cash
     realized_pnl = 0.0
     positions: dict[str, dict[str, float]] = {}
     realized_by_ticker: dict[str, float] = {}
+    latest_fill_price_by_ticker: dict[str, float] = {}
     for order in sorted(orders, key=lambda item: item.submitted_at):
         if order.status != PaperOrderStatus.filled or order.fill_price is None:
             continue
         ticker = order.ticker.upper()
         quantity = order.quantity
         fill_price = order.fill_price
+        latest_fill_price_by_ticker[ticker] = fill_price
         if order.side == PaperOrderSide.buy:
             current = positions.setdefault(ticker, {"quantity": 0.0, "average_cost": 0.0})
             previous_quantity = current["quantity"]
@@ -1559,8 +1577,10 @@ def _project_as_of_account(
 
     position_payloads: list[PaperPositionPayload] = []
     for ticker, position in sorted(positions.items()):
-        quote = provider.get_quote(ticker)
-        last_price = quote.price or position["average_cost"]
+        last_price = latest_fill_price_by_ticker.get(ticker) or position["average_cost"]
+        if use_live_quotes:
+            quote = provider.get_quote(ticker)
+            last_price = quote.price or last_price
         market_value = position["quantity"] * last_price
         unrealized_pnl = (last_price - position["average_cost"]) * position["quantity"]
         position_payloads.append(

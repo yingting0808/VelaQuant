@@ -7,6 +7,7 @@ from app.domain.models import (
     PaperAccount,
     PaperCandidate,
     PaperCandidateStatus,
+    PaperPosition,
     PaperReview,
     PaperRun,
     PaperRunStatus,
@@ -71,9 +72,11 @@ def test_paper_daily_report_surfaces_exit_watchlist_for_open_positions():
     with make_session() as session:
         provider = FixtureProvider()
         submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
-        submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1))
         provider.prices["AAPL"] = 115.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="sell", quantity=1))
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=2))
         provider.prices["MSFT"] = 180.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="sell", quantity=1))
 
         report = get_paper_daily_report(session, provider)
 
@@ -81,12 +84,99 @@ def test_paper_daily_report_surfaces_exit_watchlist_for_open_positions():
         assert aapl.trigger == "take_profit"
         assert aapl.triggered is True
         assert aapl.return_pct == 0.15
-        assert aapl.next_exit_quantity == 2
+        assert aapl.next_exit_quantity == 1
         msft = next(item for item in report.exit_watchlist if item.ticker == "MSFT")
         assert msft.trigger == "stop_loss"
         assert msft.triggered is True
         assert msft.return_pct == -0.1
         assert msft.next_exit_quantity == 1
+
+
+def test_paper_daily_report_exit_watchlist_uses_current_positions_when_report_is_as_of_prior_trading_day(monkeypatch):
+    monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-12")
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="AAPL", side="buy", quantity=2),
+            trading_day="2026-06-13",
+        )
+        provider.prices["AAPL"] = 115.0
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="AAPL", side="sell", quantity=1),
+            trading_day="2026-06-13",
+        )
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.trading_day == "2026-06-12"
+        aapl = next(item for item in report.exit_watchlist if item.ticker == "AAPL")
+        assert aapl.trigger == "take_profit"
+        assert aapl.triggered is True
+
+
+def test_paper_daily_report_builds_exit_watchlist_without_second_summary_call(monkeypatch):
+    calls = 0
+    original_get_summary = paper_daily_report.get_paper_trading_summary
+
+    def spy_get_summary(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_get_summary(*args, **kwargs)
+
+    monkeypatch.setattr(paper_daily_report, "get_paper_trading_summary", spy_get_summary)
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 115.0
+
+        report = get_paper_daily_report(session, provider)
+
+        assert calls == 1
+        assert any(item.ticker == "AAPL" for item in report.exit_watchlist)
+
+
+def test_paper_daily_report_exit_watchlist_projects_from_filled_orders_when_position_table_is_stale():
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 115.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="sell", quantity=1))
+        for position in session.exec(select(PaperPosition)).all():
+            session.delete(position)
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        aapl = next(item for item in report.exit_watchlist if item.ticker == "AAPL")
+        assert aapl.trigger == "take_profit"
+        assert aapl.triggered is True
+        assert aapl.quantity == 1
+
+
+def test_paper_daily_report_uses_stored_paper_marks_without_live_quote_dependency():
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 115.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="sell", quantity=1))
+
+        def fail_live_quote(ticker: str):
+            raise AssertionError(f"daily report should not request live quote for {ticker}")
+
+        provider.get_quote = fail_live_quote
+
+        report = get_paper_daily_report(session, provider)
+
+        aapl = next(item for item in report.exit_watchlist if item.ticker == "AAPL")
+        assert aapl.trigger == "take_profit"
+        assert aapl.return_pct == 0.15
+        assert aapl.quantity == 1
 
 
 def test_paper_daily_report_surfaces_next_actionable_sample_and_alpha_forecast(monkeypatch):

@@ -220,7 +220,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
 - The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
 - The Daily Report now includes quantified open Alpha gate gaps through `open_alpha_gates`, so operators can see current/required/remaining samples for blockers such as filled orders and closed trades without leaving the paper trading workspace.
-- The Daily Report now includes an `exit_watchlist` for open paper positions, showing take-profit/stop-loss triggers, return percentage, unrealized PnL, and next eligible exit quantity so closed-trade sample collection is visible before the next daily loop.
+- The Daily Report now includes an `exit_watchlist` from current open paper positions, showing take-profit/stop-loss triggers, return percentage, unrealized PnL, and next eligible exit quantity so closed-trade sample collection is visible before the next daily loop even when the report uses an as-of trading-day view.
+- The Daily Report now uses stored paper execution marks for operational exit monitoring instead of blocking on live OpenBB/Yahoo quote calls; slower summary endpoints no longer prevent the report from rendering in the paper workspace.
+- OpenBB optional data access now circuit-breaks runtime quote/history/fundamental failures inside the request and falls back through the provider abstraction, so research data outages do not turn the paper trading dashboard into a 500.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
 - Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
 - Current scheduler runtime shows the next cron trigger will be guarded as `market_closed`, while the next actionable paper sample is `2026-06-16T06:30:00+08:00` for trading day `2026-06-15`.
@@ -259,7 +261,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
 - Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。
 - Daily Report 现在会通过 `open_alpha_gates` 展示未通过 Alpha 门禁的当前值、目标值和剩余缺口，因此操作者不离开模拟盘工作台也能看到成交订单、闭环交易等 blocker 还差多少样本。
-- Daily Report 现在会通过 `exit_watchlist` 展示开放模拟持仓的止盈/止损触发、收益率、浮动盈亏和下一次可退出数量，因此下一次日循环能补哪些闭环交易样本会提前可见。
+- Daily Report 现在会通过 `exit_watchlist` 展示当前开放模拟持仓的止盈/止损触发、收益率、浮动盈亏和下一次可退出数量；即使日报其他字段采用 as-of 交易日口径，下一次日循环能补哪些闭环交易样本也会提前可见。
+- Daily Report 现在使用已记录的 paper execution mark 做运营退出监控，不再阻塞等待 live OpenBB/Yahoo 报价；较慢的 summary 接口也不会阻止模拟盘工作台先渲染今日简报。
+- OpenBB 可选数据访问现在会在单次请求内对 quote/history/fundamental 运行时失败熔断，并通过数据源抽象降级，因此研究数据源故障不会把模拟盘页面打成 500。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
 - Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
 - 当前调度器运行态显示，下一次 cron 会因 `market_closed` 守门跳过，而下一次真正有效的 paper 采样时间是 `2026-06-16T06:30:00+08:00`，对应交易日 `2026-06-15`。
