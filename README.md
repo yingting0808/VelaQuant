@@ -50,6 +50,7 @@ Web UI
        -> Event Ledger
   -> Paper Trading Account and Reviews
   -> Strategy Lab / Backtests / Evaluation
+  -> AI Research Workflow
   -> PostgreSQL + Redis
 ```
 
@@ -62,6 +63,7 @@ Core rules:
 - `ExecutionEngine` records order state transitions.
 - Production events are persisted through the event ledger.
 - AI is for research, explanation, and event structuring, not direct order decisions.
+- LangGraph orchestrates the deterministic AI research workflow, not order execution.
 - OpenBB provides market-data/research access when available, but it does not bypass the data-provider abstraction or execution path.
 - LEAN and vectorbt are research/backtest tools, not live execution paths.
 
@@ -72,6 +74,7 @@ Core rules:
 - `ExecutionEngine` 记录订单状态机变化。
 - 生产事件必须写入事件账本。
 - AI 只用于研究、解释和事件结构化，不直接生成交易指令。
+- LangGraph 用于编排确定性的 AI 投研 workflow，不用于订单执行。
 - OpenBB 在可用时提供行情和研究数据能力，但不能绕过数据源抽象层或交易执行路径。
 - LEAN 和 vectorbt 只用于研究/回测，不进入实盘执行路径。
 
@@ -85,9 +88,27 @@ Backend / 后端：
 - PostgreSQL
 - Redis Streams
 - APScheduler
+- LangGraph
 - OpenBB
 - vectorbt
 - QuantConnect LEAN CLI integration for research workflows
+- pandas / numpy
+- pandas-market-calendars
+- pytest
+
+Backend support libraries / 后端支撑库：
+
+- `psycopg`: PostgreSQL driver.
+- `httpx`: HTTP client used by data and provider integrations.
+- `openpyxl`: spreadsheet import support.
+- `pydantic-settings`: environment-driven runtime configuration.
+
+中文说明：
+
+- `psycopg`：PostgreSQL 驱动。
+- `httpx`：数据源和 provider 集成使用的 HTTP 客户端。
+- `openpyxl`：表格导入能力。
+- `pydantic-settings`：环境变量驱动的运行配置。
 
 Frontend / 前端：
 
@@ -101,6 +122,44 @@ Runtime / 运行环境：
 - Docker Compose
 - API: `http://127.0.0.1:8000`
 - Web: `http://127.0.0.1:3000`
+
+## AI Workflow / AI 工作流
+
+VelaQuant uses LangGraph in `apps/api/app/ai/workflow.py` to run the research assistant workflow behind `POST /api/mvp/research`.
+
+VelaQuant 在 `apps/api/app/ai/workflow.py` 中使用 LangGraph，支撑 `POST /api/mvp/research` 背后的投研助手 workflow。
+
+Current workflow behavior:
+
+当前 workflow 行为：
+
+- Input: ticker, user question, and structured evidence items.
+- Output: summary, bull case, bear case, watch items, and a trade-plan draft.
+- If evidence is missing, the workflow returns an `insufficient_evidence` result.
+- The trade-plan draft is explicitly not an executable order.
+
+中文说明：
+
+- 输入：ticker、用户问题和结构化证据项。
+- 输出：摘要、多头观点、空头风险、观察项和交易计划草稿。
+- 如果证据不足，workflow 返回 `insufficient_evidence`。
+- 交易计划草稿不是可执行订单。
+
+Current boundary:
+
+当前边界：
+
+- LangGraph is used for deterministic research workflow orchestration.
+- It does not generate `TradeIntent`.
+- It does not call `ExecutionEngine`.
+- It does not bypass `StrategyRegistry` or `RiskEngine`.
+
+中文说明：
+
+- LangGraph 当前用于确定性投研 workflow 编排。
+- 它不生成 `TradeIntent`。
+- 它不调用 `ExecutionEngine`。
+- 它不能绕过 `StrategyRegistry` 或 `RiskEngine`。
 
 ## Data Sources / 数据源
 
