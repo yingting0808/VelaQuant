@@ -1,12 +1,44 @@
 # VelaQuant
 
-VelaQuant is a local-first US equities research and paper-trading system for building a verifiable alpha loop before any small-capital live deployment.
+VelaQuant is a local-first US equities research and paper-trading system built around its own event-driven Trading Core for building a verifiable alpha loop before any small-capital live deployment.
 
-VelaQuant 是一个本地优先的美股投研与模拟交易系统，目标是在进入小资金实盘前，先建立可验证的 Alpha 闭环。
+VelaQuant 是一个以内置自研事件驱动 Trading Core 为核心的本地优先美股投研与模拟交易系统，目标是在进入小资金实盘前，先建立可验证的 Alpha 闭环。
 
-This project is not a simple trading bot. It is an event-driven trading-system foundation that separates market data, strategy decisions, risk control, execution, paper accounting, backtesting, and AI-assisted research.
+This project is not a simple trading bot and not a wrapper around LEAN, OpenBB, or LangGraph. It is an event-driven trading-system foundation that separates market data, strategy decisions, risk control, execution, paper accounting, backtesting, and AI-assisted research.
 
-本项目不是简单的交易机器人，而是事件驱动的交易系统底座。系统将市场数据、策略决策、风控、执行、模拟盘记账、回测和 AI 辅助研究拆分为清晰边界。
+本项目不是简单的交易机器人，也不是 LEAN、OpenBB 或 LangGraph 的套壳。它是事件驱动的交易系统底座，将市场数据、策略决策、风控、执行、模拟盘记账、回测和 AI 辅助研究拆分为清晰边界。
+
+## Core Ownership / 核心归属
+
+**Trading Core is owned by VelaQuant.** The code lives in `apps/api/app/trading_core/` and includes the runtime components that turn strategy output into audited paper-trading state:
+
+**Trading Core 是 VelaQuant 自研拥有的核心。** 代码位于 `apps/api/app/trading_core/`，包含把策略输出转成可审计模拟交易状态的运行时组件：
+
+```text
+apps/api/app/trading_core/
+  engine.py           TradingEngine orchestration
+  event_bus.py        EventEnvelope, event topics, Redis stream event bus
+  strategy_engine.py  StrategyEngine and strategy binding boundary
+  risk.py             RiskEngine and RiskLimits
+  execution.py        ExecutionEngine and order state machine
+  portfolio.py        PortfolioState and positions
+```
+
+External tools are deliberately kept outside the production execution path:
+
+外部工具被明确隔离在生产执行路径之外：
+
+- **LEAN / vectorbt**: research and backtest only.
+- **OpenBB**: data and research access only.
+- **LangGraph**: AI research workflow orchestration only.
+- **AI models**: explanation and research only; they do not generate executable `TradeIntent`.
+
+中文边界：
+
+- **LEAN / vectorbt**：只用于研究和回测。
+- **OpenBB**：只用于数据和研究访问。
+- **LangGraph**：只用于 AI 投研 workflow 编排。
+- **AI 模型**：只做解释和研究，不生成可执行 `TradeIntent`。
 
 ## Read This First / 先读这一段
 
