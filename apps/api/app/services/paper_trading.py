@@ -723,12 +723,19 @@ def _generate_candidates(
         if backtest_item is not None:
             _apply_backtest_evidence(candidate, backtest_item)
             score = _candidate_score_with_backtest(score, backtest_item)
-            event_bus.publish(
-                TradingEventTopic.trade_explanation,
-                _trade_explanation_event(candidate, backtest_item, strategy_id=binding.strategy_id),
-                causation_id=trade_intent_envelope.event_id,
-                correlation_id=trade_intent_envelope.correlation_id,
-            )
+        event_bus.publish(
+            TradingEventTopic.trade_explanation,
+            _trade_explanation_event(
+                candidate,
+                backtest_item,
+                strategy_id=binding.strategy_id,
+                evidence_count=evidence_count,
+                quote_source=quote.source,
+                diversification_bonus=diversification_bonus,
+            ),
+            causation_id=trade_intent_envelope.event_id,
+            correlation_id=trade_intent_envelope.correlation_id,
+        )
         ranked.append(
             (
                 score,
@@ -1053,28 +1060,64 @@ def _apply_backtest_evidence(candidate: PaperCandidate, item: StrategyCandidateB
 
 def _trade_explanation_event(
     candidate: PaperCandidate,
-    item: StrategyCandidateBacktestItem,
+    item: StrategyCandidateBacktestItem | None,
     *,
     strategy_id: str,
+    evidence_count: int | None = None,
+    quote_source: str | None = None,
+    diversification_bonus: float | None = None,
 ) -> TradeExplanationEvent:
+    evidence = _trade_explanation_evidence(
+        item,
+        evidence_count=evidence_count,
+        quote_source=quote_source,
+        diversification_bonus=diversification_bonus,
+    )
     return TradeExplanationEvent(
         ticker=candidate.ticker,
         strategy_id=strategy_id,
-        decision=item.recommendation,
+        decision=item.recommendation if item is not None else _candidate_decision(candidate),
         explanation=candidate.thesis,
-        evidence=[item.reason, _backtest_metric_summary(item), f"source={item.data_source or 'unknown'}"],
-        backtest={
-            "run_id": item.run_id,
-            "status": item.status,
-            "engine": item.engine,
-            "data_source": item.data_source,
-            "uses_real_market_data": item.uses_real_market_data,
-            "total_net_profit": item.total_net_profit,
-            "sharpe_ratio": item.sharpe_ratio,
-            "drawdown": item.drawdown,
-            "total_trades": item.total_trades,
-        },
+        evidence=evidence,
+        backtest=_trade_explanation_backtest(item),
     )
+
+
+def _candidate_decision(candidate: PaperCandidate) -> str:
+    return "candidate" if candidate.status == PaperCandidateStatus.proposed else candidate.status.value
+
+
+def _trade_explanation_evidence(
+    item: StrategyCandidateBacktestItem | None,
+    *,
+    evidence_count: int | None,
+    quote_source: str | None,
+    diversification_bonus: float | None,
+) -> list[str]:
+    evidence = [
+        f"evidence_count={evidence_count if evidence_count is not None else 0}",
+        f"quote_source={quote_source or 'unknown'}",
+        f"diversification_bonus={diversification_bonus or 0:.2f}",
+    ]
+    if item is not None:
+        evidence.extend([item.reason, _backtest_metric_summary(item), f"source={item.data_source or 'unknown'}"])
+    return evidence
+
+
+def _trade_explanation_backtest(item: StrategyCandidateBacktestItem | None) -> dict[str, str | bool | None]:
+    if item is None:
+        return {}
+    return {
+        "run_id": item.run_id,
+        "status": item.status,
+        "engine": item.engine,
+        "data_source": item.data_source,
+        "uses_real_market_data": item.uses_real_market_data,
+        "total_net_profit": item.total_net_profit,
+        "sharpe_ratio": item.sharpe_ratio,
+        "drawdown": item.drawdown,
+        "total_trades": item.total_trades,
+    }
 
 
 def _backtest_metric_summary(item: StrategyCandidateBacktestItem) -> str:

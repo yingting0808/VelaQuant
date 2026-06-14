@@ -362,6 +362,49 @@ def test_daily_run_prioritizes_real_backtest_candidate(monkeypatch):
         assert aapl_explanation.causation_id == trade_intent_event.event_id
 
 
+def test_daily_run_records_trade_explanations_for_candidates_without_backtests(monkeypatch):
+    def fake_candidate_backtests(**kwargs):
+        return StrategyCandidateBacktestPayload(
+            strategy_id="deterministic_watchlist_v1",
+            candidate_count=0,
+            real_market_candidate_count=0,
+            best_ticker=None,
+            items=[],
+            summary="No candidate backtests were available.",
+        )
+
+    monkeypatch.setattr(paper_trading, "run_strategy_candidate_backtests", fake_candidate_backtests, raising=False)
+
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
+
+        candidate_tickers = {candidate.ticker for candidate in summary.candidates}
+        explanation_events = session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.topic == "trade_explanation")
+            .order_by(CoreEventLog.sequence)
+        ).all()
+
+        assert explanation_events
+        explanation_payloads = [json.loads(event.payload_json) for event in explanation_events]
+        explained_tickers = {payload["ticker"] for payload in explanation_payloads}
+        assert candidate_tickers <= explained_tickers
+        nvda_payload = next(payload for payload in explanation_payloads if payload["ticker"] == "NVDA")
+        assert nvda_payload["strategy_id"] == "deterministic_watchlist_v1"
+        assert nvda_payload["decision"] == "candidate"
+        assert "3 条证据支持继续跟踪 NVDA" in nvda_payload["explanation"]
+        assert "evidence_count=3" in nvda_payload["evidence"]
+        assert "quote_source=fixture" in nvda_payload["evidence"]
+        assert nvda_payload["backtest"] == {}
+        nvda_event = next(event for event in explanation_events if json.loads(event.payload_json)["ticker"] == "NVDA")
+        trade_intent_event = session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.topic == "trade_intent")
+            .where(CoreEventLog.correlation_id == nvda_event.correlation_id)
+        ).one()
+        assert nvda_event.causation_id == trade_intent_event.event_id
+
+
 def test_daily_run_auto_exits_profitable_open_position_before_review():
     with make_session() as session:
         provider = FixtureProvider()
@@ -434,6 +477,7 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "trade_explanation",
             "risk_decision",
             "order_state",
             "order_state",
@@ -451,7 +495,12 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
         assert trade_intent_payload["reason"] in ordered_candidate.thesis
         assert trade_intent_payload["ticker"] == ordered_candidate.ticker
 
-        risk_payload = json.loads(selected_chain[3].payload_json)
+        explanation_payload = json.loads(selected_chain[3].payload_json)
+        assert explanation_payload["ticker"] == ordered_candidate.ticker
+        assert explanation_payload["decision"] == "candidate"
+        assert ordered_candidate.evidence_summary in explanation_payload["explanation"]
+
+        risk_payload = json.loads(selected_chain[4].payload_json)
         assert risk_payload["status"] == "approved"
         assert risk_payload["code"] == "approved"
 
@@ -502,6 +551,7 @@ def test_event_ledger_status_replays_latest_completed_run_chain():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "trade_explanation",
             "risk_decision",
             "order_state",
             "order_state",
@@ -623,6 +673,7 @@ def test_daily_run_reruns_when_existing_review_has_no_completed_core_run():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "trade_explanation",
             "risk_decision",
             "order_state",
             "order_state",
