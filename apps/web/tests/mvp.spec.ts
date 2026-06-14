@@ -402,6 +402,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     cash: 100000,
     realized_pnl: 0,
     unrealized_pnl: 0,
+    daily_pnl: 0,
+    daily_return: 0,
     candidate_count: 0,
     order_count: 0,
     open_position_count: 0,
@@ -423,6 +425,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     candidate_count: 3,
     order_count: 1,
     open_position_count: 1,
+    daily_pnl: 125.5,
+    daily_return: 0.0013,
     event_ledger_ready: true,
     summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
   };
@@ -783,6 +787,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
   await expect(dailyReportPanel.getByText("Daily paper report: operations ready")).toBeVisible();
   await expect(dailyReportPanel.getByText("hold_until_next_session")).toBeVisible();
+  await expect(dailyReportPanel.getByText("今日 PnL")).toBeVisible();
+  await expect(dailyReportPanel.getByText("$125.50 · 0.1%")).toBeVisible();
   await expect(operationsPanel.getByText("ready", { exact: true })).toBeVisible();
   await expect(operationsPanel.getByText("hold_until_next_session")).toBeVisible();
   await expect(operationsPanel.getByText("事件链可回放")).toBeVisible();
@@ -851,6 +857,8 @@ test("paper trading disables daily run when today's operations are complete", as
         cash: 98000,
         realized_pnl: 0,
         unrealized_pnl: 0,
+        daily_pnl: 0,
+        daily_return: 0,
         candidate_count: 0,
         order_count: 0,
         open_position_count: 0,
@@ -1082,6 +1090,8 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
     cash: 98000,
     realized_pnl: 0,
     unrealized_pnl: 0,
+    daily_pnl: 30,
+    daily_return: 0.0003,
     candidate_count: 0,
     order_count: 0,
     open_position_count: 0,

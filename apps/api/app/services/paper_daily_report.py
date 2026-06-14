@@ -26,6 +26,8 @@ class PaperDailyReportPayload(BaseModel):
     cash: float
     realized_pnl: float
     unrealized_pnl: float
+    daily_pnl: float
+    daily_return: float
     candidate_count: int
     order_count: int
     open_position_count: int
@@ -48,6 +50,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
     event_ledger = get_event_ledger_status(session, as_of_trading_day=trading_day)
     alpha_validation = get_alpha_validation(session, as_of_trading_day=trading_day)
     data_quality_warnings = _data_quality_warnings(session, trading_day)
+    latest_trend_item = review_trend.items[0] if review_trend.items else None
     return PaperDailyReportPayload(
         trading_day=trading_day,
         run_state=operations.run_state,
@@ -59,6 +62,8 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         cash=round(trading_summary.account.cash, 2),
         realized_pnl=round(trading_summary.account.realized_pnl, 2),
         unrealized_pnl=round(trading_summary.account.unrealized_pnl, 2),
+        daily_pnl=latest_trend_item.daily_pnl if latest_trend_item is not None else 0.0,
+        daily_return=latest_trend_item.daily_return if latest_trend_item is not None else 0.0,
         candidate_count=len(trading_summary.candidates),
         order_count=len(trading_summary.orders),
         open_position_count=len(trading_summary.positions),

@@ -73,6 +73,45 @@ def test_paper_daily_report_ignores_future_simulation_reviews(monkeypatch):
         assert "49.80" not in report.summary
 
 
+def test_paper_daily_report_includes_latest_daily_pnl(monkeypatch):
+    monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-13")
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider, trading_day="2026-06-13")
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-12",
+                equity=100500,
+                cash=100000,
+                realized_pnl=100,
+                unrealized_pnl=20,
+                trade_count=1,
+                win_rate=1,
+                average_win=100,
+                average_loss=0,
+                expectancy=100,
+                notes="prior review",
+                created_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        latest = session.exec(select(PaperReview).where(PaperReview.trading_day == "2026-06-13")).one()
+        latest.equity = 100780
+        latest.realized_pnl = 130
+        latest.unrealized_pnl = 50
+        latest.created_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
+        session.add(latest)
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.daily_pnl == 280
+        assert report.daily_return == 0.0028
+
+
 def make_session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

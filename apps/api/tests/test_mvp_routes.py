@@ -2381,6 +2381,8 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
         cash=98000,
         realized_pnl=0,
         unrealized_pnl=0,
+        daily_pnl=125.5,
+        daily_return=0.0013,
         candidate_count=3,
         order_count=1,
         open_position_count=1,
@@ -2403,6 +2405,8 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
     assert payload["health_status"] == "ready"
     assert payload["candidate_count"] == 3
     assert payload["event_ledger_ready"] is True
+    assert payload["daily_pnl"] == 125.5
+    assert payload["daily_return"] == 0.0013
     assert payload["alpha_blockers"] == ["review_day_sample"]
 
 

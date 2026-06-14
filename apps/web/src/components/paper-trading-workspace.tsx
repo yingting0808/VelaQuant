@@ -538,6 +538,12 @@ export function PaperTradingWorkspace() {
             <strong>{formatCurrency(dailyReport?.account_equity ?? 0)}</strong>
           </div>
           <div>
+            <span>今日 PnL</span>
+            <strong>
+              {formatCurrency(dailyReport?.daily_pnl ?? 0)} · {percentFormatter.format(dailyReport?.daily_return ?? 0)}
+            </strong>
+          </div>
+          <div>
             <span>Alpha</span>
             <strong>{dailyReport?.alpha_ready ? "已达标" : "未达标"}</strong>
           </div>
