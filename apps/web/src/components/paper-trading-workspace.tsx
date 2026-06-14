@@ -1210,6 +1210,13 @@ export function PaperTradingWorkspace() {
             <strong>{scheduler?.next_run_trading_day ?? "未同步"}</strong>
           </div>
           <div>
+            <span>下次有效采样</span>
+            <strong>
+              {formatTimestamp(scheduler?.next_actionable_run_at, "未找到")}
+              <small>{scheduler?.next_actionable_trading_day ?? "无交易日"}</small>
+            </strong>
+          </div>
+          <div>
             <span>检查时间</span>
             <strong>{formatTimestamp(scheduler?.last_checked_at, "未同步")}</strong>
           </div>

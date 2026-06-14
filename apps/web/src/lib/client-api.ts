@@ -773,6 +773,10 @@ export type PaperSchedulerStatusPayload = {
   next_run_execution_gate: string | null;
   next_run_trading_day: string | null;
   next_run_gate_reason: string | null;
+  next_actionable_run_at: string | null;
+  next_actionable_trading_day: string | null;
+  next_actionable_execution_gate: string | null;
+  next_actionable_gate_reason: string | null;
   last_checked_at: string;
   can_run_now: boolean;
   execution_gate: string;
@@ -1707,6 +1711,10 @@ const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
   next_run_execution_gate: null,
   next_run_trading_day: null,
   next_run_gate_reason: null,
+  next_actionable_run_at: null,
+  next_actionable_trading_day: null,
+  next_actionable_execution_gate: null,
+  next_actionable_gate_reason: null,
   running: false,
   session_closed: false,
   is_market_session: false,
@@ -4179,6 +4187,10 @@ function isPaperSchedulerStatusPayload(value: unknown): value is PaperSchedulerS
     (typeof value.next_run_execution_gate === "string" || value.next_run_execution_gate === null) &&
     (typeof value.next_run_trading_day === "string" || value.next_run_trading_day === null) &&
     (typeof value.next_run_gate_reason === "string" || value.next_run_gate_reason === null) &&
+    (typeof value.next_actionable_run_at === "string" || value.next_actionable_run_at === null) &&
+    (typeof value.next_actionable_trading_day === "string" || value.next_actionable_trading_day === null) &&
+    (typeof value.next_actionable_execution_gate === "string" || value.next_actionable_execution_gate === null) &&
+    (typeof value.next_actionable_gate_reason === "string" || value.next_actionable_gate_reason === null) &&
     typeof value.last_checked_at === "string" &&
     typeof value.can_run_now === "boolean" &&
     typeof value.execution_gate === "string" &&

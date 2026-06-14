@@ -62,6 +62,10 @@ const paperSchedulerStatus: PaperSchedulerStatusPayload = {
   next_run_execution_gate: "market_closed",
   next_run_trading_day: "2026-06-12",
   next_run_gate_reason: "market_closed",
+  next_actionable_run_at: "2026-06-16T06:30:00+08:00",
+  next_actionable_trading_day: "2026-06-15",
+  next_actionable_execution_gate: "ready_to_run",
+  next_actionable_gate_reason: "current_session_closed",
   last_checked_at: "2026-06-13T00:00:00Z",
   can_run_now: false,
   execution_gate: "market_closed",
@@ -816,6 +820,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(
     schedulerPanel.locator(".scheduler-grid > div", { hasText: "下次交易日" }).getByText("2026-06-12")
   ).toBeVisible();
+  await expect(schedulerPanel.getByText("下次有效采样")).toBeVisible();
+  await expect(schedulerPanel.getByText("2026-06-15")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();

@@ -71,7 +71,8 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
-- Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, and `next_run_trading_day`.
+- Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
+- Current scheduler runtime shows the next cron trigger will be guarded as `market_closed`, while the next actionable paper sample is `2026-06-16T06:30:00+08:00` for trading day `2026-06-15`.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -89,7 +90,8 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
-- Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
+- Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
+- 当前调度器运行态显示，下一次 cron 会因 `market_closed` 守门跳过，而下一次真正有效的 paper 采样时间是 `2026-06-16T06:30:00+08:00`，对应交易日 `2026-06-15`。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。

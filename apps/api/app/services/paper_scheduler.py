@@ -26,6 +26,10 @@ class PaperSchedulerStatus(BaseModel):
     next_run_execution_gate: str | None = None
     next_run_trading_day: str | None = None
     next_run_gate_reason: str | None = None
+    next_actionable_run_at: datetime | None = None
+    next_actionable_trading_day: str | None = None
+    next_actionable_execution_gate: str | None = None
+    next_actionable_gate_reason: str | None = None
     last_checked_at: datetime
     can_run_now: bool
     execution_gate: str
@@ -90,6 +94,7 @@ def get_paper_scheduler_status(settings: Settings | None = None) -> PaperSchedul
     next_run_at = job.next_run_time if job is not None else None
     market_status = get_market_session_status()
     next_market_status = get_market_session_status(now=next_run_at) if next_run_at is not None else None
+    next_actionable_run_at, next_actionable_market_status = _next_actionable_run(job, next_run_at)
     can_run_now = market_status.is_market_session and market_status.session_closed
     return PaperSchedulerStatus(
         enabled=settings.paper_scheduler_enabled,
@@ -107,6 +112,16 @@ def get_paper_scheduler_status(settings: Settings | None = None) -> PaperSchedul
         next_run_execution_gate=_execution_gate(next_market_status) if next_market_status is not None else None,
         next_run_trading_day=next_market_status.trading_day if next_market_status is not None else None,
         next_run_gate_reason=next_market_status.reason if next_market_status is not None else None,
+        next_actionable_run_at=next_actionable_run_at,
+        next_actionable_trading_day=(
+            next_actionable_market_status.trading_day if next_actionable_market_status is not None else None
+        ),
+        next_actionable_execution_gate=(
+            _execution_gate(next_actionable_market_status) if next_actionable_market_status is not None else None
+        ),
+        next_actionable_gate_reason=(
+            next_actionable_market_status.reason if next_actionable_market_status is not None else None
+        ),
         last_checked_at=datetime.now(timezone.utc),
         can_run_now=can_run_now,
         execution_gate=_execution_gate(market_status),
@@ -117,6 +132,26 @@ def get_paper_scheduler_status(settings: Settings | None = None) -> PaperSchedul
         calendar_provider=market_status.calendar_provider,
         gate_reason=market_status.reason,
     )
+
+
+def _next_actionable_run(job, next_run_at: datetime | None) -> tuple[datetime | None, MarketSessionStatus | None]:
+    if job is None or next_run_at is None:
+        return None, None
+
+    run_at = next_run_at
+    for _ in range(14):
+        market_status = get_market_session_status(now=run_at)
+        if market_status.is_market_session and market_status.session_closed:
+            return run_at, market_status
+        trigger = getattr(job, "trigger", None)
+        get_next_fire_time = getattr(trigger, "get_next_fire_time", None)
+        if not callable(get_next_fire_time):
+            return None, None
+        following_run_at = get_next_fire_time(run_at, run_at)
+        if following_run_at is None or following_run_at == run_at:
+            return None, None
+        run_at = following_run_at
+    return None, None
 
 
 def run_scheduled_paper_trading_once() -> PaperScheduledRunResult:

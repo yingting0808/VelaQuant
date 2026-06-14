@@ -125,6 +125,60 @@ def test_paper_scheduler_status_marks_next_cron_when_market_will_still_be_closed
     assert status.next_run_gate_reason == "market_closed"
 
 
+def test_paper_scheduler_status_finds_next_actionable_sample_after_skipped_cron(monkeypatch):
+    first_cron = datetime(2026, 6, 15, 6, 30, tzinfo=timezone.utc)
+    actionable_cron = datetime(2026, 6, 16, 6, 30, tzinfo=timezone.utc)
+
+    class Trigger:
+        def get_next_fire_time(self, previous_fire_time, now):
+            if previous_fire_time == first_cron:
+                return actionable_cron
+            return None
+
+    class Job:
+        next_run_time = first_cron
+        trigger = Trigger()
+
+    class Scheduler:
+        running = True
+
+        def get_job(self, job_id):
+            return Job()
+
+        def get_jobs(self):
+            return [Job()]
+
+    def market_status(now=None):
+        if now == actionable_cron:
+            return MarketSessionStatus(
+                market_date="2026-06-15",
+                trading_day="2026-06-15",
+                is_market_session=True,
+                session_closed=True,
+                calendar_provider="pandas_market_calendars",
+                reason="current_session_closed",
+            )
+        return MarketSessionStatus(
+            market_date="2026-06-14",
+            trading_day="2026-06-12",
+            is_market_session=False,
+            session_closed=False,
+            calendar_provider="pandas_market_calendars",
+            reason="market_closed",
+        )
+
+    monkeypatch.setattr(paper_scheduler, "_scheduler", Scheduler())
+    monkeypatch.setattr(paper_scheduler, "get_market_session_status", market_status)
+
+    status = get_paper_scheduler_status(Settings(paper_scheduler_enabled=True))
+
+    assert status.next_run_at == first_cron
+    assert status.next_run_will_execute is False
+    assert status.next_actionable_run_at == actionable_cron
+    assert status.next_actionable_trading_day == "2026-06-15"
+    assert status.next_actionable_execution_gate == "ready_to_run"
+
+
 def test_scheduled_job_runs_paper_loop_with_scheduled_trigger(monkeypatch):
     captured = {}
 
