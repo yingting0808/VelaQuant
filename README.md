@@ -1,8 +1,59 @@
 # VelaQuant
 
-VelaQuant is a local-first US equities research and paper-trading system built around its own event-driven Trading Core for building a verifiable alpha loop before any small-capital live deployment.
+**VelaQuant has its own event-driven Trading Core. It is not a LEAN, OpenBB, LangGraph, or frontend wrapper.**
 
-VelaQuant 是一个以内置自研事件驱动 Trading Core 为核心的本地优先美股投研与模拟交易系统，目标是在进入小资金实盘前，先建立可验证的 Alpha 闭环。
+**VelaQuant 有自己的事件驱动 Trading Core，不是 LEAN、OpenBB、LangGraph 或前端页面的套壳。**
+
+Runtime proof path:
+
+运行态证据路径：
+
+```text
+StrategyRegistry
+  -> StrategyExecutionBinding
+  -> TradingEngine
+  -> EventBus
+  -> StrategyEngine
+  -> RiskEngine
+  -> ExecutionEngine
+  -> EventLedger
+```
+
+Code proof:
+
+代码证据：
+
+- Trading Core implementation: `apps/api/app/trading_core/`
+- Runtime strategy binding: `apps/api/app/services/strategy_runtime.py`
+- Paper execution integration: `apps/api/app/services/paper_trading.py`
+- Core tests: `apps/api/tests/test_trading_core.py`, `apps/api/tests/test_strategy_runtime.py`, `apps/api/tests/test_strategy_control.py`
+
+中文对应：
+
+- Trading Core 实现：`apps/api/app/trading_core/`
+- 运行时策略绑定：`apps/api/app/services/strategy_runtime.py`
+- 模拟盘执行接入：`apps/api/app/services/paper_trading.py`
+- 内核测试：`apps/api/tests/test_trading_core.py`、`apps/api/tests/test_strategy_runtime.py`、`apps/api/tests/test_strategy_control.py`
+
+External frameworks are support tools around the core, not replacements for it:
+
+外部框架只是 Trading Core 周边支撑工具，不替代 Trading Core：
+
+| Tool | Role | Not Allowed To Do |
+| --- | --- | --- |
+| LEAN / vectorbt | Research and backtesting | Replace live/paper execution runtime |
+| OpenBB | Data and research access | Act as broker, risk engine, or execution adapter |
+| LangGraph | AI research workflow orchestration | Generate executable `TradeIntent` or call execution |
+
+| 工具 | 职责 | 明确禁止 |
+| --- | --- | --- |
+| LEAN / vectorbt | 研究与回测 | 替代模拟盘/实盘执行运行时 |
+| OpenBB | 数据与研究访问 | 充当券商、风控或执行适配器 |
+| LangGraph | AI 投研 workflow 编排 | 生成可执行 `TradeIntent` 或调用执行链 |
+
+VelaQuant is a local-first US equities research and paper-trading system built around that owned Trading Core for building a verifiable alpha loop before any small-capital live deployment.
+
+VelaQuant 是一个以上述自研 Trading Core 为中心的本地优先美股投研与模拟交易系统，目标是在进入小资金实盘前，先建立可验证的 Alpha 闭环。
 
 This project is not a simple trading bot and not a wrapper around LEAN, OpenBB, or LangGraph. It is an event-driven trading-system foundation that separates market data, strategy decisions, risk control, execution, paper accounting, backtesting, and AI-assisted research.
 
@@ -483,6 +534,26 @@ docker-compose.yml
 The formal product name is **VelaQuant**.
 
 正式产品名称为 **VelaQuant**。
+
+Recommended GitHub About description:
+
+建议 GitHub About 描述：
+
+```text
+Event-driven US equities research and paper trading system with its own VelaQuant Trading Core.
+```
+
+Recommended GitHub topics:
+
+建议 GitHub Topics：
+
+```text
+event-driven
+trading-core
+quant-research
+paper-trading
+us-equities
+```
 
 Historical planning documents may still mention earlier working names or local Windows paths. Runtime package metadata and user-facing product surfaces should use VelaQuant going forward.
 
