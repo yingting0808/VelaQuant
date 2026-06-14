@@ -1,14 +1,19 @@
 from datetime import datetime, timezone
 
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from app.domain.models import PaperPosition
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload
 from app.services.alpha_validation_forecast import AlphaValidationForecastItem, AlphaValidationForecastPayload
-from app.services.paper_action_plan import build_paper_action_plan
+from app.services.paper_action_plan import _triggered_exit_sample_count, build_paper_action_plan
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, PaperExecutionRejectionReason
 from app.services.paper_operations import PaperOperationsStatusPayload
 from app.services.paper_review_trend import PaperReviewTrendItem, PaperReviewTrendPayload
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
 from app.services.paper_risk_profile import PaperRiskProfilePayload
 from app.services.paper_scheduler import PaperSchedulerStatus
+from app.services.paper_trading import PaperOrderCreate, submit_paper_order
+from tests.test_paper_trading_service import FixtureProvider
 
 
 def test_paper_action_plan_prioritizes_event_ledger_repair():
@@ -249,6 +254,42 @@ def test_paper_action_plan_hold_includes_next_actionable_alpha_sampling_plan():
     assert "limiting_gate=review_day_sample" in plan.items[0].evidence
 
 
+def test_paper_action_plan_hold_includes_triggered_exit_sample_forecast():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("review_day_sample", "复盘天数", 1, 5, 4, "天"),
+                _gate("closed_trade_sample", "闭环交易", 6, 10, 4, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        alpha_forecast=_alpha_forecast(estimated_sessions=4, limiting_gate="review_day_sample"),
+        scheduler=_scheduler_status(),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+        triggered_exit_sample_count=3,
+    )
+
+    assert plan.primary_action == "hold_until_next_session"
+    assert "下次运行预计补 3 笔闭环交易样本" in plan.items[0].detail
+    assert "closed_trade_gap_after_next_exit_run=1" in plan.items[0].evidence
+    assert "triggered_exit_sample_count=3" in plan.items[0].evidence
+
+
+def test_triggered_exit_sample_count_projects_from_orders_when_position_table_is_stale():
+    with _make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 115.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="sell", quantity=1))
+        for position in session.exec(select(PaperPosition)).all():
+            session.delete(position)
+        session.commit()
+
+        assert _triggered_exit_sample_count(session) == 1
+
+
 def test_paper_action_plan_prioritizes_legacy_manual_future_run_quarantine():
     plan = build_paper_action_plan(
         operations=_operations(
@@ -476,3 +517,9 @@ def _risk_profile(*, max_daily_orders: int = 5) -> PaperRiskProfilePayload:
         exit_stop_loss_pct=-0.05,
         summary="fixture risk",
     )
+
+
+def _make_session() -> Session:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    return Session(engine)

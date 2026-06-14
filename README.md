@@ -217,6 +217,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - The `hold_until_next_session` action now includes Alpha sampling forecast and the next actionable scheduler sample, so waiting states still show how many paper sessions remain and when the next useful sample is expected.
+- The `hold_until_next_session` action now also surfaces triggered exit samples expected on the next paper run, using the same order-projected as-of position view as the Daily Report so closed-trade sample progress is visible from the default action plan.
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
 - The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
 - The Daily Report now includes quantified open Alpha gate gaps through `open_alpha_gates`, so operators can see current/required/remaining samples for blockers such as filled orders and closed trades without leaving the paper trading workspace.
@@ -258,6 +259,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - `hold_until_next_session` 动作现在会带上 Alpha 样本预测和下一次有效调度采样，因此等待状态也能显示还需要多少次 paper sessions、下一次有效样本预计何时发生。
+- `hold_until_next_session` 动作现在也会展示下一次 paper run 预计触发的退出样本，并复用 Daily Report 同一套基于订单投影的 as-of 持仓口径，因此默认行动计划里也能看到闭环交易样本会如何推进。
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
 - Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。
 - Daily Report 现在会通过 `open_alpha_gates` 展示未通过 Alpha 门禁的当前值、目标值和剩余缺口，因此操作者不离开模拟盘工作台也能看到成交订单、闭环交易等 blocker 还差多少样本。

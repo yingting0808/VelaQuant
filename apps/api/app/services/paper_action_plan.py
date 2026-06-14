@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
+from app.data.providers.mock import MockMarketDataProvider
 from app.domain.models import CoreEventLog
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload, get_alpha_gate_progress
 from app.services.alpha_validation_forecast import AlphaValidationForecastPayload, get_alpha_validation_forecast
@@ -15,6 +16,12 @@ from app.services.paper_operations import PaperOperationsStatusPayload, get_pape
 from app.services.paper_review_trend import PaperReviewTrendPayload, get_paper_review_trend
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload, get_paper_risk_limit_review
 from app.services.paper_risk_profile import PaperRiskProfilePayload, get_paper_risk_profile
+from app.services.paper_trading import (
+    DEFAULT_CANDIDATE_NOTIONAL,
+    DEFAULT_EXIT_STOP_LOSS_PCT,
+    DEFAULT_EXIT_TAKE_PROFIT_PCT,
+    get_paper_trading_summary,
+)
 from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.workspace import get_or_create_default_workspace
 
@@ -66,6 +73,7 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
             team_id=team_id,
             tickers=inverted_tickers,
         ),
+        triggered_exit_sample_count=_triggered_exit_sample_count(session),
     )
 
 
@@ -82,6 +90,7 @@ def build_paper_action_plan(
     latest_alpha_snapshot_trading_day: str | None = None,
     inverted_score_pnl_tickers: list[str] | None = None,
     score_pnl_inversion_review_recorded: bool = False,
+    triggered_exit_sample_count: int = 0,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
     if "legacy_manual_future_runs_detected" in operations.data_quality_warnings:
@@ -234,7 +243,11 @@ def build_paper_action_plan(
                 priority=5,
                 action_code="hold_until_next_session",
                 title="等待下一次调度",
-                detail=_hold_until_next_session_detail(alpha_forecast, scheduler),
+                detail=_hold_until_next_session_detail(
+                    alpha_forecast,
+                    scheduler,
+                    triggered_exit_sample_count=triggered_exit_sample_count,
+                ),
                 evidence=[
                     alpha_gates.summary,
                     f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day}",
@@ -244,7 +257,12 @@ def build_paper_action_plan(
                         if score_pnl_inversion_review_recorded
                         else []
                     ),
-                    *_hold_until_next_session_evidence(alpha_forecast, scheduler),
+                    *_hold_until_next_session_evidence(
+                        alpha_forecast,
+                        scheduler,
+                        closed_trade_gate=closed_trade_gate,
+                        triggered_exit_sample_count=triggered_exit_sample_count,
+                    ),
                 ],
             )
         )
@@ -354,9 +372,26 @@ def _has_score_pnl_inversion_review_record(
     return False
 
 
+def _triggered_exit_sample_count(session: Session) -> int:
+    summary = get_paper_trading_summary(session, MockMarketDataProvider(), use_live_quotes=False)
+    count = 0
+    for position in summary.positions:
+        if position.quantity <= 0 or position.average_cost <= 0 or position.last_price is None or position.last_price <= 0:
+            continue
+        return_pct = (position.last_price - position.average_cost) / position.average_cost
+        if DEFAULT_EXIT_STOP_LOSS_PCT < return_pct < DEFAULT_EXIT_TAKE_PROFIT_PCT:
+            continue
+        max_quantity = int(DEFAULT_CANDIDATE_NOTIONAL // position.last_price)
+        if max_quantity > 0:
+            count += 1
+    return count
+
+
 def _hold_until_next_session_detail(
     alpha_forecast: AlphaValidationForecastPayload | None,
     scheduler: PaperSchedulerStatus | None,
+    *,
+    triggered_exit_sample_count: int = 0,
 ) -> str:
     detail = "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。"
     parts: list[str] = []
@@ -367,6 +402,8 @@ def _hold_until_next_session_detail(
             "下一次有效采样 "
             f"{scheduler.next_actionable_run_at.isoformat()}，交易日 {scheduler.next_actionable_trading_day or '未知'}"
         )
+    if triggered_exit_sample_count > 0:
+        parts.append(f"下次运行预计补 {triggered_exit_sample_count} 笔闭环交易样本")
     if not parts:
         return detail
     return f"{detail}{'；'.join(parts)}。"
@@ -375,6 +412,9 @@ def _hold_until_next_session_detail(
 def _hold_until_next_session_evidence(
     alpha_forecast: AlphaValidationForecastPayload | None,
     scheduler: PaperSchedulerStatus | None,
+    *,
+    closed_trade_gate: AlphaGateProgressItem | None = None,
+    triggered_exit_sample_count: int = 0,
 ) -> list[str]:
     evidence: list[str] = []
     if alpha_forecast is not None:
@@ -390,4 +430,9 @@ def _hold_until_next_session_evidence(
             evidence.append(f"next_actionable_trading_day={scheduler.next_actionable_trading_day}")
         if scheduler.next_actionable_execution_gate is not None:
             evidence.append(f"next_actionable_execution_gate={scheduler.next_actionable_execution_gate}")
+    if triggered_exit_sample_count > 0:
+        evidence.append(f"triggered_exit_sample_count={triggered_exit_sample_count}")
+        if closed_trade_gate is not None:
+            remaining_after_next_exit_run = max(0, closed_trade_gate.remaining - triggered_exit_sample_count)
+            evidence.append(f"closed_trade_gap_after_next_exit_run={remaining_after_next_exit_run:g}")
     return evidence
