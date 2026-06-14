@@ -408,6 +408,79 @@ def test_daily_run_records_trade_explanations_for_candidates_without_backtests(m
         assert nvda_event.causation_id == trade_intent_event.event_id
 
 
+def test_daily_run_skips_new_buy_candidates_with_required_score_pnl_review(monkeypatch):
+    calls = []
+
+    class ReviewAwareRealHistoryProvider(FixtureProvider):
+        def get_price_history(
+            self,
+            ticker: str,
+            start_date: str | None = None,
+            end_date: str | None = None,
+            interval: str = "1d",
+        ) -> list[PriceHistoryBar]:
+            normalized = ticker.strip().upper()
+            return [
+                PriceHistoryBar(
+                    ticker=normalized,
+                    date=f"2025-01-{day:02d}",
+                    open=100.0 + day,
+                    high=101.0 + day,
+                    low=99.0 + day,
+                    close=100.0 + day,
+                    volume=1_000_000,
+                    source="openbb_yfinance",
+                )
+                for day in range(1, 8)
+            ]
+
+    def fake_candidate_backtests(**kwargs):
+        calls.append(kwargs)
+        return StrategyCandidateBacktestPayload(
+            strategy_id="deterministic_watchlist_v1",
+            candidate_count=0,
+            real_market_candidate_count=0,
+            best_ticker=None,
+            items=[],
+            summary="No candidate backtests were available.",
+        )
+
+    monkeypatch.setattr(paper_trading, "run_strategy_candidate_backtests", fake_candidate_backtests, raising=False)
+
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        session.add(
+            CoreEventLog(
+                team_id=workspace.team.id,
+                run_id=None,
+                event_id="paper_action:review_score_pnl_inversion:AMZN:1:strategy_review",
+                topic="strategy_review",
+                sequence=1,
+                correlation_id="paper_action:review_score_pnl_inversion:AMZN",
+                payload_json=(
+                    '{"action_code":"review_score_pnl_inversion",'
+                    '"inverted_tickers":["AMZN"],'
+                    '"review_status":"required"}'
+                ),
+            )
+        )
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(
+            session,
+            ReviewAwareRealHistoryProvider(),
+            trading_day="2026-06-20",
+            force_new_sample=True,
+        )
+
+        assert calls
+        assert "AMZN" not in calls[0]["tickers"]
+        assert all(candidate.ticker != "AMZN" for candidate in summary.candidates)
+        assert all(order.ticker != "AMZN" for order in summary.orders if order.side == "buy")
+        explanation_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_explanation")).all()
+        assert all(json.loads(event.payload_json)["ticker"] != "AMZN" for event in explanation_events)
+
+
 def test_daily_run_auto_exits_profitable_open_position_before_review():
     with make_session() as session:
         provider = FixtureProvider()

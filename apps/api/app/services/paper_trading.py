@@ -634,6 +634,34 @@ def _order_count(session: Session, account: PaperAccount) -> int:
     return len(session.exec(select(PaperOrder).where(PaperOrder.account_id == account.id)).all())
 
 
+def _score_pnl_review_blocked_tickers(session: Session, team_id: UUID) -> set[str]:
+    events = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .order_by(CoreEventLog.published_at, CoreEventLog.sequence)
+    ).all()
+    review_status_by_ticker: dict[str, str] = {}
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("action_code") != "review_score_pnl_inversion":
+            continue
+        status = str(payload.get("review_status") or "required").strip().lower()
+        for ticker in payload.get("inverted_tickers", []):
+            normalized = str(ticker).strip().upper()
+            if normalized:
+                review_status_by_ticker[normalized] = status
+    return {
+        ticker
+        for ticker, status in review_status_by_ticker.items()
+        if status in {"required", "review_required", "pending"}
+    }
+
+
 def _generate_candidates(
     session: Session,
     team_id: UUID,
@@ -658,7 +686,8 @@ def _generate_candidates(
         item.ticker
         for item in session.exec(select(WatchlistItem).where(WatchlistItem.team_id == team_id)).all()
     }
-    all_tickers = sorted(portfolio_tickers | watchlist_tickers)
+    blocked_tickers = _score_pnl_review_blocked_tickers(session, team_id)
+    all_tickers = sorted((portfolio_tickers | watchlist_tickers) - blocked_tickers)
     assert_strategy_execution_allowed(session, DEFAULT_PAPER_STRATEGY_ID, requested_mode="paper")
     binding = get_strategy_execution_binding(
         session,
