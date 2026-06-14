@@ -1483,26 +1483,29 @@ def _summary_payload(
     *,
     as_of_trading_day: str | None = None,
 ) -> PaperTradingSummary:
-    as_of_trading_day = as_of_trading_day or utc_now().date().isoformat()
+    summary_as_of_trading_day = as_of_trading_day or utc_now().date().isoformat()
+    review_as_of_trading_day = as_of_trading_day or _current_trading_day()
     candidates = list(
         session.exec(
             select(PaperCandidate).where(PaperCandidate.team_id == account.team_id).order_by(PaperCandidate.rank)
         ).all()
     )
     candidates = [
-        candidate for candidate in candidates if _is_on_or_before_trading_day(candidate.created_at, as_of_trading_day)
+        candidate
+        for candidate in candidates
+        if _is_on_or_before_trading_day(candidate.created_at, summary_as_of_trading_day)
     ]
     orders = list(
         session.exec(
             select(PaperOrder).where(PaperOrder.account_id == account.id).order_by(PaperOrder.submitted_at.desc())
         ).all()
     )
-    orders = [order for order in orders if _is_on_or_before_trading_day(order.submitted_at, as_of_trading_day)]
+    orders = [order for order in orders if _is_on_or_before_trading_day(order.submitted_at, summary_as_of_trading_day)]
     projected_account, projected_positions = _project_as_of_account(account, orders, provider)
     latest_review = session.exec(
         select(PaperReview)
         .where(PaperReview.account_id == account.id)
-        .where(PaperReview.trading_day <= as_of_trading_day)
+        .where(PaperReview.trading_day <= review_as_of_trading_day)
         .order_by(PaperReview.trading_day.desc(), PaperReview.created_at.desc())
     ).first()
     return PaperTradingSummary(

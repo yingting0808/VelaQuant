@@ -185,6 +185,57 @@ def test_summary_latest_review_ignores_future_simulation_reviews():
         assert summary.latest_review.expectancy == 10
 
 
+def test_summary_defaults_to_effective_trading_day_for_latest_review(monkeypatch):
+    monkeypatch.setattr(paper_trading, "_current_trading_day", lambda: "2026-06-13")
+    with make_session() as session:
+        provider = FixtureProvider()
+        get_paper_trading_summary(session, provider)
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-13",
+                equity=100000,
+                cash=99000,
+                realized_pnl=10,
+                unrealized_pnl=5,
+                trade_count=1,
+                win_rate=1,
+                average_win=10,
+                average_loss=0,
+                expectancy=10,
+                notes="effective trading day review",
+                created_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-14",
+                equity=120000,
+                cash=110000,
+                realized_pnl=1000,
+                unrealized_pnl=500,
+                trade_count=30,
+                win_rate=0.9,
+                average_win=100,
+                average_loss=10,
+                expectancy=90,
+                notes="non-trading-day manual review",
+                created_at=datetime(2026, 6, 14, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        summary = get_paper_trading_summary(session, provider)
+
+        assert summary.latest_review is not None
+        assert summary.latest_review.trading_day == "2026-06-13"
+        assert summary.latest_review.expectancy == 10
+
+
 def test_daily_run_creates_account_candidates_and_review():
     with make_session() as session:
         summary = run_daily_paper_trading_loop(session, FixtureProvider())
