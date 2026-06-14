@@ -378,6 +378,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       {
         trading_day: "2026-06-13",
         equity: 100000,
+        daily_pnl: 125.5,
+        daily_return: 0.0013,
         cash: 94936.42,
         realized_pnl: 0,
         unrealized_pnl: 0,
@@ -788,6 +790,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(stabilityPanel.getByText("2026-06-13")).toBeVisible();
   await expect(reviewTrendPanel.getByText("Paper review trend is not validated")).toBeVisible();
   await expect(reviewTrendPanel.getByText("2026-06-13")).toBeVisible();
+  await expect(reviewTrendPanel.getByText("日 PnL")).toBeVisible();
+  await expect(reviewTrendPanel.getByText("$125.50")).toBeVisible();
+  await expect(reviewTrendPanel.getByText("0.1%")).toBeVisible();
   await expect(executionPanel.getByText("Paper execution diagnostics: 1 filled, 0 rejected")).toBeVisible();
   await expect(executionPanel.getByText("100.0%")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("完整", { exact: true })).toBeVisible();

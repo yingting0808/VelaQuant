@@ -798,6 +798,12 @@ export function PaperTradingWorkspace() {
                   权益
                 </th>
                 <th className="numeric" scope="col">
+                  日 PnL
+                </th>
+                <th className="numeric" scope="col">
+                  日收益
+                </th>
+                <th className="numeric" scope="col">
                   期望
                 </th>
                 <th className="numeric" scope="col">
@@ -811,6 +817,8 @@ export function PaperTradingWorkspace() {
                 <tr key={item.trading_day}>
                   <td>{item.trading_day}</td>
                   <td className="numeric">{formatCurrency(item.equity)}</td>
+                  <td className="numeric">{formatCurrency(item.daily_pnl)}</td>
+                  <td className="numeric">{percentFormatter.format(item.daily_return)}</td>
                   <td className="numeric">{formatCurrency(item.expectancy)}</td>
                   <td className="numeric">{percentFormatter.format(item.win_rate)}</td>
                   <td>{readinessLabel(item.readiness)}</td>
@@ -818,7 +826,7 @@ export function PaperTradingWorkspace() {
               ))}
               {!(reviewTrend?.items ?? []).length ? (
                 <tr>
-                  <td colSpan={5}>暂无复盘样本。</td>
+                  <td colSpan={7}>暂无复盘样本。</td>
                 </tr>
               ) : null}
             </tbody>

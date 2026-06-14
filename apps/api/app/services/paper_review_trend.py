@@ -14,6 +14,8 @@ class PaperReviewTrendItem(BaseModel):
 
     trading_day: str
     equity: float
+    daily_pnl: float
+    daily_return: float
     cash: float
     realized_pnl: float
     unrealized_pnl: float
@@ -77,7 +79,7 @@ def get_paper_review_trend(
         total_realized_pnl=total_realized_pnl,
         total_unrealized_pnl=total_unrealized_pnl,
         latest_readiness=latest_readiness,
-        items=[_item(review) for review in reviews],
+        items=_items(reviews),
         summary=_summary(sample_size, latest_expectancy, average_expectancy, consecutive_positive_days),
     )
 
@@ -91,10 +93,24 @@ def _latest_review_per_trading_day(reviews: list[PaperReview]) -> list[PaperRevi
     return sorted(latest_by_day.values(), key=lambda review: review.trading_day, reverse=True)
 
 
-def _item(review: PaperReview) -> PaperReviewTrendItem:
+def _items(reviews: list[PaperReview]) -> list[PaperReviewTrendItem]:
+    chronological = sorted(reviews, key=lambda review: review.trading_day)
+    previous: PaperReview | None = None
+    item_by_day: dict[str, PaperReviewTrendItem] = {}
+    for review in chronological:
+        daily_pnl = round(review.equity - previous.equity, 2) if previous is not None else 0.0
+        daily_return = round(daily_pnl / previous.equity, 4) if previous is not None and previous.equity else 0.0
+        item_by_day[review.trading_day] = _item(review, daily_pnl=daily_pnl, daily_return=daily_return)
+        previous = review
+    return [item_by_day[review.trading_day] for review in reviews]
+
+
+def _item(review: PaperReview, *, daily_pnl: float, daily_return: float) -> PaperReviewTrendItem:
     return PaperReviewTrendItem(
         trading_day=review.trading_day,
         equity=round(review.equity, 2),
+        daily_pnl=daily_pnl,
+        daily_return=daily_return,
         cash=round(review.cash, 2),
         realized_pnl=round(review.realized_pnl, 2),
         unrealized_pnl=round(review.unrealized_pnl, 2),

@@ -122,6 +122,10 @@ def test_paper_review_trend_reports_latest_cumulative_pnl_without_double_countin
 
         assert trend.total_realized_pnl == 130
         assert trend.total_unrealized_pnl == 50
+        assert trend.items[0].daily_pnl == 280
+        assert trend.items[0].daily_return == 0.0028
+        assert trend.items[1].daily_pnl == 0
+        assert trend.items[1].daily_return == 0
 
 
 def test_paper_review_trend_ignores_future_reviews_for_as_of_baseline():

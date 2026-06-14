@@ -881,6 +881,8 @@ export type PaperOperationsQuarantinePayload = {
 export type PaperReviewTrendItemPayload = {
   trading_day: string;
   equity: number;
+  daily_pnl: number;
+  daily_return: number;
   cash: number;
   realized_pnl: number;
   unrealized_pnl: number;
@@ -4284,6 +4286,8 @@ function isPaperReviewTrendItemPayload(value: unknown): value is PaperReviewTren
     isRecord(value) &&
     typeof value.trading_day === "string" &&
     typeof value.equity === "number" &&
+    typeof value.daily_pnl === "number" &&
+    typeof value.daily_return === "number" &&
     typeof value.cash === "number" &&
     typeof value.realized_pnl === "number" &&
     typeof value.unrealized_pnl === "number" &&

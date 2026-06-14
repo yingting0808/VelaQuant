@@ -2341,11 +2341,13 @@ def test_mvp_paper_trading_review_trend_route_returns_expectancy_window(monkeypa
         total_unrealized_pnl=40,
         latest_readiness="watch",
         items=[
-            PaperReviewTrendItem(
-                trading_day="2026-06-13",
-                equity=100300,
-                cash=95000,
-                realized_pnl=10,
+                PaperReviewTrendItem(
+                    trading_day="2026-06-13",
+                    equity=100300,
+                    daily_pnl=300,
+                    daily_return=0.003,
+                    cash=95000,
+                    realized_pnl=10,
                 unrealized_pnl=20,
                 trade_count=1,
                 win_rate=0.5,
