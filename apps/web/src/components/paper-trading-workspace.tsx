@@ -78,6 +78,19 @@ function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
+function candidateRankingScoreLabel(evidence: string[] | undefined): string | null {
+  const finalScore = evidence?.find((item) => item.startsWith("final_score="));
+  if (!finalScore) {
+    return null;
+  }
+  const rawValue = finalScore.split("=", 2)[1];
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return rawValue || null;
+  }
+  return formatNumber(parsed);
+}
+
 function readinessLabel(value: string | undefined): string {
   if (!value) {
     return "未复盘";
@@ -454,6 +467,7 @@ export function PaperTradingWorkspace() {
   const chainWarnings = replayChain?.integrity_warnings ?? [];
   const tradeExplanation = replayChain?.trade_explanation ?? null;
   const backtestReturn = tradeExplanation?.backtest.total_net_profit;
+  const candidateRankingScore = candidateRankingScoreLabel(tradeExplanation?.evidence);
 
   return (
     <div className="module-view">
@@ -1361,6 +1375,7 @@ export function PaperTradingWorkspace() {
               {tradeExplanation.strategy_id ?? "strategy_unknown"}
             </p>
             <p>{tradeExplanation.explanation ?? "暂无解释摘要"}</p>
+            {candidateRankingScore ? <p>排序分数 {candidateRankingScore}</p> : null}
             <p>证据 {tradeExplanation.evidence.join(" / ") || "无"}</p>
             <p>回测收益 {typeof backtestReturn === "string" || typeof backtestReturn === "number" ? backtestReturn : "n/a"}</p>
           </div>

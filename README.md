@@ -165,6 +165,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Strategy Competition marks positive catalog backtests as `connect_to_paper_runtime` work, while keeping negative or flat backtests in the lab and still blocking all catalog strategies from allocation until they are connected to the paper runtime and hot-swap path.
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
+- The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `5e8e1996-ef56-4164-b6d6-431299d16c46`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
@@ -191,6 +192,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Strategy Competition 会把正收益目录回测标记为 `connect_to_paper_runtime` 工作项；负收益或持平回测继续留在 lab，且所有目录策略在接入 paper runtime 和热切换路径前仍禁止进入资金分配。
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
+- 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`5e8e1996-ef56-4164-b6d6-431299d16c46`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
