@@ -769,6 +769,10 @@ export type PaperSchedulerStatusPayload = {
   cron: string;
   timezone: string;
   next_run_at: string | null;
+  next_run_will_execute: boolean | null;
+  next_run_execution_gate: string | null;
+  next_run_trading_day: string | null;
+  next_run_gate_reason: string | null;
   last_checked_at: string;
   can_run_now: boolean;
   execution_gate: string;
@@ -1699,6 +1703,10 @@ const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
   last_checked_at: "local",
   market_date: "offline",
   next_run_at: null,
+  next_run_will_execute: null,
+  next_run_execution_gate: null,
+  next_run_trading_day: null,
+  next_run_gate_reason: null,
   running: false,
   session_closed: false,
   is_market_session: false,
@@ -4167,6 +4175,10 @@ function isPaperSchedulerStatusPayload(value: unknown): value is PaperSchedulerS
     typeof value.cron === "string" &&
     typeof value.timezone === "string" &&
     (typeof value.next_run_at === "string" || value.next_run_at === null) &&
+    (typeof value.next_run_will_execute === "boolean" || value.next_run_will_execute === null) &&
+    (typeof value.next_run_execution_gate === "string" || value.next_run_execution_gate === null) &&
+    (typeof value.next_run_trading_day === "string" || value.next_run_trading_day === null) &&
+    (typeof value.next_run_gate_reason === "string" || value.next_run_gate_reason === null) &&
     typeof value.last_checked_at === "string" &&
     typeof value.can_run_now === "boolean" &&
     typeof value.execution_gate === "string" &&

@@ -58,6 +58,10 @@ const paperSchedulerStatus: PaperSchedulerStatusPayload = {
   cron: "30 6 * * *",
   timezone: "Asia/Shanghai",
   next_run_at: "2026-06-14T06:30:00+08:00",
+  next_run_will_execute: false,
+  next_run_execution_gate: "market_closed",
+  next_run_trading_day: "2026-06-12",
+  next_run_gate_reason: "market_closed",
   last_checked_at: "2026-06-13T00:00:00Z",
   can_run_now: false,
   execution_gate: "market_closed",
@@ -806,6 +810,12 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByText("30 6 * * *")).toBeVisible();
   await expect(schedulerPanel.getByText("paper_trading_daily_run")).toBeVisible();
   await expect(schedulerPanel.getByText("下次运行")).toBeVisible();
+  await expect(schedulerPanel.getByText("下次采样")).toBeVisible();
+  await expect(schedulerPanel.getByText("仅守门")).toBeVisible();
+  await expect(schedulerPanel.getByText("下次交易日")).toBeVisible();
+  await expect(
+    schedulerPanel.locator(".scheduler-grid > div", { hasText: "下次交易日" }).getByText("2026-06-12")
+  ).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();

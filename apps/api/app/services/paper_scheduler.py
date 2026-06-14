@@ -22,6 +22,10 @@ class PaperSchedulerStatus(BaseModel):
     cron: str
     timezone: str
     next_run_at: datetime | None
+    next_run_will_execute: bool | None = None
+    next_run_execution_gate: str | None = None
+    next_run_trading_day: str | None = None
+    next_run_gate_reason: str | None = None
     last_checked_at: datetime
     can_run_now: bool
     execution_gate: str
@@ -83,7 +87,9 @@ def shutdown_paper_scheduler() -> None:
 def get_paper_scheduler_status(settings: Settings | None = None) -> PaperSchedulerStatus:
     settings = settings or get_settings()
     job = _scheduler.get_job(PAPER_TRADING_DAILY_JOB_ID) if _scheduler is not None else None
+    next_run_at = job.next_run_time if job is not None else None
     market_status = get_market_session_status()
+    next_market_status = get_market_session_status(now=next_run_at) if next_run_at is not None else None
     can_run_now = market_status.is_market_session and market_status.session_closed
     return PaperSchedulerStatus(
         enabled=settings.paper_scheduler_enabled,
@@ -92,7 +98,15 @@ def get_paper_scheduler_status(settings: Settings | None = None) -> PaperSchedul
         job_id=PAPER_TRADING_DAILY_JOB_ID,
         cron=settings.paper_scheduler_cron,
         timezone=settings.paper_scheduler_timezone,
-        next_run_at=job.next_run_time if job is not None else None,
+        next_run_at=next_run_at,
+        next_run_will_execute=(
+            next_market_status.is_market_session and next_market_status.session_closed
+            if next_market_status is not None
+            else None
+        ),
+        next_run_execution_gate=_execution_gate(next_market_status) if next_market_status is not None else None,
+        next_run_trading_day=next_market_status.trading_day if next_market_status is not None else None,
+        next_run_gate_reason=next_market_status.reason if next_market_status is not None else None,
         last_checked_at=datetime.now(timezone.utc),
         can_run_now=can_run_now,
         execution_gate=_execution_gate(market_status),

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from sqlmodel import SQLModel, Session, create_engine, select
 
@@ -76,6 +77,52 @@ def test_paper_scheduler_status_exposes_market_execution_gate(monkeypatch):
     assert status.gate_reason == "market_closed"
     assert status.execution_gate == "market_closed"
     assert status.calendar_provider == "pandas_market_calendars"
+
+
+def test_paper_scheduler_status_marks_next_cron_when_market_will_still_be_closed(monkeypatch):
+    next_run_at = datetime(2026, 6, 15, 6, 30, tzinfo=timezone.utc)
+
+    class Job:
+        next_run_time = next_run_at
+
+    class Scheduler:
+        running = True
+
+        def get_job(self, job_id):
+            return Job()
+
+        def get_jobs(self):
+            return [Job()]
+
+    def market_status(now=None):
+        if now is next_run_at:
+            return MarketSessionStatus(
+                market_date="2026-06-14",
+                trading_day="2026-06-12",
+                is_market_session=False,
+                session_closed=False,
+                calendar_provider="pandas_market_calendars",
+                reason="market_closed",
+            )
+        return MarketSessionStatus(
+            market_date="2026-06-14",
+            trading_day="2026-06-12",
+            is_market_session=False,
+            session_closed=False,
+            calendar_provider="pandas_market_calendars",
+            reason="market_closed",
+        )
+
+    monkeypatch.setattr(paper_scheduler, "_scheduler", Scheduler())
+    monkeypatch.setattr(paper_scheduler, "get_market_session_status", market_status)
+
+    status = get_paper_scheduler_status(Settings(paper_scheduler_enabled=True))
+
+    assert status.next_run_at == next_run_at
+    assert status.next_run_will_execute is False
+    assert status.next_run_execution_gate == "market_closed"
+    assert status.next_run_trading_day == "2026-06-12"
+    assert status.next_run_gate_reason == "market_closed"
 
 
 def test_scheduled_job_runs_paper_loop_with_scheduled_trigger(monkeypatch):

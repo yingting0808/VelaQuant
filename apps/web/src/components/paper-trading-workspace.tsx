@@ -130,6 +130,21 @@ function schedulerGateLabel(value: PaperSchedulerStatusPayload | null): string {
   return labels[value.execution_gate] ?? value.execution_gate;
 }
 
+function nextSchedulerRunLabel(value: PaperSchedulerStatusPayload | null): string {
+  if (!value || value.next_run_will_execute === null) {
+    return "未知";
+  }
+  if (value.next_run_will_execute) {
+    return "会采样";
+  }
+  const labels: Record<string, string> = {
+    api_unavailable: "API 不可用",
+    market_closed: "仅守门",
+    waiting_for_close: "等待收盘"
+  };
+  return labels[value.next_run_execution_gate ?? ""] ?? "不会采样";
+}
+
 export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
   const [dailyReport, setDailyReport] = useState<PaperDailyReportPayload | null>(null);
@@ -414,6 +429,7 @@ export function PaperTradingWorkspace() {
   const positions = summary?.positions ?? [];
   const schedulerLabel = scheduler?.enabled ? (scheduler.running ? "运行中" : "已启用") : "未启用";
   const schedulerGate = schedulerGateLabel(scheduler);
+  const nextRunLabel = nextSchedulerRunLabel(scheduler);
   const canRunDaily = operations?.can_retry_today ?? true;
   const dailyRunLabel = isRunning ? "运行中" : canRunDaily ? "运行今日模拟" : "今日已完成";
   const simulationRunLabel = isSimulating ? "模拟中" : "运行 5 日模拟";
@@ -1184,6 +1200,14 @@ export function PaperTradingWorkspace() {
           <div>
             <span>下次运行</span>
             <strong>{formatTimestamp(scheduler?.next_run_at, "未计划")}</strong>
+          </div>
+          <div>
+            <span>下次采样</span>
+            <strong>{nextRunLabel}</strong>
+          </div>
+          <div>
+            <span>下次交易日</span>
+            <strong>{scheduler?.next_run_trading_day ?? "未同步"}</strong>
           </div>
           <div>
             <span>检查时间</span>

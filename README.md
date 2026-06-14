@@ -8,6 +8,30 @@ This project is not a simple trading bot. It is an event-driven trading-system f
 
 本项目不是简单的交易机器人，而是事件驱动的交易系统底座。系统将市场数据、策略决策、风控、执行、模拟盘记账、回测和 AI 辅助研究拆分为清晰边界。
 
+## Read This First / 先读这一段
+
+VelaQuant has its own Trading Core. The core is implemented in `apps/api/app/trading_core/` and owns the runtime path from strategy binding to risk approval, execution state transitions, and event-ledger persistence.
+
+VelaQuant 有自己的自研 Trading Core。核心代码位于 `apps/api/app/trading_core/`，负责从策略绑定、风控审批、执行状态机到事件账本落库的运行主路径。
+
+External frameworks do not replace the Trading Core:
+
+外部框架不会替代 Trading Core：
+
+| Area | VelaQuant-owned core | External tools |
+| --- | --- | --- |
+| Trading runtime | `TradingEngine`, `StrategyEngine`, `RiskEngine`, `ExecutionEngine`, `EventLedger` | Not LEAN, not OpenBB, not LangGraph |
+| Backtest and research | Strategy Lab and core-compatible strategy contracts | LEAN/vectorbt are research/backtest tools only |
+| Data and AI | Data-provider abstraction and AI research workflow boundary | OpenBB is data/research access; LangGraph orchestrates research workflows |
+
+中文对应：
+
+| 领域 | VelaQuant 自研核心 | 外部工具定位 |
+| --- | --- | --- |
+| 交易运行时 | `TradingEngine`、`StrategyEngine`、`RiskEngine`、`ExecutionEngine`、`EventLedger` | 不是 LEAN、不是 OpenBB、不是 LangGraph |
+| 回测与研究 | 策略实验室和兼容 Trading Core 的策略契约 | LEAN/vectorbt 只用于研究和回测 |
+| 数据与 AI | 数据源抽象层和 AI 投研 workflow 边界 | OpenBB 是数据/研究访问；LangGraph 编排投研 workflow |
+
 ## Current System Role / 当前系统定位
 
 VelaQuant currently focuses on controlled paper trading:
@@ -47,6 +71,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
+- Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, and `next_run_trading_day`.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -64,6 +89,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
+- Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
