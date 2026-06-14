@@ -335,6 +335,7 @@ export type StrategyAlphaValidationPayload = {
   latest_expectancy: number;
   average_expectancy: number;
   max_drawdown: number;
+  score_pnl_inversion_count?: number;
   summary: string;
 };
 
@@ -1475,6 +1476,7 @@ const fallbackStrategyAlphaValidation: StrategyAlphaValidationPayload = {
   latest_expectancy: 0,
   average_expectancy: 0,
   max_drawdown: 0,
+  score_pnl_inversion_count: 0,
   summary: "后端 API 暂不可用，Alpha 验证使用离线占位。"
 };
 
@@ -2661,6 +2663,7 @@ function isStrategyAlphaValidationPayload(value: unknown): value is StrategyAlph
     typeof value.latest_expectancy === "number" &&
     typeof value.average_expectancy === "number" &&
     typeof value.max_drawdown === "number" &&
+    (value.score_pnl_inversion_count === undefined || typeof value.score_pnl_inversion_count === "number") &&
     typeof value.summary === "string"
   );
 }

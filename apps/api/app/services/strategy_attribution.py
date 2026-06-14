@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
@@ -140,10 +141,12 @@ def attribute_current_paper_strategy(
     session: Session,
     provider: MarketDataProvider | None = None,
     *,
+    team_id: UUID | None = None,
     as_of_trading_day: str | None = None,
 ) -> StrategyAttributionPayload:
-    workspace = get_or_create_default_workspace(session)
-    team_id = workspace.team.id
+    if team_id is None:
+        workspace = get_or_create_default_workspace(session)
+        team_id = workspace.team.id
     as_of_trading_day = as_of_trading_day or _current_trading_day()
     events = _events_as_of(session, team_id, as_of_trading_day)
     orders = [

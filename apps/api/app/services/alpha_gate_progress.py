@@ -75,6 +75,7 @@ def build_alpha_gate_progress(alpha: AlphaValidationPayload) -> AlphaGateProgres
         _greater_than("latest_positive_expectancy", "最新期望", alpha.latest_expectancy, 0, "USD"),
         _greater_than("average_positive_expectancy", "平均期望", alpha.average_expectancy, 0, "USD"),
         _at_most("drawdown_limit", "最大回撤", alpha.max_drawdown, MAX_VALIDATION_DRAWDOWN, "ratio"),
+        _at_most("score_pnl_inversion_review", "评分盈亏反向", alpha.score_pnl_inversion_count, 0, "项"),
     ]
     passed = sum(1 for item in items if item.passed)
     total = len(items)

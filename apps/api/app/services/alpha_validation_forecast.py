@@ -94,6 +94,7 @@ def build_alpha_validation_forecast(alpha: AlphaValidationPayload) -> AlphaValid
             passed=alpha.average_expectancy > 0,
         ),
         _drawdown_gate(alpha.max_drawdown),
+        _score_pnl_inversion_gate(alpha.score_pnl_inversion_count),
     ]
     open_items = [item for item in items if not item.passed]
     if alpha.alpha_ready:
@@ -239,6 +240,22 @@ def _drawdown_gate(current: float) -> AlphaValidationForecastItem:
         estimated_per_session=0 if passed else None,
         estimated_sessions=0 if passed else None,
         reason="门禁已通过。" if passed else "回撤门禁需要风险和收益路径改善，不能仅按样本速度估算。",
+    )
+
+
+def _score_pnl_inversion_gate(current: int) -> AlphaValidationForecastItem:
+    passed = current <= 0
+    return AlphaValidationForecastItem(
+        gate="score_pnl_inversion_review",
+        label="评分盈亏反向",
+        current=current,
+        required=0,
+        remaining=current,
+        unit="项",
+        passed=passed,
+        estimated_per_session=0 if passed else None,
+        estimated_sessions=0 if passed else None,
+        reason="门禁已通过。" if passed else "评分和观测盈亏反向，需要策略复盘或评分逻辑修正，不能仅靠样本速度估算。",
     )
 
 

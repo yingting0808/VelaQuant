@@ -195,10 +195,11 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
+- Alpha validation now treats score/PnL inversion as a quality blocker: any ticker with inverted candidate score direction versus observed PnL adds `score_pnl_inversion_review`, exposes `score_pnl_inversion_count`, and blocks `paper_validated` until reviewed.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `0d8a4017-67c4-4a4c-8f09-d257cc74770c`, trading day `2026-06-12`, status `completed`, 7 candidates, 28 replayable core events, including 7 `trade_explanation` events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
-- Latest Alpha gate state: 5/9 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
+- Latest Alpha gate state: 5/10 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, closed-trade sample, and score/PnL inversion review when present.
 - Latest filtered Alpha snapshot: trading day `2026-06-12`, `validation_level=collecting`, blockers `review_day_sample`, `consecutive_positive_expectancy`, `filled_order_sample`, `closed_trade_sample`.
 - Latest paper risk review: hold `max_daily_orders` at 10; the latest post-limit sample completed without a new buy `max_daily_orders` rejection.
 - Current recommended action after the current-day snapshot is recorded: hold until the next scheduled paper run; live limits remain unchanged.
@@ -225,10 +226,11 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
+- Alpha 验证现在会把评分/盈亏反向视为质量阻断：任何 ticker 的候选评分方向与观测盈亏相反，都会加入 `score_pnl_inversion_review`，暴露 `score_pnl_inversion_count`，并在复盘前阻止进入 `paper_validated`。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`0d8a4017-67c4-4a4c-8f09-d257cc74770c`，交易日 `2026-06-12`，状态 `completed`，7 个候选，28 条可回放 core events，其中包含 7 条 `trade_explanation` 事件。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
-- 最新 Alpha 门禁：5/9 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
+- 最新 Alpha 门禁：5/10 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本、闭环交易样本，以及在出现背离时完成评分/盈亏反向复盘。
 - 最新过滤后的 Alpha 快照：交易日 `2026-06-12`，`validation_level=collecting`，阻断项为 `review_day_sample`、`consecutive_positive_expectancy`、`filled_order_sample`、`closed_trade_sample`。
 - 最新 Paper 风险评审：保持 `max_daily_orders=10`；最新限额后样本没有新的买入侧 `max_daily_orders` 拒单。
 - 当前推荐动作：当前日快照已记录后等待下一次定时 paper run；live 限额不变。

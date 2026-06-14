@@ -1398,7 +1398,8 @@ export function StrategyLabStatusPanel() {
               <p>
                 成交 {alphaValidation?.filled_order_count ?? 0} · 已平仓{" "}
                 {alphaValidation?.closed_trade_count ?? 0} · 事件{" "}
-                {alphaValidation?.event_chain_count ?? 0}
+                {alphaValidation?.event_chain_count ?? 0} · 评分反向{" "}
+                {alphaValidation?.score_pnl_inversion_count ?? 0}
               </p>
             </div>
             <span className="state-ok">回撤 {formatPercent(alphaValidation?.max_drawdown ?? 0)}</span>

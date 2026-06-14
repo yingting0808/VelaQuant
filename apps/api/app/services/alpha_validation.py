@@ -8,7 +8,9 @@ from sqlmodel import Session, select
 from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperReview, PaperRun
 from app.services.lean_backtest import read_backtest_history, read_latest_backtest
 from app.services.market_calendar import current_market_trading_day
+from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.strategy_event_filters import filter_strategy_trade_events
+from app.services.strategy_evaluation import DEFAULT_STRATEGY_ID
 from app.services.workspace import get_or_create_default_workspace
 
 
@@ -37,6 +39,7 @@ class AlphaValidationPayload(BaseModel):
     latest_expectancy: float
     average_expectancy: float
     max_drawdown: float
+    score_pnl_inversion_count: int = 0
     summary: str
 
 
@@ -65,12 +68,19 @@ def get_alpha_validation(
         and order.submitted_at.date().isoformat() <= as_of_trading_day
     ]
     event_chain_count = _event_chain_count_as_of(session, team_id, as_of_trading_day)
+    score_pnl_inversion_count = _score_pnl_inversion_count_as_of(
+        session,
+        team_id=team_id,
+        strategy_id=strategy_id,
+        as_of_trading_day=as_of_trading_day,
+    )
     return build_alpha_validation(
         reviews=reviews,
         orders=orders,
         event_chain_count=event_chain_count,
         has_real_market_backtest=_has_real_market_backtest(strategy_id),
         strategy_id=strategy_id,
+        score_pnl_inversion_count=score_pnl_inversion_count,
     )
 
 
@@ -81,6 +91,7 @@ def build_alpha_validation(
     event_chain_count: int,
     has_real_market_backtest: bool = False,
     strategy_id: str = "deterministic_watchlist_v1",
+    score_pnl_inversion_count: int = 0,
 ) -> AlphaValidationPayload:
     sorted_reviews = sorted(_latest_review_per_trading_day(reviews), key=lambda review: review.trading_day)
     filled_orders = [order for order in orders if order.status == PaperOrderStatus.filled]
@@ -103,6 +114,7 @@ def build_alpha_validation(
         latest_expectancy=latest_expectancy,
         average_expectancy=average_expectancy,
         max_drawdown=max_drawdown,
+        score_pnl_inversion_count=score_pnl_inversion_count,
     )
     alpha_ready = not blockers
     validation_level: AlphaValidationLevel = "paper_validated" if alpha_ready else "collecting"
@@ -122,6 +134,7 @@ def build_alpha_validation(
         latest_expectancy=latest_expectancy,
         average_expectancy=average_expectancy,
         max_drawdown=max_drawdown,
+        score_pnl_inversion_count=score_pnl_inversion_count,
         summary=_summary(alpha_ready, validation_level, blockers),
     )
 
@@ -152,6 +165,7 @@ def _blockers(
     latest_expectancy: float,
     average_expectancy: float,
     max_drawdown: float,
+    score_pnl_inversion_count: int,
 ) -> list[str]:
     blockers: list[str] = []
     if review_day_count < MIN_REVIEW_DAYS:
@@ -172,6 +186,8 @@ def _blockers(
         blockers.append("average_positive_expectancy")
     if max_drawdown > MAX_VALIDATION_DRAWDOWN:
         blockers.append("drawdown_limit")
+    if score_pnl_inversion_count > 0:
+        blockers.append("score_pnl_inversion_review")
     return blockers
 
 
@@ -242,6 +258,23 @@ def _event_chain_count_as_of(session: Session, team_id: UUID, as_of_trading_day:
             for event in filter_strategy_trade_events(eligible_events)
         }
     )
+
+
+def _score_pnl_inversion_count_as_of(
+    session: Session,
+    *,
+    team_id: UUID,
+    strategy_id: str,
+    as_of_trading_day: str,
+) -> int:
+    if strategy_id != DEFAULT_STRATEGY_ID:
+        return 0
+    attribution = attribute_current_paper_strategy(
+        session,
+        team_id=team_id,
+        as_of_trading_day=as_of_trading_day,
+    )
+    return sum(1 for item in attribution.ticker_diagnostics if item.score_pnl_alignment == "inverted")
 
 
 def _current_trading_day() -> str:

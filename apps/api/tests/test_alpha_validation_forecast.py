@@ -112,3 +112,32 @@ def test_alpha_validation_forecast_blocks_without_real_market_backtest():
     assert backtest.passed is False
     assert backtest.estimated_sessions is None
     assert backtest.reason == "需要同策略真实历史回测结果，不能仅靠模拟盘样本估算。"
+
+
+def test_alpha_validation_forecast_blocks_on_score_pnl_inversion_review():
+    alpha = AlphaValidationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        alpha_ready=False,
+        validation_level="collecting",
+        blockers=["score_pnl_inversion_review"],
+        review_day_count=10,
+        consecutive_positive_expectancy_days=5,
+        filled_order_count=34,
+        closed_trade_count=12,
+        event_chain_count=120,
+        has_real_market_backtest=True,
+        latest_expectancy=102.91,
+        average_expectancy=57.38,
+        max_drawdown=0.02,
+        score_pnl_inversion_count=1,
+        summary="collecting",
+    )
+
+    forecast = build_alpha_validation_forecast(alpha)
+
+    assert forecast.status == "blocked"
+    assert forecast.limiting_gate == "score_pnl_inversion_review"
+    score_pnl = [item for item in forecast.items if item.gate == "score_pnl_inversion_review"][0]
+    assert score_pnl.passed is False
+    assert score_pnl.estimated_sessions is None
+    assert score_pnl.reason == "评分和观测盈亏反向，需要策略复盘或评分逻辑修正，不能仅靠样本速度估算。"

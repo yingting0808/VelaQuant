@@ -31,8 +31,8 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
     progress = build_alpha_gate_progress(alpha)
 
     assert progress.alpha_ready is False
-    assert progress.total_gates == 9
-    assert progress.passed_gates == 2
+    assert progress.total_gates == 10
+    assert progress.passed_gates == 3
     assert progress.items[0].gate == "review_day_sample"
     assert progress.items[0].current == 3
     assert progress.items[0].required == 5
@@ -46,4 +46,40 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
     assert backtest.passed is False
     assert backtest.current == 0
     assert backtest.required == 1
-    assert "2/9" in progress.summary
+    score_pnl = [item for item in progress.items if item.gate == "score_pnl_inversion_review"][0]
+    assert score_pnl.passed is True
+    assert score_pnl.current == 0
+    assert score_pnl.required == 0
+    assert "3/10" in progress.summary
+
+
+def test_alpha_gate_progress_tracks_score_pnl_inversion_quality_gate():
+    alpha = AlphaValidationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        alpha_ready=False,
+        validation_level="collecting",
+        blockers=["score_pnl_inversion_review"],
+        review_day_count=5,
+        consecutive_positive_expectancy_days=5,
+        filled_order_count=34,
+        closed_trade_count=12,
+        event_chain_count=160,
+        has_real_market_backtest=True,
+        latest_expectancy=12.5,
+        average_expectancy=8.2,
+        max_drawdown=0.02,
+        score_pnl_inversion_count=2,
+        summary="collecting",
+    )
+
+    progress = build_alpha_gate_progress(alpha)
+
+    score_pnl = [item for item in progress.items if item.gate == "score_pnl_inversion_review"][0]
+    assert progress.alpha_ready is False
+    assert progress.total_gates == 10
+    assert progress.passed_gates == 9
+    assert score_pnl.label == "评分盈亏反向"
+    assert score_pnl.current == 2
+    assert score_pnl.required == 0
+    assert score_pnl.remaining == 2
+    assert score_pnl.passed is False

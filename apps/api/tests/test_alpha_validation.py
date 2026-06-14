@@ -10,6 +10,7 @@ from app.domain.models import (
     PaperOrder,
     PaperOrderSide,
     PaperOrderStatus,
+    PaperPosition,
     PaperRun,
     PaperRunStatus,
     PaperRunTrigger,
@@ -102,6 +103,27 @@ def test_alpha_validation_marks_stable_positive_paper_sample_ready():
     assert payload.blockers == []
     assert payload.consecutive_positive_expectancy_days == 5
     assert payload.closed_trade_count == 12
+
+
+def test_alpha_validation_blocks_when_score_pnl_inversion_needs_review():
+    payload = build_alpha_validation(
+        reviews=[
+            _review("2026-06-08", expectancy=0.8, equity=100100),
+            _review("2026-06-09", expectancy=1.1, equity=100250),
+            _review("2026-06-10", expectancy=1.3, equity=100460),
+            _review("2026-06-11", expectancy=1.0, equity=100620),
+            _review("2026-06-12", expectancy=1.5, equity=100900),
+        ],
+        orders=_orders(filled=34, closed=12),
+        event_chain_count=160,
+        has_real_market_backtest=True,
+        score_pnl_inversion_count=1,
+    )
+
+    assert payload.alpha_ready is False
+    assert payload.validation_level == "collecting"
+    assert payload.score_pnl_inversion_count == 1
+    assert payload.blockers == ["score_pnl_inversion_review"]
 
 
 def test_alpha_validation_blocks_without_real_market_backtest_evidence():
@@ -229,6 +251,94 @@ def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
         assert payload.alpha_ready is True
         assert payload.has_real_market_backtest is True
         assert "real_market_backtest" not in payload.blockers
+
+
+def test_alpha_validation_reads_runtime_score_pnl_inversion_gate(monkeypatch):
+    monkeypatch.setattr("app.services.alpha_validation._has_real_market_backtest", lambda strategy_id: True)
+    with make_session() as session:
+        team = Team(name="Alpha Score PnL Inversion")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+        account = PaperAccount(team_id=team.id, name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        for day in range(1, 6):
+            session.add(
+                PaperReview(
+                    account_id=account.id,
+                    team_id=team.id,
+                    trading_day=f"2026-06-0{day}",
+                    equity=100000 + day * 100,
+                    cash=90000,
+                    realized_pnl=day * 10,
+                    unrealized_pnl=day * 20,
+                    trade_count=day,
+                    win_rate=0.6,
+                    average_win=20,
+                    average_loss=-10,
+                    expectancy=1.0,
+                    notes="fixture",
+                )
+            )
+        run = PaperRun(
+            account_id=account.id,
+            team_id=team.id,
+            trading_day="2026-06-05",
+            trigger=PaperRunTrigger.manual,
+            status=PaperRunStatus.completed,
+        )
+        session.add(run)
+        session.flush()
+        for index, order in enumerate(_orders(filled=34, closed=12)):
+            order.team_id = team.id
+            order.account_id = account.id
+            order.submitted_at = datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc)
+            session.add(order)
+            session.add(
+                CoreEventLog(
+                    team_id=team.id,
+                    run_id=run.id,
+                    event_id=f"event-{index}",
+                    topic="order_state",
+                    sequence=index + 1,
+                    correlation_id=str(uuid4()),
+                    payload_json="{}",
+                    published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.add(
+            CoreEventLog(
+                team_id=team.id,
+                run_id=run.id,
+                event_id="amzn-candidate-score",
+                topic="trade_explanation",
+                sequence=1000,
+                correlation_id="amzn-score-pnl",
+                payload_json='{"ticker":"AMZN","evidence":["final_score=-950.00"]}',
+                published_at=datetime(2026, 6, 5, 21, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=team.id,
+                ticker="AMZN",
+                quantity=1,
+                average_cost=100,
+                last_price=115,
+                market_value=115,
+                unrealized_pnl=15,
+            )
+        )
+        session.commit()
+
+        payload = get_alpha_validation(session, team_id=team.id, as_of_trading_day="2026-06-05")
+
+        assert payload.alpha_ready is False
+        assert payload.score_pnl_inversion_count == 1
+        assert payload.blockers == ["score_pnl_inversion_review"]
 
 
 def test_alpha_validation_excludes_manual_override_orders_from_strategy_sample():
