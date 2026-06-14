@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     paper_scheduler_enabled: bool = False
     paper_scheduler_cron: str = "30 6 * * *"
     paper_scheduler_timezone: str = "Asia/Shanghai"
+    trading_day_mode: str = "utc"
+    event_bus_mode: str = "memory"
+    redis_url: str = "redis://localhost:6379/0"
+    redis_stream_name: str = "trading:events"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AI_STOCKS_")
 

@@ -224,6 +224,14 @@ button {
   font-size: 1rem;
 }
 
+.panel-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -836,6 +844,15 @@ tbody tr:last-child td {
 
 .history-item span {
   white-space: nowrap;
+}
+
+.candidate-result-list .history-item {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.candidate-result-list .history-item span {
+  white-space: normal;
 }
 
 .workspace-panel .panel-heading strong {

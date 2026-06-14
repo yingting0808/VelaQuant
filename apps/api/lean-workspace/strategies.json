@@ -1,6 +1,76 @@
 {
   "strategies": [
     {
+      "id": "deterministic_watchlist_v1",
+      "name": "Deterministic Watchlist Strategy",
+      "description": "Active paper strategy replayed on historical US equity prices for alpha-gate validation.",
+      "language": "Python",
+      "asset_class": "US Equity",
+      "default_symbol": "AAPL",
+      "resolution": "Daily",
+      "project_path": "DeterministicWatchlist",
+      "enabled": true,
+      "parameters": [
+        {
+          "name": "symbol",
+          "label": "Ticker",
+          "kind": "ticker",
+          "default": "AAPL",
+          "required": true
+        },
+        {
+          "name": "start_date",
+          "label": "Start Date",
+          "kind": "date",
+          "default": "2020-01-01",
+          "required": true
+        },
+        {
+          "name": "end_date",
+          "label": "End Date",
+          "kind": "date",
+          "default": "2021-01-01",
+          "required": true
+        },
+        {
+          "name": "cash",
+          "label": "Initial Cash",
+          "kind": "number",
+          "default": "100000",
+          "min": 1000,
+          "max": 1000000000,
+          "required": true
+        },
+        {
+          "name": "momentum_window",
+          "label": "Momentum Window",
+          "kind": "integer",
+          "default": "20",
+          "min": 2,
+          "max": 252,
+          "required": true
+        },
+        {
+          "name": "min_return",
+          "label": "Minimum Return",
+          "kind": "number",
+          "default": "0.03",
+          "min": 0,
+          "max": 1,
+          "required": true
+        },
+        {
+          "name": "exit_window",
+          "label": "Exit Window",
+          "kind": "integer",
+          "default": "10",
+          "min": 2,
+          "max": 252,
+          "required": true
+        }
+      ]
+    },
+    {
       "id": "moving_average_cross",
       "name": "MovingAverageCross",
       "description": "AAPL daily moving average crossover sample for local LEAN validation.",

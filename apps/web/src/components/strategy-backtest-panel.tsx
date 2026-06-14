@@ -5,10 +5,12 @@ import {
   getBacktestHistory,
   getLatestBacktest,
   getStrategyCatalog,
+  runCandidateBacktests,
   runStrategyBacktest,
   type BacktestHistoryItemPayload,
   type BacktestParametersPayload,
   type BacktestResultPayload,
+  type CandidateBacktestPayload,
   type StrategyDefinitionPayload,
   type StrategyParameterDefinitionPayload
 } from "@/lib/client-api";
@@ -30,6 +32,29 @@ function metricRows(result: BacktestResultPayload | null) {
     ["Win Rate", result?.statistics.win_rate ?? "不可用"],
     ["Trades", result?.statistics.total_trades ?? "不可用"]
   ];
+}
+
+function dataQualityLabel(result: BacktestResultPayload | null) {
+  if (!result) {
+    return "尚未运行";
+  }
+  if (result.data_quality === "real_market_data") {
+    return "真实历史数据";
+  }
+  if (result.data_quality === "mock_data") {
+    return "Mock 数据";
+  }
+  if (result.data_quality === "deterministic_research_series") {
+    return "研究序列";
+  }
+  return "未知";
+}
+
+function evidenceLabel(result: BacktestResultPayload | null) {
+  if (!result) {
+    return "等待结果";
+  }
+  return result.uses_real_market_data ? "可用于历史验证" : "不可作为 Alpha 证据";
 }
 
 function defaultParameters(strategy: StrategyDefinitionPayload | undefined): BacktestParametersPayload {
@@ -79,9 +104,12 @@ export function StrategyBacktestPanel() {
   const [selectedStrategyId, setSelectedStrategyId] = useState("moving_average_cross");
   const [parameterValues, setParameterValues] = useState<BacktestParametersPayload>({});
   const [result, setResult] = useState<BacktestResultPayload | null>(null);
+  const [candidatePool, setCandidatePool] = useState("AAPL,MSFT,NVDA");
+  const [candidateResult, setCandidateResult] = useState<CandidateBacktestPayload | null>(null);
   const [history, setHistory] = useState<BacktestHistoryItemPayload[]>([]);
   const [isCatalogLoaded, setIsCatalogLoaded] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [isCandidateRunning, setIsCandidateRunning] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -165,6 +193,30 @@ export function StrategyBacktestPanel() {
     }
   }
 
+  async function handleRunCandidatePool() {
+    if (!selectedStrategy) {
+      return;
+    }
+    const tickers = candidatePool
+      .split(",")
+      .map((ticker) => ticker.trim().toUpperCase())
+      .filter(Boolean);
+    setIsCandidateRunning(true);
+    try {
+      const payload = await runCandidateBacktests(selectedStrategy.id, tickers, parameterValues);
+      if (mountedRef.current) {
+        setCandidateResult(payload);
+      }
+      await refreshHistory();
+    } catch {
+      // runCandidateBacktests returns a structured fallback; this protects the UI from unexpected throws.
+    } finally {
+      if (mountedRef.current) {
+        setIsCandidateRunning(false);
+      }
+    }
+  }
+
   const hasEmptyCatalog = isCatalogLoaded && strategies.length === 0;
   const resultMessage = result?.message ?? (hasEmptyCatalog ? "策略目录为空，无法运行回测。" : "选择策略后点击运行回测。");
   const hints = unavailableHints(result);
@@ -173,8 +225,8 @@ export function StrategyBacktestPanel() {
     <section className="data-panel backtest-panel" aria-label="LEAN 回测">
       <div className="panel-heading">
         <div>
-          <h3>LEAN 回测</h3>
-          <p>运行白名单内置策略，结果仅用于研究验证</p>
+          <h3>LEAN / vectorbt 回测</h3>
+          <p>优先运行 LEAN；环境未就绪时使用 vectorbt 研究回测</p>
         </div>
         <button className="primary-action" type="button" disabled={isRunning || !selectedStrategy} onClick={handleRun}>
           {isRunning ? "运行回测中" : "运行回测"}
@@ -234,6 +286,28 @@ export function StrategyBacktestPanel() {
             </div>
           ) : null}
 
+          <div className="parameter-form" aria-label="候选池回测">
+            <div className="parameter-grid">
+              <label className="parameter-field">
+                <span>候选池</span>
+                <input
+                  aria-label="候选池"
+                  type="text"
+                  value={candidatePool}
+                  onChange={(event) => setCandidatePool(event.target.value.toUpperCase())}
+                />
+              </label>
+            </div>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isCandidateRunning || !selectedStrategy}
+              onClick={handleRunCandidatePool}
+            >
+              {isCandidateRunning ? "候选池回测中" : "运行候选池回测"}
+            </button>
+          </div>
+
           <div className="result-toolbar">
             <div>
               <span className="market-label">最近一次回测</span>
@@ -261,6 +335,22 @@ export function StrategyBacktestPanel() {
             </ul>
           ) : null}
 
+          <div className="backtest-metrics" aria-label="回测数据质量">
+            <article className="market-card">
+              <span className="market-label">Engine</span>
+              <strong>{result?.engine ?? "等待"}</strong>
+            </article>
+            <article className="market-card">
+              <span className="market-label">Data Source</span>
+              <strong>{result?.data_source ?? "未知"}</strong>
+            </article>
+            <article className="market-card">
+              <span className="market-label">Evidence</span>
+              <strong>{dataQualityLabel(result)}</strong>
+              <p>{evidenceLabel(result)}</p>
+            </article>
+          </div>
+
           <div className="backtest-metrics">
             {metricRows(result).map(([label, value]) => (
               <article className="market-card" key={label}>
@@ -269,6 +359,25 @@ export function StrategyBacktestPanel() {
               </article>
             ))}
           </div>
+
+          {candidateResult ? (
+            <section className="history-list candidate-result-list" aria-label="候选池回测结果">
+              <h4>候选池排名</h4>
+              <p className="result-message">{candidateResult.summary}</p>
+              {candidateResult.items.map((item) => (
+                <article className="history-item" key={`${item.rank}-${item.ticker}`}>
+                  <div>
+                    <strong>{`#${item.rank} ${item.ticker}`}</strong>
+                    <p>{item.reason}</p>
+                  </div>
+                  <span>{item.recommendation}</span>
+                  <span>{`${item.total_net_profit ?? "不可用"} · Sharpe ${item.sharpe_ratio ?? "不可用"} · 回撤 ${
+                    item.drawdown ?? "不可用"
+                  }`}</span>
+                </article>
+              ))}
+            </section>
+          ) : null}
 
           <div className="log-box" aria-label="回测日志">
             {(result?.logs.length ? result.logs : ["暂无回测日志"]).map((line, index) => (

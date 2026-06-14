@@ -90,6 +90,19 @@ def test_member_role_values_are_stable():
     assert MemberRole.viewer.value == "viewer"
 
 
+def test_postgres_enum_migration_adds_runtime_mode_and_trigger_values():
+    from app.db.session import _postgres_enum_value_statements
+
+    assert _postgres_enum_value_statements("papertradingmode", ["shadow", "live_small", "simulation"]) == [
+        "ALTER TYPE papertradingmode ADD VALUE IF NOT EXISTS 'shadow'",
+        "ALTER TYPE papertradingmode ADD VALUE IF NOT EXISTS 'live_small'",
+        "ALTER TYPE papertradingmode ADD VALUE IF NOT EXISTS 'simulation'",
+    ]
+    assert _postgres_enum_value_statements("paperruntrigger", ["simulation"]) == [
+        "ALTER TYPE paperruntrigger ADD VALUE IF NOT EXISTS 'simulation'",
+    ]
+
+
 def test_paper_run_and_core_event_log_can_be_persisted():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

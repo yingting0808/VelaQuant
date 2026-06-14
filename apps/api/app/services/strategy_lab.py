@@ -1,5 +1,6 @@
 import subprocess
 from collections.abc import Callable
+from importlib import metadata
 from subprocess import CompletedProcess, TimeoutExpired
 
 from app.core.config import get_settings
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 
 CommandRunner = Callable[[list[str], float], CompletedProcess[str]]
+ModuleVersionChecker = Callable[[str], str | None]
 
 
 class StrategyToolStatus(BaseModel):
@@ -33,26 +35,64 @@ def default_command_runner(command: list[str], timeout: float) -> CompletedProce
     )
 
 
+def default_module_version_checker(module_name: str) -> str | None:
+    try:
+        return metadata.version(module_name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
 def get_strategy_lab_status(
     *,
     command_runner: CommandRunner = default_command_runner,
+    module_version_checker: ModuleVersionChecker = default_module_version_checker,
     timeout_seconds: float | None = None,
 ) -> StrategyLabStatus:
     settings = get_settings()
     timeout = timeout_seconds if timeout_seconds is not None else settings.strategy_command_timeout_seconds
     tools = [
         _check_tool("Docker CLI", ["docker", "--version"], command_runner, timeout),
-        _check_tool("Docker Compose", ["docker", "compose", "version"], command_runner, timeout),
+        _check_any_tool(
+            "Docker Compose",
+            [["docker", "compose", "version"], ["docker-compose", "--version"]],
+            command_runner,
+            timeout,
+        ),
         _check_tool("Docker engine", ["docker", "info"], command_runner, timeout),
         _check_tool("LEAN CLI", ["lean", "--version"], command_runner, timeout),
+        _check_python_module("vectorbt", "vectorbt", module_version_checker),
     ]
-    ready = all(tool.available for tool in tools)
+    lean_ready = all(tool.available for tool in tools if tool.name != "vectorbt")
+    vectorbt_ready = next(tool.available for tool in tools if tool.name == "vectorbt")
+    ready = lean_ready or vectorbt_ready
     summary = (
         "Docker and LEAN are ready for local backtest preparation."
-        if ready
+        if lean_ready
+        else "vectorbt research fallback is ready; unavailable LEAN tools will be bypassed."
+        if vectorbt_ready
         else "Strategy Lab is partially configured; review unavailable tools before running LEAN backtests."
     )
     return StrategyLabStatus(can_run_backtests=ready, summary=summary, tools=tools)
+
+
+def _check_any_tool(
+    name: str,
+    commands: list[list[str]],
+    command_runner: CommandRunner,
+    timeout: float,
+) -> StrategyToolStatus:
+    failures: list[str] = []
+    for command in commands:
+        result = _check_tool(name, command, command_runner, timeout)
+        if result.available:
+            return result
+        failures.append(result.message)
+    return StrategyToolStatus(
+        name=name,
+        available=False,
+        version=None,
+        message=failures[0] if failures else f"{name} is not installed or is not on PATH.",
+    )
 
 
 def _check_tool(
@@ -100,4 +140,26 @@ def _check_tool(
         available=True,
         version=first_line or "available",
         message=f"{name} is available.",
+    )
+
+
+def _check_python_module(
+    name: str,
+    module_name: str,
+    module_version_checker: ModuleVersionChecker,
+) -> StrategyToolStatus:
+    version = module_version_checker(module_name)
+    if version is None:
+        return StrategyToolStatus(
+            name=name,
+            available=False,
+            version=None,
+            message=f"{name} is not installed in the API runtime.",
+        )
+
+    return StrategyToolStatus(
+        name=name,
+        available=True,
+        version=version,
+        message=f"{name} is available in the API runtime.",
     )

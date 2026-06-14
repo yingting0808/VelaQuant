@@ -1,4 +1,5 @@
 from app.services.lean_backtest import BacktestResult, BacktestStatistics
+from app.services.strategy_registry import get_registered_strategy_execution_binding
 from app.services.strategy_attribution import (
     DrawdownAttribution,
     ExpectancyDecomposition,
@@ -12,6 +13,8 @@ from app.services.strategy_attribution import (
 from app.services.strategy_catalog import StrategyDefinition, StrategyParameterDefinition
 from app.services.strategy_evaluation import StrategyEvaluationPayload, StrategyEvaluationReadiness
 from app.services.strategy_registry import STRATEGY_REGISTRY_MISSING_CAPABILITIES, build_strategy_registry
+from app.services.workspace import get_or_create_default_workspace
+from sqlmodel import Session, SQLModel, create_engine
 
 
 def test_strategy_registry_ranks_current_paper_strategy_from_alpha_evidence():
@@ -43,7 +46,7 @@ def test_strategy_registry_ranks_current_paper_strategy_from_alpha_evidence():
     assert payload.entries[0].primary_regime == "trend_market"
     assert payload.entries[0].signal_quality_score == 0.5
     assert payload.entries[0].supports_live is False
-    assert payload.entries[0].supports_hot_swap is False
+    assert payload.entries[0].supports_hot_swap is True
 
 
 def test_strategy_registry_marks_catalog_strategies_as_backtest_only_and_exposes_missing_controls():
@@ -65,10 +68,36 @@ def test_strategy_registry_marks_catalog_strategies_as_backtest_only_and_exposes
     assert catalog_entry.supports_live is False
     assert catalog_entry.supports_hot_swap is False
     assert catalog_entry.notes == "LEAN 目录策略可回测，但尚未接入 paper runtime 和生命周期控制。"
+    assert "strategy_versioning_persistence" not in payload.missing_capabilities
+    assert "hot_swap_execution_binding" not in payload.missing_capabilities
+    assert "multi_strategy_parallel_runtime" not in payload.missing_capabilities
+    assert "strategy_competition_runtime" not in payload.missing_capabilities
     assert payload.missing_capabilities == STRATEGY_REGISTRY_MISSING_CAPABILITIES
-    assert "read-only" in payload.summary
+    assert "controls execution binding" in payload.summary
     assert "1 active paper strategy" in payload.summary
     assert "1 backtest catalog strategy" in payload.summary
+    assert "manual lifecycle review" in payload.summary
+    assert "no automatic promotion" in payload.summary
+    assert "automation enabled" not in payload.summary
+
+
+def test_strategy_registry_loads_registered_execution_binding():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+
+        binding = get_registered_strategy_execution_binding(
+            session,
+            workspace.team.id,
+            "deterministic_watchlist_v1",
+            notional=1250,
+        )
+
+    assert binding.strategy_id == "deterministic_watchlist_v1"
+    assert binding.name == "Deterministic Watchlist Strategy"
+    assert binding.execution_mode == "paper"
+    assert binding.strategy_engine.strategy_id == "deterministic_watchlist_v1"
+    assert binding.supports_live is False
+    assert binding.supports_hot_swap is True
 
 
 def _evaluation(
@@ -232,3 +261,9 @@ def _backtest(*, strategy_id: str, status: str) -> BacktestResult:
         logs=[],
         output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
     )
+
+
+def make_session() -> Session:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    return Session(engine)

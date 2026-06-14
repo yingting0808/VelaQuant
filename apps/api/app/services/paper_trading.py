@@ -1,12 +1,13 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
-from uuid import UUID
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
+from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.domain.models import (
     CoreEventLog,
@@ -22,29 +23,46 @@ from app.domain.models import (
     PaperRun,
     PaperRunStatus,
     PaperRunTrigger,
+    PaperTradingMode,
     Position,
     WatchlistItem,
     utc_now,
 )
+from app.services.market_calendar import current_market_trading_day
+from app.services.paper_risk_settings import get_paper_risk_limits
+from app.services.alpha_validation_snapshot import record_alpha_validation_snapshot
+from app.services.strategy_competition import record_strategy_competition_snapshot
 from app.services.workspace import get_or_create_default_workspace
-from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic
+from app.services.strategy_control import (
+    DEFAULT_PAPER_STRATEGY_ID,
+    assert_strategy_execution_allowed,
+    get_strategy_execution_binding,
+)
+from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic, build_event_bus
 from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
-from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState
+from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState, order_state_event
 from app.trading_core.portfolio import PortfolioPosition, PortfolioState
 from app.trading_core.risk import RiskEngine, RiskLimits
-from app.trading_core.strategy import DeterministicWatchlistStrategy, TradeIntent, TradeIntentSide
+from app.trading_core.strategy import TradeIntent, TradeIntentSide
 
 
 DEFAULT_ACCOUNT_NAME = "默认模拟盘"
 DEFAULT_STARTING_CASH = 100000.0
 DEFAULT_CANDIDATE_NOTIONAL = 2000.0
 DEFAULT_DAILY_AUTO_ORDER_LIMIT = 1
+DEFAULT_EXIT_TAKE_PROFIT_PCT = 0.10
+DEFAULT_EXIT_STOP_LOSS_PCT = -0.05
+MANUAL_OVERRIDE_STRATEGY_SUFFIX = ":manual_override"
+RUNNING_LOCK_STALE_AFTER_MINUTES = 180
 
 
 @dataclass(frozen=True)
 class CoreEventContext:
     correlation_id: UUID
     trade_intent_event_id: UUID
+    trade_intent_sequence: int
+    intent: TradeIntent
+    strategy_id: str
 
 
 class PaperAccountPayload(BaseModel):
@@ -78,6 +96,8 @@ class PaperOrderCreate(BaseModel):
     side: Literal["buy", "sell"]
     quantity: float = Field(gt=0)
     order_type: Literal["market"] = "market"
+    strategy_id: str = Field(default=DEFAULT_PAPER_STRATEGY_ID, min_length=1)
+    reason: str | None = None
 
     @field_validator("ticker")
     @classmethod
@@ -87,9 +107,18 @@ class PaperOrderCreate(BaseModel):
             raise ValueError("ticker must not be empty")
         return normalized
 
+    @field_validator("strategy_id")
+    @classmethod
+    def normalize_strategy_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("strategy_id must not be empty")
+        return normalized
+
 
 class PaperOrderPayload(BaseModel):
     id: UUID
+    strategy_id: str = DEFAULT_PAPER_STRATEGY_ID
     ticker: str
     side: str
     order_type: str
@@ -171,46 +200,86 @@ class PaperTradingSummary(BaseModel):
     latest_review: PaperReviewPayload | None
 
 
-def get_paper_trading_summary(session: Session, provider: MarketDataProvider) -> PaperTradingSummary:
+def get_paper_trading_summary(
+    session: Session,
+    provider: MarketDataProvider,
+    *,
+    as_of_trading_day: str | None = None,
+) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id)
     _mark_positions_to_market(session, account, provider)
     session.commit()
     session.refresh(account)
-    return _summary_payload(session, account)
+    return _summary_payload(session, account, provider, as_of_trading_day=as_of_trading_day)
 
 
 def run_daily_paper_trading_loop(
     session: Session,
     provider: MarketDataProvider,
     trigger: PaperRunTrigger = PaperRunTrigger.manual,
+    trading_day: str | None = None,
+    account_mode: PaperTradingMode = PaperTradingMode.paper,
 ) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
-    account = _get_or_create_account(session, workspace.team.id)
-    trading_day = _current_trading_day()
-    run = _start_paper_run(session, account, trading_day, trigger)
+    account = _get_or_create_account(session, workspace.team.id, mode=account_mode)
+    resolved_trading_day = trading_day or _current_trading_day()
+    _expire_stale_running_runs(session, account, resolved_trading_day)
+    running_run = _running_run_for_trading_day(session, account, resolved_trading_day)
+    if running_run is not None:
+        raise ValueError(f"Paper trading run is already running for {resolved_trading_day}.")
+    existing_review = _review_for_trading_day(session, account, resolved_trading_day)
+    if existing_review is not None and _has_completed_core_run_for_trading_day(
+        session, account, resolved_trading_day
+    ):
+        _mark_positions_to_market(session, account, provider)
+        session.commit()
+        session.refresh(account)
+        return _summary_payload(session, account, provider, as_of_trading_day=resolved_trading_day)
+    run = _start_paper_run(session, account, resolved_trading_day, trigger)
     try:
-        existing_review = _review_for_trading_day(session, account, trading_day)
-        if existing_review is not None:
-            _mark_positions_to_market(session, account, provider)
-            _finish_paper_run(session, account, run, PaperRunStatus.skipped, existing_review)
-            session.commit()
-            session.refresh(account)
-            return _summary_payload(session, account)
-
-        core_contexts = _generate_candidates(session, workspace.team.id, workspace.portfolio.id, account, provider, run.id)
+        _mark_positions_to_market(session, account, provider)
+        _auto_submit_exit_orders(session, provider, account, run.id, trading_day=resolved_trading_day)
+        session.refresh(account)
+        core_contexts = _generate_candidates(
+            session,
+            workspace.team.id,
+            workspace.portfolio.id,
+            account,
+            provider,
+            run.id,
+            trading_day=resolved_trading_day,
+        )
         session.flush()
-        _auto_submit_candidate_orders(session, provider, account, run.id, core_contexts)
+        _auto_submit_candidate_orders(
+            session,
+            provider,
+            account,
+            run.id,
+            core_contexts,
+            trading_day=resolved_trading_day,
+        )
         session.refresh(account)
         _mark_positions_to_market(session, account, provider)
-        review = _create_review(session, account)
+        review = _create_review(session, account, resolved_trading_day)
         session.add(review)
         session.flush()
         _finish_paper_run(session, account, run, PaperRunStatus.completed, review)
+        record_alpha_validation_snapshot(
+            session,
+            team_id=workspace.team.id,
+            trading_day=resolved_trading_day,
+        )
+        record_strategy_competition_snapshot(
+            session,
+            provider=provider,
+            team_id=workspace.team.id,
+            trading_day=resolved_trading_day,
+        )
         account.updated_at = utc_now()
         session.commit()
         session.refresh(account)
-        return _summary_payload(session, account)
+        return _summary_payload(session, account, provider, as_of_trading_day=resolved_trading_day)
     except Exception as error:
         _mark_paper_run_failed(session, run.id, error)
         raise
@@ -246,14 +315,37 @@ def submit_paper_order(
     data: PaperOrderCreate,
     run_id: UUID | None = None,
     core_context: CoreEventContext | None = None,
+    trading_day: str | None = None,
+    account_mode: PaperTradingMode = PaperTradingMode.paper,
 ) -> PaperOrderPayload:
     workspace = get_or_create_default_workspace(session)
-    account = _get_or_create_account(session, workspace.team.id)
+    account = _get_or_create_account(session, workspace.team.id, mode=account_mode)
+    assert_strategy_execution_allowed(session, data.strategy_id, requested_mode="paper")
+    binding = get_strategy_execution_binding(
+        session,
+        workspace.team.id,
+        data.strategy_id,
+        notional=min(DEFAULT_CANDIDATE_NOTIONAL, max(account.cash * 0.02, 0)),
+    )
     price = _quote_price(provider, data.ticker)
     side = PaperOrderSide(data.side)
     cost = round(price * data.quantity, 2)
     _mark_positions_to_market(session, account, provider)
-    core_order = _submit_core_order(session, account, data, cost)
+    intent = core_context.intent if core_context is not None else _manual_trade_intent(data, cost, binding.strategy_id)
+    order_strategy_id = _paper_order_strategy_id(binding.strategy_id, run_id=run_id, core_context=core_context)
+    if core_context is None:
+        core_context = _persist_manual_strategy_events(
+            session=session,
+            team_id=workspace.team.id,
+            account=account,
+            data=data,
+            intent=intent,
+            run_id=run_id,
+            order_strategy_id=order_strategy_id,
+            trading_day=trading_day,
+        )
+    core_order = _submit_core_order(session, account, intent, core_context, trading_day=trading_day)
+    submitted_at = _order_timestamp(trading_day)
     if core_order.current_state == OrderState.rejected:
         order = _new_paper_order(
             account=account,
@@ -263,6 +355,8 @@ def submit_paper_order(
             core_order=core_order,
             status=PaperOrderStatus.rejected,
             rejection_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else "Trading Core rejected order.",
+            submitted_at=submitted_at,
+            strategy_id=order_strategy_id,
         )
         session.add(order)
         _persist_core_order_events(session, workspace.team.id, core_order, run_id, core_context)
@@ -272,7 +366,7 @@ def submit_paper_order(
         return _order_payload(order)
 
     realized_pnl = 0.0
-    filled_at = utc_now()
+    filled_at = submitted_at
 
     if side == PaperOrderSide.buy:
         position = _find_position(session, account, data.ticker)
@@ -306,6 +400,7 @@ def submit_paper_order(
     order = PaperOrder(
         account_id=account.id,
         team_id=workspace.team.id,
+        strategy_id=order_strategy_id,
         ticker=data.ticker,
         side=side,
         order_type=data.order_type,
@@ -319,6 +414,7 @@ def submit_paper_order(
         risk_code=core_order.risk_decision.code if core_order.risk_decision is not None else None,
         risk_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else None,
         state_history_json=_state_history_json(core_order),
+        submitted_at=submitted_at,
         filled_at=filled_at,
     )
     session.add(order)
@@ -328,14 +424,27 @@ def submit_paper_order(
     return _order_payload(order)
 
 
-def _get_or_create_account(session: Session, team_id: UUID) -> PaperAccount:
-    account = session.exec(select(PaperAccount).where(PaperAccount.team_id == team_id)).first()
+def _get_or_create_account(
+    session: Session,
+    team_id: UUID,
+    *,
+    mode: PaperTradingMode = PaperTradingMode.paper,
+) -> PaperAccount:
+    account = session.exec(
+        select(PaperAccount).where(
+            PaperAccount.team_id == team_id,
+            PaperAccount.strategy_id == DEFAULT_PAPER_STRATEGY_ID,
+            PaperAccount.mode == mode,
+        )
+    ).first()
     if account is not None:
         return account
 
     account = PaperAccount(
         team_id=team_id,
-        name=DEFAULT_ACCOUNT_NAME,
+        strategy_id=DEFAULT_PAPER_STRATEGY_ID,
+        name=DEFAULT_ACCOUNT_NAME if mode == PaperTradingMode.paper else f"{DEFAULT_ACCOUNT_NAME} Simulation",
+        mode=mode,
         starting_cash=DEFAULT_STARTING_CASH,
         cash=DEFAULT_STARTING_CASH,
     )
@@ -362,6 +471,85 @@ def _start_paper_run(
     session.commit()
     session.refresh(run)
     return run
+
+
+def _running_run_for_trading_day(
+    session: Session,
+    account: PaperAccount,
+    trading_day: str,
+) -> PaperRun | None:
+    return session.exec(
+        select(PaperRun).where(
+            PaperRun.account_id == account.id,
+            PaperRun.team_id == account.team_id,
+            PaperRun.trading_day == trading_day,
+            PaperRun.status == PaperRunStatus.started,
+        )
+    ).first()
+
+
+def _has_completed_core_run_for_trading_day(
+    session: Session,
+    account: PaperAccount,
+    trading_day: str,
+) -> bool:
+    if account.mode == PaperTradingMode.paper:
+        candidates = session.exec(select(PaperCandidate).where(PaperCandidate.team_id == account.team_id)).all()
+        if not candidates or not any(
+            _is_on_or_before_trading_day(candidate.created_at, trading_day) for candidate in candidates
+        ):
+            return False
+
+    runs = session.exec(
+        select(PaperRun).where(
+            PaperRun.account_id == account.id,
+            PaperRun.team_id == account.team_id,
+            PaperRun.trading_day == trading_day,
+            PaperRun.status == PaperRunStatus.completed,
+        )
+    ).all()
+    for run in runs:
+        core_event = session.exec(
+            select(CoreEventLog).where(
+                CoreEventLog.run_id == run.id,
+                CoreEventLog.topic.in_(["market_event", "trade_intent", "order_state"]),
+            )
+        ).first()
+        if core_event is not None:
+            return True
+    return False
+
+
+def _expire_stale_running_runs(
+    session: Session,
+    account: PaperAccount,
+    trading_day: str,
+) -> None:
+    stale_cutoff = utc_now() - timedelta(minutes=RUNNING_LOCK_STALE_AFTER_MINUTES)
+    runs = session.exec(
+        select(PaperRun).where(
+            PaperRun.account_id == account.id,
+            PaperRun.team_id == account.team_id,
+            PaperRun.trading_day == trading_day,
+            PaperRun.status == PaperRunStatus.started,
+        )
+    ).all()
+    expired = False
+    for run in runs:
+        started_at = run.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if started_at > stale_cutoff:
+            continue
+        run.status = PaperRunStatus.failed
+        run.error_message = (
+            f"Paper trading stale running lock expired after {RUNNING_LOCK_STALE_AFTER_MINUTES} minutes."
+        )
+        run.finished_at = utc_now()
+        session.add(run)
+        expired = True
+    if expired:
+        session.commit()
 
 
 def _finish_paper_run(
@@ -392,6 +580,37 @@ def _mark_paper_run_failed(session: Session, run_id: UUID, error: Exception) -> 
     session.commit()
 
 
+def _persist_run_audit_event(
+    *,
+    session: Session,
+    team_id: UUID,
+    run: PaperRun,
+    status: str,
+    reason: str,
+) -> None:
+    sequence = _next_core_event_sequence(session, run.id)
+    payload = {
+        "run_id": str(run.id),
+        "trading_day": run.trading_day,
+        "trigger": run.trigger.value,
+        "status": status,
+        "reason": reason,
+    }
+    session.add(
+        CoreEventLog(
+            team_id=team_id,
+            run_id=run.id,
+            event_id=f"{run.id}:{sequence}:run_audit",
+            topic="run_audit",
+            sequence=sequence,
+            correlation_id=str(run.id),
+            causation_id=None,
+            payload_json=json.dumps(payload),
+            published_at=utc_now(),
+        )
+    )
+
+
 def _candidate_count(session: Session, team_id: UUID) -> int:
     return len(session.exec(select(PaperCandidate).where(PaperCandidate.team_id == team_id)).all())
 
@@ -407,11 +626,11 @@ def _generate_candidates(
     account: PaperAccount,
     provider: MarketDataProvider,
     run_id: UUID,
+    trading_day: str | None = None,
 ) -> dict[UUID, CoreEventContext]:
     for candidate in session.exec(
         select(PaperCandidate).where(
             PaperCandidate.team_id == team_id,
-            PaperCandidate.status == PaperCandidateStatus.proposed,
         )
     ).all():
         session.delete(candidate)
@@ -425,13 +644,18 @@ def _generate_candidates(
         for item in session.exec(select(WatchlistItem).where(WatchlistItem.team_id == team_id)).all()
     }
     all_tickers = sorted(portfolio_tickers | watchlist_tickers)
-    strategy = DeterministicWatchlistStrategy(
-        watchlist=all_tickers,
+    assert_strategy_execution_allowed(session, DEFAULT_PAPER_STRATEGY_ID, requested_mode="paper")
+    binding = get_strategy_execution_binding(
+        session,
+        team_id,
+        DEFAULT_PAPER_STRATEGY_ID,
         notional=min(DEFAULT_CANDIDATE_NOTIONAL, max(account.cash * 0.02, 0)),
     )
-    portfolio_state = _paper_portfolio_state(session, account)
-    event_bus = InMemoryEventBus()
+    strategy_engine = binding.strategy_engine
+    portfolio_state = _paper_portfolio_state(session, account, trading_day=trading_day)
+    event_bus = _build_trading_event_bus()
     ranked: list[tuple[float, str, PaperCandidate, CoreEventContext]] = []
+    candidate_created_at = _order_timestamp(trading_day)
 
     for ticker in all_tickers:
         quote = provider.get_quote(ticker)
@@ -454,7 +678,8 @@ def _generate_candidates(
             causation_id=market_envelope.event_id,
             correlation_id=market_envelope.correlation_id,
         )
-        intents = strategy.generate_intents(event, portfolio_state)
+        strategy_result = strategy_engine.generate_intents(event, portfolio_state)
+        intents = strategy_result.intents
         if not intents:
             continue
         intent = intents[0]
@@ -476,6 +701,7 @@ def _generate_candidates(
             risk_notes="风险：行情波动、估值压缩、证据过期；模拟结果不能直接代表实盘。",
             evidence_summary=evidence_summary,
             proposed_quantity=float(proposed_quantity),
+            created_at=candidate_created_at,
         )
         ranked.append(
             (
@@ -485,6 +711,9 @@ def _generate_candidates(
                 CoreEventContext(
                     correlation_id=trade_intent_envelope.correlation_id,
                     trade_intent_event_id=trade_intent_envelope.event_id,
+                    trade_intent_sequence=trade_intent_envelope.sequence,
+                    intent=intent,
+                    strategy_id=binding.strategy_id,
                 ),
             )
         )
@@ -507,6 +736,7 @@ def _auto_submit_candidate_orders(
     account: PaperAccount,
     run_id: UUID | None = None,
     core_contexts: dict[UUID, CoreEventContext] | None = None,
+    trading_day: str | None = None,
 ) -> None:
     candidates = list(
         session.exec(
@@ -521,6 +751,7 @@ def _auto_submit_candidate_orders(
     for candidate in candidates[:DEFAULT_DAILY_AUTO_ORDER_LIMIT]:
         if candidate.action != PaperOrderSide.buy or candidate.proposed_quantity <= 0:
             continue
+        context = (core_contexts or {}).get(candidate.id)
         order = submit_paper_order(
             session,
             provider,
@@ -528,16 +759,65 @@ def _auto_submit_candidate_orders(
                 ticker=candidate.ticker,
                 side=candidate.action.value,
                 quantity=candidate.proposed_quantity,
+                strategy_id=context.strategy_id if context is not None else DEFAULT_PAPER_STRATEGY_ID,
             ),
             run_id=run_id,
-            core_context=(core_contexts or {}).get(candidate.id),
+            core_context=context,
+            trading_day=trading_day,
+            account_mode=account.mode,
         )
         if order.status == PaperOrderStatus.filled.value:
             candidate.status = PaperCandidateStatus.ordered
             session.add(candidate)
 
 
-def _create_review(session: Session, account: PaperAccount) -> PaperReview:
+def _auto_submit_exit_orders(
+    session: Session,
+    provider: MarketDataProvider,
+    account: PaperAccount,
+    run_id: UUID,
+    trading_day: str | None = None,
+) -> None:
+    for position in list(_positions(session, account)):
+        if position.average_cost <= 0 or position.last_price is None or position.last_price <= 0:
+            continue
+        return_pct = (position.last_price - position.average_cost) / position.average_cost
+        if DEFAULT_EXIT_STOP_LOSS_PCT < return_pct < DEFAULT_EXIT_TAKE_PROFIT_PCT:
+            continue
+        quantity = _exit_order_quantity(position)
+        if quantity <= 0:
+            continue
+        exit_type = "take_profit" if return_pct >= DEFAULT_EXIT_TAKE_PROFIT_PCT else "stop_loss"
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(
+                ticker=position.ticker,
+                side="sell",
+                quantity=quantity,
+                strategy_id=DEFAULT_PAPER_STRATEGY_ID,
+                reason=(
+                    f"Paper exit rule {exit_type} triggered for {position.ticker}: "
+                    f"return {return_pct:.2%}, last price {position.last_price:.2f}, "
+                    f"average cost {position.average_cost:.2f}."
+                ),
+            ),
+            run_id=run_id,
+            trading_day=trading_day,
+            account_mode=account.mode,
+        )
+
+
+def _exit_order_quantity(position: PaperPosition) -> float:
+    if position.last_price is None or position.last_price <= 0:
+        return 0.0
+    max_quantity = int(DEFAULT_CANDIDATE_NOTIONAL // position.last_price)
+    if max_quantity <= 0:
+        return 0.0
+    return min(position.quantity, float(max_quantity))
+
+
+def _create_review(session: Session, account: PaperAccount, trading_day: str | None = None) -> PaperReview:
     positions = _positions(session, account)
     unrealized = round(sum(position.unrealized_pnl for position in positions), 2)
     equity = round(account.cash + sum(position.market_value for position in positions), 2)
@@ -545,6 +825,7 @@ def _create_review(session: Session, account: PaperAccount) -> PaperReview:
         session.exec(
             select(PaperOrder).where(
                 PaperOrder.account_id == account.id,
+                PaperOrder.strategy_id == DEFAULT_PAPER_STRATEGY_ID,
                 PaperOrder.status == PaperOrderStatus.filled,
                 PaperOrder.side == PaperOrderSide.sell,
             )
@@ -561,7 +842,7 @@ def _create_review(session: Session, account: PaperAccount) -> PaperReview:
     return PaperReview(
         account_id=account.id,
         team_id=account.team_id,
-        trading_day=_current_trading_day(),
+        trading_day=trading_day or _current_trading_day(),
         equity=equity,
         cash=account.cash,
         realized_pnl=account.realized_pnl,
@@ -577,7 +858,7 @@ def _create_review(session: Session, account: PaperAccount) -> PaperReview:
 
 
 def _current_trading_day() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return current_market_trading_day()
 
 
 def _review_for_trading_day(session: Session, account: PaperAccount, trading_day: str) -> PaperReview | None:
@@ -626,7 +907,11 @@ def _positions(session: Session, account: PaperAccount) -> list[PaperPosition]:
     )
 
 
-def _paper_portfolio_state(session: Session, account: PaperAccount) -> PortfolioState:
+def _paper_portfolio_state(
+    session: Session,
+    account: PaperAccount,
+    trading_day: str | None = None,
+) -> PortfolioState:
     positions = _positions(session, account)
     equity = round(account.cash + sum(position.market_value for position in positions), 2)
     return PortfolioState(
@@ -640,19 +925,25 @@ def _paper_portfolio_state(session: Session, account: PaperAccount) -> Portfolio
             )
             for position in positions
         ],
-        orders_today=_orders_today(session, account),
+        orders_today=_orders_today(session, account, trading_day=trading_day),
     )
 
 
-def _orders_today(session: Session, account: PaperAccount) -> int:
-    today = datetime.now(timezone.utc).date().isoformat()
+def _orders_today(session: Session, account: PaperAccount, trading_day: str | None = None) -> int:
+    day = trading_day or _current_trading_day()
     return len(
         [
             order
             for order in session.exec(select(PaperOrder).where(PaperOrder.account_id == account.id)).all()
-            if order.submitted_at.date().isoformat() == today
+            if order.submitted_at.date().isoformat() == day
         ]
     )
+
+
+def _order_timestamp(trading_day: str | None = None) -> datetime:
+    if trading_day is None:
+        return utc_now()
+    return datetime.fromisoformat(f"{trading_day}T21:00:00+00:00")
 
 
 def _candidate_score(evidence_count: int, diversification_bonus: float) -> float:
@@ -684,28 +975,49 @@ def _market_event_from_evidence(
     )
 
 
-def _paper_risk_limits() -> RiskLimits:
-    return RiskLimits(
-        max_order_notional=DEFAULT_CANDIDATE_NOTIONAL,
-        max_position_weight=0.1,
-        max_daily_orders=5,
+def _paper_risk_limits(
+    session: Session | None = None,
+    *,
+    team_id: UUID | None = None,
+    mode: PaperTradingMode = PaperTradingMode.paper,
+) -> RiskLimits:
+    return get_paper_risk_limits(session, team_id=team_id, mode=mode)
+
+
+def _manual_trade_intent(data: PaperOrderCreate, notional: float, strategy_id: str) -> TradeIntent:
+    reason = data.reason or f"Registered strategy {strategy_id} manual paper {data.side} order for {data.quantity:g} {data.ticker}."
+    return TradeIntent(
+        ticker=data.ticker,
+        side=TradeIntentSide(data.side),
+        notional=notional,
+        reason=reason,
     )
+
+
+def _paper_order_strategy_id(
+    registered_strategy_id: str,
+    *,
+    run_id: UUID | None,
+    core_context: CoreEventContext | None,
+) -> str:
+    if core_context is not None:
+        return core_context.strategy_id
+    if run_id is not None:
+        return registered_strategy_id
+    return f"{registered_strategy_id}{MANUAL_OVERRIDE_STRATEGY_SUFFIX}"
 
 
 def _submit_core_order(
     session: Session,
     account: PaperAccount,
-    data: PaperOrderCreate,
-    notional: float,
+    intent: TradeIntent,
+    core_context: CoreEventContext,
+    trading_day: str | None = None,
 ) -> CoreOrder:
-    intent = TradeIntent(
-        ticker=data.ticker,
-        side=TradeIntentSide(data.side),
-        notional=notional,
-        reason=f"Paper {data.side} order for {data.quantity:g} {data.ticker}.",
-    )
-    execution = ExecutionEngine(RiskEngine(_paper_risk_limits()))
-    return execution.submit_intent(intent, _paper_portfolio_state(session, account))
+    if core_context is None:
+        raise ValueError("Execution requires a persisted core event context.")
+    execution = ExecutionEngine(RiskEngine(_paper_risk_limits(session, team_id=account.team_id, mode=account.mode)))
+    return execution.submit_intent(intent, _paper_portfolio_state(session, account, trading_day=trading_day))
 
 
 def _new_paper_order(
@@ -716,10 +1028,13 @@ def _new_paper_order(
     core_order: CoreOrder,
     status: PaperOrderStatus,
     rejection_reason: str | None = None,
+    submitted_at: datetime | None = None,
+    strategy_id: str | None = None,
 ) -> PaperOrder:
     return PaperOrder(
         account_id=account.id,
         team_id=team_id,
+        strategy_id=strategy_id or data.strategy_id,
         ticker=data.ticker,
         side=side,
         order_type=data.order_type,
@@ -732,11 +1047,74 @@ def _new_paper_order(
         risk_code=core_order.risk_decision.code if core_order.risk_decision is not None else None,
         risk_reason=core_order.risk_decision.reason if core_order.risk_decision is not None else None,
         state_history_json=_state_history_json(core_order),
+        submitted_at=submitted_at or utc_now(),
     )
 
 
 def _state_history_json(core_order: CoreOrder) -> str:
     return json.dumps([record.model_dump(mode="json") for record in core_order.state_history])
+
+
+def _persist_manual_strategy_events(
+    *,
+    session: Session,
+    team_id: UUID,
+    account: PaperAccount,
+    data: PaperOrderCreate,
+    intent: TradeIntent,
+    run_id: UUID | None,
+    order_strategy_id: str,
+    trading_day: str | None = None,
+) -> CoreEventContext:
+    event_bus = _build_trading_event_bus()
+    order_origin = "manual_override" if order_strategy_id.endswith(MANUAL_OVERRIDE_STRATEGY_SUFFIX) else "paper_run_order"
+    event_source = EventSource.manual if order_origin == "manual_override" else EventSource.market_data
+    summary = data.reason or _paper_order_event_summary(data, order_origin)
+    event = MarketEvent(
+        source=event_source,
+        event_type=MarketEventType.price_move,
+        ticker=data.ticker,
+        occurred_at=utc_now(),
+        summary=summary,
+        sentiment=Sentiment.positive if data.side == "buy" else Sentiment.negative,
+        confidence=1.0,
+        impact_score=0.1,
+        metadata={
+            "registered_strategy_id": data.strategy_id,
+            "order_strategy_id": order_strategy_id,
+            "order_origin": order_origin,
+            "quantity": data.quantity,
+            "order_type": data.order_type,
+            "reason": data.reason,
+        },
+    )
+    market_envelope = event_bus.publish(TradingEventTopic.market_event, event)
+    strategy_input_envelope = event_bus.publish(
+        TradingEventTopic.strategy_input,
+        StrategyInputEvent(market_event=event, portfolio=_paper_portfolio_state(session, account, trading_day=trading_day)),
+        causation_id=market_envelope.event_id,
+        correlation_id=market_envelope.correlation_id,
+    )
+    trade_intent_envelope = event_bus.publish(
+        TradingEventTopic.trade_intent,
+        intent,
+        causation_id=strategy_input_envelope.event_id,
+        correlation_id=strategy_input_envelope.correlation_id,
+    )
+    _persist_core_event_envelopes(session, team_id, event_bus.history, run_id=run_id)
+    return CoreEventContext(
+        correlation_id=trade_intent_envelope.correlation_id,
+        trade_intent_event_id=trade_intent_envelope.event_id,
+        trade_intent_sequence=trade_intent_envelope.sequence,
+        intent=intent,
+        strategy_id=order_strategy_id,
+    )
+
+
+def _paper_order_event_summary(data: PaperOrderCreate, order_origin: str) -> str:
+    if order_origin == "manual_override":
+        return f"Manual paper {data.side} request for {data.quantity:g} {data.ticker}."
+    return f"Paper run system {data.side} order for {data.quantity:g} {data.ticker}."
 
 
 def _persist_core_order_events(
@@ -751,8 +1129,37 @@ def _persist_core_order_events(
     causation_id = (
         str(core_context.trade_intent_event_id) if core_context is not None else str(core_order.intent.intent_id)
     )
+    order_state_causation_id = causation_id
+    order_state_offset = 0
+    if core_order.risk_decision is not None:
+        risk_sequence = sequence_start
+        risk_payload = {
+            "order_id": str(core_order.order_id),
+            "intent_id": str(core_order.intent.intent_id),
+            "ticker": core_order.intent.ticker,
+            "status": core_order.risk_decision.status.value,
+            "code": core_order.risk_decision.code,
+            "reason": core_order.risk_decision.reason,
+        }
+        risk_event_id = f"{correlation_id}:{risk_sequence}:risk_decision"
+        session.add(
+            CoreEventLog(
+                team_id=team_id,
+                run_id=run_id,
+                event_id=risk_event_id,
+                topic="risk_decision",
+                sequence=risk_sequence,
+                correlation_id=correlation_id,
+                causation_id=causation_id,
+                payload_json=json.dumps(risk_payload),
+                published_at=utc_now(),
+            )
+        )
+        order_state_causation_id = risk_event_id
+        order_state_offset = 1
+
     for offset, record in enumerate(core_order.state_history):
-        sequence = sequence_start + offset
+        sequence = sequence_start + order_state_offset + offset
         payload = {
             "order_id": str(core_order.order_id),
             "intent_id": str(core_order.intent.intent_id),
@@ -769,10 +1176,36 @@ def _persist_core_order_events(
                 topic="order_state",
                 sequence=sequence,
                 correlation_id=correlation_id,
-                causation_id=causation_id,
+                causation_id=order_state_causation_id,
                 payload_json=json.dumps(payload),
                 published_at=record.recorded_at,
             )
+        )
+    if core_context is not None:
+        _stream_core_order_events(core_order, core_context)
+
+
+def _stream_core_order_events(core_order: CoreOrder, core_context: CoreEventContext) -> None:
+    event_bus = _build_trading_event_bus(initial_sequence=core_context.trade_intent_sequence)
+    risk_envelope = None
+    if core_order.risk_decision is not None:
+        risk_envelope = event_bus.publish(
+            TradingEventTopic.risk_decision,
+            core_order.risk_decision,
+            causation_id=core_context.trade_intent_event_id,
+            correlation_id=core_context.correlation_id,
+        )
+    for record in core_order.state_history:
+        payload = order_state_event(core_order).model_copy(update={"current_state": record.state})
+        event_bus.publish(
+            TradingEventTopic.order_state,
+            payload,
+            causation_id=(
+                risk_envelope.event_id
+                if risk_envelope is not None
+                else core_context.trade_intent_event_id
+            ),
+            correlation_id=core_context.correlation_id,
         )
 
 
@@ -782,6 +1215,7 @@ def _persist_core_event_envelopes(
     envelopes: list[EventEnvelope],
     run_id: UUID | None,
 ) -> None:
+    sequence_start = _next_core_event_sequence(session, run_id)
     for envelope in envelopes:
         session.add(
             CoreEventLog(
@@ -789,7 +1223,7 @@ def _persist_core_event_envelopes(
                 run_id=run_id,
                 event_id=str(envelope.event_id),
                 topic=envelope.topic.value,
-                sequence=envelope.sequence,
+                sequence=sequence_start + envelope.sequence - 1,
                 correlation_id=str(envelope.correlation_id),
                 causation_id=str(envelope.causation_id) if envelope.causation_id is not None else None,
                 payload_json=envelope.payload.model_dump_json(),
@@ -798,52 +1232,140 @@ def _persist_core_event_envelopes(
         )
 
 
+def _build_trading_event_bus(initial_sequence: int = 0) -> InMemoryEventBus:
+    settings = get_settings()
+    return build_event_bus(
+        mode=settings.event_bus_mode,
+        redis_url=settings.redis_url,
+        stream_name=settings.redis_stream_name,
+        initial_sequence=initial_sequence,
+    )
+
+
 def _next_core_event_sequence(session: Session, run_id: UUID | None) -> int:
+    query = select(CoreEventLog)
     if run_id is None:
-        return 1
-    latest = session.exec(
-        select(CoreEventLog)
-        .where(CoreEventLog.run_id == run_id)
-        .order_by(CoreEventLog.sequence.desc())
-    ).first()
+        query = query.where(CoreEventLog.run_id == None)  # noqa: E711
+    else:
+        query = query.where(CoreEventLog.run_id == run_id)
+    latest = session.exec(query.order_by(CoreEventLog.sequence.desc())).first()
     if latest is None:
         return 1
     return latest.sequence + 1
 
 
-def _summary_payload(session: Session, account: PaperAccount) -> PaperTradingSummary:
-    positions = _positions(session, account)
-    unrealized = round(sum(position.unrealized_pnl for position in positions), 2)
-    equity = round(account.cash + sum(position.market_value for position in positions), 2)
+def _summary_payload(
+    session: Session,
+    account: PaperAccount,
+    provider: MarketDataProvider,
+    *,
+    as_of_trading_day: str | None = None,
+) -> PaperTradingSummary:
+    as_of_trading_day = as_of_trading_day or _current_trading_day()
     candidates = list(
         session.exec(
             select(PaperCandidate).where(PaperCandidate.team_id == account.team_id).order_by(PaperCandidate.rank)
         ).all()
     )
+    candidates = [
+        candidate for candidate in candidates if _is_on_or_before_trading_day(candidate.created_at, as_of_trading_day)
+    ]
     orders = list(
         session.exec(
             select(PaperOrder).where(PaperOrder.account_id == account.id).order_by(PaperOrder.submitted_at.desc())
         ).all()
     )
+    orders = [order for order in orders if _is_on_or_before_trading_day(order.submitted_at, as_of_trading_day)]
+    projected_account, projected_positions = _project_as_of_account(account, orders, provider)
     latest_review = session.exec(
-        select(PaperReview).where(PaperReview.account_id == account.id).order_by(PaperReview.created_at.desc())
+        select(PaperReview)
+        .where(PaperReview.account_id == account.id)
+        .where(PaperReview.trading_day <= as_of_trading_day)
+        .order_by(PaperReview.trading_day.desc(), PaperReview.created_at.desc())
     ).first()
     return PaperTradingSummary(
-        account=PaperAccountPayload(
+        account=projected_account,
+        candidates=[_candidate_payload(candidate) for candidate in candidates],
+        orders=[_order_payload(order) for order in orders],
+        positions=projected_positions,
+        latest_review=_review_payload(latest_review) if latest_review is not None else None,
+    )
+
+
+def _project_as_of_account(
+    account: PaperAccount,
+    orders: list[PaperOrder],
+    provider: MarketDataProvider,
+) -> tuple[PaperAccountPayload, list[PaperPositionPayload]]:
+    cash = account.starting_cash
+    realized_pnl = 0.0
+    positions: dict[str, dict[str, float]] = {}
+    realized_by_ticker: dict[str, float] = {}
+    for order in sorted(orders, key=lambda item: item.submitted_at):
+        if order.status != PaperOrderStatus.filled or order.fill_price is None:
+            continue
+        ticker = order.ticker.upper()
+        quantity = order.quantity
+        fill_price = order.fill_price
+        if order.side == PaperOrderSide.buy:
+            current = positions.setdefault(ticker, {"quantity": 0.0, "average_cost": 0.0})
+            previous_quantity = current["quantity"]
+            new_quantity = previous_quantity + quantity
+            current["average_cost"] = (
+                ((previous_quantity * current["average_cost"]) + (quantity * fill_price)) / new_quantity
+                if new_quantity
+                else 0.0
+            )
+            current["quantity"] = new_quantity
+            cash -= quantity * fill_price
+            continue
+
+        current = positions.get(ticker)
+        if current is None or current["quantity"] <= 0:
+            continue
+        sell_quantity = min(quantity, current["quantity"])
+        cash += sell_quantity * fill_price
+        pnl = (fill_price - current["average_cost"]) * sell_quantity
+        realized_pnl += pnl
+        realized_by_ticker[ticker] = realized_by_ticker.get(ticker, 0.0) + pnl
+        current["quantity"] -= sell_quantity
+        if current["quantity"] <= 1e-9:
+            positions.pop(ticker, None)
+
+    position_payloads: list[PaperPositionPayload] = []
+    for ticker, position in sorted(positions.items()):
+        quote = provider.get_quote(ticker)
+        last_price = quote.price or position["average_cost"]
+        market_value = position["quantity"] * last_price
+        unrealized_pnl = (last_price - position["average_cost"]) * position["quantity"]
+        position_payloads.append(
+            PaperPositionPayload(
+                id=uuid5(NAMESPACE_DNS, f"{account.id}:{ticker}"),
+                ticker=ticker,
+                quantity=round(position["quantity"], 6),
+                average_cost=round(position["average_cost"], 6),
+                last_price=round(last_price, 6),
+                market_value=round(market_value, 2),
+                unrealized_pnl=round(unrealized_pnl, 2),
+                realized_pnl=round(realized_by_ticker.get(ticker, 0.0), 2),
+                updated_at=account.updated_at,
+            )
+        )
+    unrealized = round(sum(position.unrealized_pnl for position in position_payloads), 2)
+    equity = round(cash + sum(position.market_value for position in position_payloads), 2)
+    return (
+        PaperAccountPayload(
             id=account.id,
             name=account.name,
             mode=account.mode.value,
             starting_cash=round(account.starting_cash, 2),
-            cash=round(account.cash, 2),
-            realized_pnl=round(account.realized_pnl, 2),
+            cash=round(cash, 2),
+            realized_pnl=round(realized_pnl, 2),
             unrealized_pnl=unrealized,
             equity=equity,
             updated_at=account.updated_at,
         ),
-        candidates=[_candidate_payload(candidate) for candidate in candidates],
-        orders=[_order_payload(order) for order in orders],
-        positions=[_position_payload(position) for position in positions],
-        latest_review=_review_payload(latest_review) if latest_review is not None else None,
+        position_payloads,
     )
 
 
@@ -863,9 +1385,14 @@ def _candidate_payload(candidate: PaperCandidate) -> PaperCandidatePayload:
     )
 
 
+def _is_on_or_before_trading_day(value: datetime, trading_day: str) -> bool:
+    return value.date() <= datetime.fromisoformat(trading_day).date()
+
+
 def _order_payload(order: PaperOrder) -> PaperOrderPayload:
     return PaperOrderPayload(
         id=order.id,
+        strategy_id=order.strategy_id,
         ticker=order.ticker,
         side=order.side.value,
         order_type=order.order_type,

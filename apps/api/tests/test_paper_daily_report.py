@@ -1,0 +1,79 @@
+from datetime import datetime, timezone
+
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from app.domain.models import PaperAccount, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
+from app.services import paper_operations
+from app.services.paper_daily_report import get_paper_daily_report
+from app.services.paper_trading import run_daily_paper_trading_loop
+from tests.test_paper_trading_service import FixtureProvider
+
+
+def test_paper_daily_report_summarizes_runtime_facts_after_daily_run():
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider)
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.trading_day
+        assert report.run_state == "completed"
+        assert report.health_status == "ready"
+        assert report.recommended_action == "hold_until_next_session"
+        assert report.candidate_count > 0
+        assert report.order_count == 1
+        assert report.open_position_count == 1
+        assert report.account_equity == 100000
+        assert report.event_ledger_ready is True
+        assert report.alpha_ready is False
+        assert "review_day_sample" in report.alpha_blockers
+
+
+def test_paper_daily_report_ignores_future_simulation_reviews(monkeypatch):
+    monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-13")
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider, trading_day="2026-06-13")
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-30",
+                equity=103000,
+                cash=100000,
+                realized_pnl=500,
+                unrealized_pnl=200,
+                trade_count=10,
+                win_rate=0.8,
+                average_win=80,
+                average_loss=10,
+                expectancy=49.8,
+                notes="future simulation review",
+                created_at=datetime(2026, 6, 30, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperRun(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-30",
+                trigger=PaperRunTrigger.manual,
+                status=PaperRunStatus.completed,
+            )
+        )
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.trading_day == "2026-06-13"
+        assert report.latest_expectancy == 0
+        assert "future_runs_excluded_from_as_of_report" in report.data_quality_warnings
+        assert "49.80" not in report.summary
+
+
+def make_session() -> Session:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    return Session(engine)

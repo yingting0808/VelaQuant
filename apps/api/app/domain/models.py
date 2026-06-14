@@ -24,6 +24,9 @@ class AlertStatus(str, Enum):
 
 class PaperTradingMode(str, Enum):
     paper = "paper"
+    shadow = "shadow"
+    live_small = "live_small"
+    simulation = "simulation"
 
 
 class PaperCandidateStatus(str, Enum):
@@ -52,6 +55,7 @@ class PaperReadiness(str, Enum):
 class PaperRunTrigger(str, Enum):
     manual = "manual"
     scheduled = "scheduled"
+    simulation = "simulation"
 
 
 class PaperRunStatus(str, Enum):
@@ -170,6 +174,7 @@ class AuditLog(SQLModel, table=True):
 class PaperAccount(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
     name: str
     mode: PaperTradingMode = Field(default=PaperTradingMode.paper, index=True)
     starting_cash: float = 100000.0
@@ -198,6 +203,7 @@ class PaperOrder(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     account_id: UUID = Field(foreign_key="paperaccount.id", index=True)
     team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
     ticker: str = Field(index=True)
     side: PaperOrderSide = Field(index=True)
     order_type: str = "market"
@@ -249,6 +255,18 @@ class PaperReview(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class PaperRiskSetting(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    mode: PaperTradingMode = Field(default=PaperTradingMode.paper, index=True)
+    max_order_notional: float = 2000.0
+    max_position_weight: float = 0.1
+    max_daily_orders: int = 5
+    source: str = "default"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class PaperRun(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     account_id: Optional[UUID] = Field(default=None, foreign_key="paperaccount.id", index=True)
@@ -263,6 +281,110 @@ class PaperRun(SQLModel, table=True):
     error_message: Optional[str] = None
     started_at: datetime = Field(default_factory=utc_now)
     finished_at: Optional[datetime] = None
+
+
+class StrategyLifecycleState(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    strategy_id: str = Field(index=True)
+    current_stage: str = Field(default="paper", index=True)
+    transition_reason: str = ""
+    auto_transition_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ShadowObservation(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
+    trading_day: str = Field(index=True)
+    status: str = Field(default="blocked", index=True)
+    can_request_shadow_review: bool = False
+    observed_intent_count: int = 0
+    would_route_order_count: int = 0
+    event_chain_count: int = 0
+    residual_risk_count: int = 0
+    blocked_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class StrategyAlphaSnapshot(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
+    trading_day: str = Field(index=True)
+    alpha_ready: bool = Field(default=False, index=True)
+    validation_level: str = Field(default="collecting", index=True)
+    blockers_json: str = "[]"
+    review_day_count: int = 0
+    consecutive_positive_expectancy_days: int = 0
+    filled_order_count: int = 0
+    closed_trade_count: int = 0
+    event_chain_count: int = 0
+    latest_expectancy: float = 0.0
+    average_expectancy: float = 0.0
+    max_drawdown: float = 0.0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class StrategyCompetitionSnapshot(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    trading_day: str = Field(index=True)
+    status: str = Field(default="collecting", index=True)
+    selected_strategy_id: Optional[str] = Field(default=None, index=True)
+    strategy_count: int = 0
+    allocatable_strategy_count: int = 0
+    competition_ready: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class StrategyCompetitionEntry(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    snapshot_id: UUID = Field(foreign_key="strategycompetitionsnapshot.id", index=True)
+    team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(index=True)
+    name: str
+    version: str
+    source: str = Field(index=True)
+    execution_mode: str = Field(index=True)
+    status: str = Field(index=True)
+    rank: int
+    ranking_score: float = 0.0
+    allocation_weight: float = 0.0
+    eligible_for_allocation: bool = Field(default=False, index=True)
+    recommended_action: str = Field(default="collect_more_evidence", index=True)
+    blockers_json: str = "[]"
+    readiness: str = Field(index=True)
+    promotion_gate: str
+    sample_size: int = 0
+    filled_order_count: int = 0
+    observed_pnl: float = 0.0
+    primary_regime: str = ""
+    signal_quality_score: float = 0.0
+    supports_live: bool = False
+    supports_hot_swap: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class StrategyVersionRecord(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    strategy_id: str = Field(index=True)
+    version: str = Field(index=True)
+    parameters_json: str = "{}"
+    status: str = Field(default="registered", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class StrategyActiveBinding(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    strategy_id: str = Field(index=True)
+    active_version: str = Field(index=True)
+    previous_version: Optional[str] = Field(default=None, index=True)
+    activation_reason: str = ""
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class CoreEventLog(SQLModel, table=True):

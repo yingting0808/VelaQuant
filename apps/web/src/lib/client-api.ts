@@ -175,6 +175,66 @@ export type StrategyRegistryPayload = {
   summary: string;
 };
 
+export type StrategyCompetitionEntryPayload = {
+  strategy_id: string;
+  name: string;
+  version: string;
+  source: "paper_core" | "lean_catalog" | string;
+  execution_mode: "paper" | "backtest" | string;
+  status: string;
+  rank: number;
+  ranking_score: number;
+  allocation_weight: number;
+  eligible_for_allocation: boolean;
+  recommended_action: string;
+  blockers: string[];
+  readiness: string;
+  promotion_gate: string;
+  sample_size: number;
+  filled_order_count: number;
+  observed_pnl: number;
+  primary_regime: string;
+  signal_quality_score: number;
+  supports_live: boolean;
+  supports_hot_swap: boolean;
+};
+
+export type StrategyCompetitionPayload = {
+  trading_day: string;
+  status: string;
+  active_strategy_id: string;
+  selected_strategy_id: string | null;
+  strategy_count: number;
+  allocatable_strategy_count: number;
+  competition_ready: boolean;
+  entries: StrategyCompetitionEntryPayload[];
+  summary: string;
+};
+
+export type StrategyCompetitionSnapshotPayload = StrategyCompetitionPayload & {
+  id: string;
+  team_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StrategyCompetitionSnapshotHistoryPayload = {
+  snapshot_count: number;
+  latest: StrategyCompetitionSnapshotPayload | null;
+  items: StrategyCompetitionSnapshotPayload[];
+  summary: string;
+};
+
+export type StrategyAlphaIsolationPayload = {
+  strategy_id: string;
+  isolated: boolean;
+  strategy_order_count: number;
+  manual_override_order_count: number;
+  manual_override_event_chain_count: number;
+  filtered_event_chain_count: number;
+  summary: string;
+};
+
 export type StrategyLifecycleRulePayload = {
   name: string;
   passed: boolean;
@@ -194,7 +254,12 @@ export type StrategyLifecyclePayload = {
     | "keep_paper_running"
     | "eligible_for_shadow_review"
     | "repair_event_ledger"
-    | "kill_review";
+    | "kill_review"
+    | "auto_promoted_to_shadow"
+    | "auto_promoted_to_live_small"
+    | "auto_promoted_to_live"
+    | "auto_killed_negative_expectancy"
+    | "hold_current_stage";
   gate_status: "blocked" | "watch" | "eligible";
   promotion_gate: string;
   can_promote: boolean;
@@ -203,6 +268,388 @@ export type StrategyLifecyclePayload = {
   rules: StrategyLifecycleRulePayload[];
   missing_capabilities: string[];
   summary: string;
+};
+
+export type StrategyLifecycleAuditItemPayload = {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  approved_by: string | null;
+  reason: string | null;
+  previous_stage: string | null;
+  current_stage: string | null;
+  auto_promotion_enabled: boolean | null;
+  execution_enabled?: boolean | null;
+  created_at: string;
+};
+
+export type StrategyLifecycleAuditPayload = {
+  strategy_id: string;
+  items: StrategyLifecycleAuditItemPayload[];
+  summary: string;
+};
+
+export type TradingSystemReadinessPayload = {
+  status: "operational" | "attention" | "blocked" | string;
+  scheduler_running: boolean;
+  scheduler_next_run_at: string | null;
+  lifecycle_stage: string;
+  alpha_ready: boolean;
+  event_bus_mode: string;
+  event_bus_ready: boolean;
+  event_bus_stream_length: number | null;
+  event_ledger_replay_ready: boolean;
+  event_ledger_traceable_chain_count: number;
+  event_ledger_complete_order_chain_count: number;
+  event_ledger_broken_chain_count: number;
+  event_ledger_traceability_ratio: number;
+  shadow_can_record: boolean;
+  shadow_remaining_observations: number;
+  live_small_review_ready: boolean;
+  live_or_broker_execution_enabled: boolean;
+  manual_override_isolated: boolean;
+  manual_override_order_count: number;
+  manual_override_event_chain_count: number;
+  alpha_filtered_event_chain_count: number;
+  blockers: string[];
+  pending_gates: string[];
+  summary: string;
+};
+
+export type StrategyAlphaValidationPayload = {
+  strategy_id: string;
+  alpha_ready: boolean;
+  validation_level: "collecting" | "paper_validated" | "failed";
+  blockers: string[];
+  has_real_market_backtest: boolean;
+  review_day_count: number;
+  consecutive_positive_expectancy_days: number;
+  filled_order_count: number;
+  closed_trade_count: number;
+  event_chain_count: number;
+  latest_expectancy: number;
+  average_expectancy: number;
+  max_drawdown: number;
+  summary: string;
+};
+
+export type AlphaGateProgressItemPayload = {
+  gate: string;
+  label: string;
+  current: number;
+  required: number;
+  remaining: number;
+  unit: string;
+  comparison: "at_least" | "greater_than" | "at_most" | string;
+  passed: boolean;
+};
+
+export type AlphaGateProgressPayload = {
+  alpha_ready: boolean;
+  validation_level: string;
+  passed_gates: number;
+  total_gates: number;
+  items: AlphaGateProgressItemPayload[];
+  summary: string;
+};
+
+export type AlphaValidationSnapshotPayload = {
+  id: string;
+  team_id: string;
+  strategy_id: string;
+  trading_day: string;
+  alpha_ready: boolean;
+  validation_level: string;
+  blockers: string[];
+  has_real_market_backtest: boolean;
+  review_day_count: number;
+  consecutive_positive_expectancy_days: number;
+  filled_order_count: number;
+  closed_trade_count: number;
+  event_chain_count: number;
+  latest_expectancy: number;
+  average_expectancy: number;
+  max_drawdown: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AlphaValidationSnapshotBlockerCountPayload = {
+  blocker: string;
+  count: number;
+};
+
+export type AlphaValidationSnapshotHistoryPayload = {
+  strategy_id: string;
+  snapshot_count: number;
+  ready_snapshot_count: number;
+  positive_expectancy_snapshot_count: number;
+  positive_expectancy_streak: number;
+  ready_streak: number;
+  latest_blockers: string[];
+  blocker_counts: AlphaValidationSnapshotBlockerCountPayload[];
+  latest: AlphaValidationSnapshotPayload | null;
+  items: AlphaValidationSnapshotPayload[];
+  summary: string;
+};
+
+export type AlphaValidationForecastItemPayload = {
+  gate: string;
+  label: string;
+  current: number;
+  required: number;
+  remaining: number;
+  unit: string;
+  passed: boolean;
+  estimated_per_session: number | null;
+  estimated_sessions: number | null;
+  reason: string;
+};
+
+export type AlphaValidationForecastPayload = {
+  alpha_ready: boolean;
+  status: "ready" | "forecastable" | "blocked" | string;
+  estimated_sessions_to_alpha_ready: number | null;
+  limiting_gate: string | null;
+  items: AlphaValidationForecastItemPayload[];
+  summary: string;
+};
+
+export type ShadowReviewChecklistItemPayload = {
+  code: string;
+  label: string;
+  passed: boolean;
+  evidence: string[];
+};
+
+export type ShadowReviewResidualRiskPayload = {
+  code: string;
+  severity: "info" | "medium" | "high" | string;
+  detail: string;
+  evidence: string[];
+};
+
+export type ShadowReviewPayload = {
+  status: "blocked" | "ready_for_manual_review" | string;
+  strategy_id: string;
+  can_request_shadow_review: boolean;
+  recommended_stage: string;
+  auto_promotion_enabled: boolean;
+  checklist: ShadowReviewChecklistItemPayload[];
+  residual_risks: ShadowReviewResidualRiskPayload[];
+  summary: string;
+};
+
+export type ShadowObservationPayload = {
+  id: string;
+  team_id: string;
+  strategy_id: string;
+  trading_day: string;
+  status: string;
+  can_request_shadow_review: boolean;
+  observed_intent_count: number;
+  would_route_order_count: number;
+  event_chain_count: number;
+  residual_risk_count: number;
+  blocked_reason: string | null;
+  created_at: string;
+};
+
+export type ShadowObservationSummaryPayload = {
+  can_record_shadow_observation: boolean;
+  latest: ShadowObservationPayload | null;
+  items: ShadowObservationPayload[];
+  summary: string;
+};
+
+export type ShadowObservationHealthPayload = {
+  strategy_id: string;
+  status: "collecting" | "stable" | "attention" | "blocked" | string;
+  sample_ready: boolean;
+  observation_count: number;
+  observing_count: number;
+  blocked_count: number;
+  consecutive_observing_count: number;
+  latest_trading_day: string | null;
+  average_would_route_order_count: number;
+  average_event_chain_count: number;
+  average_residual_risk_count: number;
+  warnings: string[];
+  summary: string;
+};
+
+export type ShadowValidationPayload = {
+  strategy_id: string;
+  shadow_ready: boolean;
+  status: "collecting" | "shadow_validated" | "blocked" | string;
+  observation_count: number;
+  observing_count: number;
+  blocked_count: number;
+  latest_trading_day: string | null;
+  min_observations_required: number;
+  remaining_observations: number;
+  residual_risk_count: number;
+  blockers: string[];
+  summary: string;
+};
+
+export type ShadowDailyReportActionPayload = {
+  priority: number;
+  action_code: string;
+  title: string;
+  detail: string;
+  evidence: string[];
+};
+
+export type ShadowDailyReportPayload = {
+  strategy_id: string;
+  trading_day: string | null;
+  status: "collecting" | "ready_for_manual_review" | "attention" | "blocked" | string;
+  observation_status: string;
+  health_status: string;
+  validation_status: string;
+  live_small_status: string;
+  observed_intent_count: number;
+  would_route_order_count: number;
+  event_chain_count: number;
+  residual_risk_count: number;
+  remaining_observations: number;
+  warnings: string[];
+  blockers: string[];
+  next_actions: ShadowDailyReportActionPayload[];
+  live_or_broker_execution_enabled: boolean;
+  summary: string;
+};
+
+export type LiveSmallReviewChecklistItemPayload = {
+  code: string;
+  label: string;
+  passed: boolean;
+  evidence: string[];
+};
+
+export type LiveSmallReviewResidualRiskPayload = {
+  code: string;
+  severity: "info" | "medium" | "high" | string;
+  detail: string;
+  evidence: string[];
+};
+
+export type LiveSmallReviewPayload = {
+  status: "blocked" | "ready_for_manual_review" | string;
+  strategy_id: string;
+  can_request_live_small_review: boolean;
+  recommended_stage: string;
+  auto_promotion_enabled: boolean;
+  checklist: LiveSmallReviewChecklistItemPayload[];
+  residual_risks: LiveSmallReviewResidualRiskPayload[];
+  summary: string;
+};
+
+export type StrategyShadowApprovalRequestPayload = {
+  approved_by: string;
+  reason: string;
+};
+
+export type StrategyShadowApprovalPayload = {
+  strategy_id: string;
+  previous_stage: string;
+  current_stage: string;
+  approved_by: string;
+  reason: string;
+  auto_promotion_enabled: boolean;
+  summary: string;
+};
+
+export type StrategyLiveSmallApprovalRequestPayload = {
+  approved_by: string;
+  reason: string;
+};
+
+export type StrategyLiveSmallApprovalPayload = {
+  strategy_id: string;
+  previous_stage: string;
+  current_stage: string;
+  approved_by: string;
+  reason: string;
+  auto_promotion_enabled: boolean;
+  live_or_broker_execution_enabled: boolean;
+  summary: string;
+};
+
+export type StrategyKillApprovalRequestPayload = {
+  approved_by: string;
+  reason: string;
+};
+
+export type StrategyKillApprovalPayload = {
+  strategy_id: string;
+  previous_stage: string;
+  current_stage: string;
+  approved_by: string;
+  reason: string;
+  auto_promotion_enabled: boolean;
+  execution_enabled: boolean;
+  summary: string;
+};
+
+export type StrategyLifecycleReconcilePayload = {
+  strategy_id: string;
+  previous_stage: string;
+  current_stage: string;
+  reconciled: boolean;
+  reconciled_by: string;
+  reason: string;
+  alpha_ready: boolean;
+  auto_promotion_enabled: boolean;
+  execution_enabled: boolean;
+  summary: string;
+};
+
+export type StrategyVersionPayload = {
+  strategy_id: string;
+  version: string;
+  parameters_json: string;
+  status: string;
+  is_active: boolean;
+};
+
+export type StrategyVersionControlPayload = {
+  active_strategy_id: string;
+  active_version: string;
+  previous_version: string | null;
+  versions: StrategyVersionPayload[];
+};
+
+export type StrategyRuntimeEntryPayload = {
+  strategy_id: string;
+  version: string;
+  ranking_score: number;
+  eligible: boolean;
+  rank: number;
+  block_reason: string | null;
+};
+
+export type StrategyRuntimePayload = {
+  winner: StrategyRuntimeEntryPayload | null;
+  entries: StrategyRuntimeEntryPayload[];
+  summary: string;
+};
+
+export type StrategyExecutionAccountPayload = {
+  id: string;
+  team_id: string;
+  strategy_id: string;
+  name: string;
+  mode: "paper" | "shadow" | "live_small" | string;
+  starting_cash: number;
+  cash: number;
+  realized_pnl: number;
+};
+
+export type StrategyExecutionAccountsPayload = {
+  accounts: StrategyExecutionAccountPayload[];
 };
 
 export type PaperAccountPayload = {
@@ -288,12 +735,280 @@ export type PaperTradingSummaryPayload = {
   latest_review: PaperReviewPayload | null;
 };
 
+export type PaperDailyReportPayload = {
+  trading_day: string;
+  run_state: string;
+  health_status: string;
+  recommended_action: string;
+  scheduler_running: boolean;
+  scheduler_next_run_at: string | null;
+  account_equity: number;
+  cash: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  candidate_count: number;
+  order_count: number;
+  open_position_count: number;
+  latest_expectancy: number;
+  average_expectancy: number;
+  consecutive_positive_expectancy_days: number;
+  event_ledger_ready: boolean;
+  alpha_ready: boolean;
+  alpha_blockers: string[];
+  data_quality_warnings: string[];
+  summary: string;
+};
+
 export type PaperSchedulerStatusPayload = {
   enabled: boolean;
   running: boolean;
   job_count: number;
+  job_id: string;
   cron: string;
   timezone: string;
+  next_run_at: string | null;
+  last_checked_at: string;
+  can_run_now: boolean;
+  execution_gate: string;
+  market_date: string;
+  trading_day: string;
+  is_market_session: boolean;
+  session_closed: boolean;
+  calendar_provider: string;
+  gate_reason: string;
+};
+
+export type PaperMarketSessionPayload = {
+  market_date: string;
+  trading_day: string;
+  is_market_session: boolean;
+  session_closed: boolean;
+  calendar_provider: string;
+  reason: string;
+};
+
+export type PaperOperationsStatusPayload = {
+  trading_day: string;
+  run_state: "not_started" | "running" | "completed" | "skipped" | "failed";
+  health_status: "ready" | "warning" | "blocked";
+  latest_run_id: string | null;
+  latest_run_trading_day: string | null;
+  latest_run_status: string | null;
+  today_run_id: string | null;
+  review_id: string | null;
+  latest_error: string | null;
+  can_retry_today: boolean;
+  event_ledger_ready: boolean;
+  latest_run_event_count: number;
+  legacy_manual_future_run_count: number;
+  latest_legacy_manual_future_trading_day: string | null;
+  data_quality_warnings: string[];
+  blockers: string[];
+  recommended_action:
+    | "run_daily_paper_trading"
+    | "retry_daily_paper_trading"
+    | "hold_until_next_session"
+    | "repair_event_ledger"
+    | "wait_for_running_job";
+  summary: string;
+};
+
+export type PaperOperationsHistoryItemPayload = {
+  trading_day: string;
+  run_id: string;
+  status: string;
+  health_status: "ready" | "warning" | "blocked";
+  event_count: number;
+  has_review: boolean;
+  candidates_count: number;
+  orders_count: number;
+  positions_count: number;
+  blockers: string[];
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type PaperOperationsHistoryPayload = {
+  window_size: number;
+  completed_days: number;
+  failed_days: number;
+  blocked_days: number;
+  replayable_days: number;
+  review_days: number;
+  completion_rate: number;
+  replay_rate: number;
+  latest_health_status: "ready" | "warning" | "blocked";
+  items: PaperOperationsHistoryItemPayload[];
+  summary: string;
+};
+
+export type PaperOperationsRepairItemPayload = {
+  run_id: string;
+  trading_day: string;
+  status: string;
+  event_created: boolean;
+  topic: string | null;
+  reason: string;
+};
+
+export type PaperOperationsRepairPayload = {
+  scanned_runs: number;
+  repaired_runs: number;
+  skipped_runs: number;
+  items: PaperOperationsRepairItemPayload[];
+  summary: string;
+};
+
+export type PaperOperationsQuarantineItemPayload = {
+  run_id: string;
+  trading_day: string;
+  status: string;
+  previous_trigger: string;
+  new_trigger: string;
+  audit_event_created: boolean;
+  reason: string;
+};
+
+export type PaperOperationsQuarantinePayload = {
+  scanned_runs: number;
+  quarantined_runs: number;
+  skipped_runs: number;
+  items: PaperOperationsQuarantineItemPayload[];
+  summary: string;
+};
+
+export type PaperReviewTrendItemPayload = {
+  trading_day: string;
+  equity: number;
+  cash: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  trade_count: number;
+  win_rate: number;
+  expectancy: number;
+  readiness: string;
+};
+
+export type PaperReviewTrendPayload = {
+  sample_size: number;
+  positive_expectancy_days: number;
+  consecutive_positive_expectancy_days: number;
+  average_expectancy: number;
+  latest_expectancy: number;
+  total_realized_pnl: number;
+  total_unrealized_pnl: number;
+  latest_readiness: string;
+  items: PaperReviewTrendItemPayload[];
+  summary: string;
+};
+
+export type PaperSimulationScenario = "baseline" | "bullish" | "bearish" | "volatile";
+
+export type PaperSimulationRequestPayload = {
+  days: number;
+  scenario: PaperSimulationScenario;
+  start_date?: string | null;
+};
+
+export type PaperSimulationItemPayload = {
+  trading_day: string;
+  run_status: string;
+  orders_count: number;
+  candidates_count: number;
+  positions_count: number;
+  review_id: string | null;
+};
+
+export type PaperSimulationPayload = {
+  scenario: PaperSimulationScenario;
+  start_date: string;
+  days_requested: number;
+  days_completed: number;
+  days_skipped: number;
+  review_day_count: number;
+  consecutive_positive_expectancy_days: number;
+  latest_expectancy: number;
+  average_expectancy: number;
+  event_chain_count: number;
+  alpha_ready: boolean;
+  blockers: string[];
+  items: PaperSimulationItemPayload[];
+  summary: string;
+};
+
+export type PaperExecutionRejectionReasonPayload = {
+  risk_code: string;
+  count: number;
+  latest_reason: string | null;
+};
+
+export type PaperExecutionDiagnosticsPayload = {
+  order_count: number;
+  filled_order_count: number;
+  rejected_order_count: number;
+  buy_order_count: number;
+  sell_order_count: number;
+  closed_trade_count: number;
+  fill_rate: number;
+  rejection_rate: number;
+  realized_pnl: number;
+  average_realized_pnl: number;
+  latest_rejection_code: string | null;
+  max_daily_order_rejections: number;
+  max_daily_order_buy_rejections: number;
+  max_daily_order_sell_rejections: number;
+  rejection_reasons: PaperExecutionRejectionReasonPayload[];
+  summary: string;
+};
+
+export type PaperRiskProfilePayload = {
+  risk_engine: string;
+  max_order_notional: number;
+  max_position_weight: number;
+  max_daily_orders: number;
+  exit_take_profit_pct: number;
+  exit_stop_loss_pct: number;
+  summary: string;
+};
+
+export type PaperRiskLimitReviewPayload = {
+  status: "hold" | "review_required";
+  current_max_daily_orders: number;
+  recommended_paper_max_daily_orders: number;
+  live_change_allowed: boolean;
+  max_daily_order_rejections: number;
+  max_daily_order_buy_rejections: number;
+  max_daily_order_sell_rejections: number;
+  filled_order_count: number;
+  closed_trade_count: number;
+  sample_collection_blocked: boolean;
+  blockers: string[];
+  summary: string;
+};
+
+export type PaperRiskLimitApplyPayload = {
+  applied: boolean;
+  previous_max_daily_orders: number;
+  applied_max_daily_orders: number;
+  live_change_allowed: boolean;
+  audit_event_created: boolean;
+  summary: string;
+};
+
+export type PaperActionPlanItemPayload = {
+  priority: number;
+  action_code: string;
+  title: string;
+  detail: string;
+  evidence: string[];
+};
+
+export type PaperActionPlanPayload = {
+  readiness: string;
+  primary_action: string;
+  items: PaperActionPlanItemPayload[];
+  summary: string;
 };
 
 export type PaperRunPayload = {
@@ -326,6 +1041,7 @@ export type EventLedgerReplayChainPayload = {
   order_states: string[];
   terminal_state: string | null;
   event_count: number;
+  integrity_warnings?: string[];
 };
 
 export type EventLedgerReplayPayload = {
@@ -342,6 +1058,12 @@ export type PaperEventLedgerPayload = {
   latest_run_event_count: number;
   latest_topic_counts: EventLedgerTopicCountPayload[];
   latest_correlation_count: number;
+  integrity_ready?: boolean;
+  integrity_warnings?: string[];
+  traceable_chain_count?: number;
+  complete_order_chain_count?: number;
+  broken_chain_count?: number;
+  traceability_ratio?: number;
   replay_ready: boolean;
   warnings: string[];
   summary: string;
@@ -579,18 +1301,65 @@ const fallbackStrategyRegistry: StrategyRegistryPayload = {
       signal_quality_score: 0,
       backtest_status: null,
       supports_live: false,
-      supports_hot_swap: false,
+      supports_hot_swap: true,
       notes: "后端 API 暂不可用，无法确认策略注册表。"
     }
   ],
-  missing_capabilities: [
-    "strategy_versioning_persistence",
-    "multi_strategy_parallel_runtime",
-    "strategy_competition_runtime",
-    "hot_swap_execution_binding",
-    "automatic_lifecycle_actions"
-  ],
+  missing_capabilities: [],
   summary: "后端 API 暂不可用，Registry 使用离线占位。"
+};
+
+const fallbackStrategyCompetition: StrategyCompetitionPayload = {
+  trading_day: "offline",
+  status: "blocked",
+  active_strategy_id: "deterministic_watchlist_v1",
+  selected_strategy_id: null,
+  strategy_count: 1,
+  allocatable_strategy_count: 0,
+  competition_ready: false,
+  entries: [
+    {
+      strategy_id: "deterministic_watchlist_v1",
+      name: "Deterministic Watchlist Strategy",
+      version: "v1",
+      source: "paper_core",
+      execution_mode: "paper",
+      status: "active",
+      rank: 1,
+      ranking_score: 0,
+      allocation_weight: 0,
+      eligible_for_allocation: false,
+      recommended_action: "collect_more_evidence",
+      blockers: ["api_unavailable"],
+      readiness: "insufficient_sample",
+      promotion_gate: "blocked",
+      sample_size: 0,
+      filled_order_count: 0,
+      observed_pnl: 0,
+      primary_regime: "insufficient_data",
+      signal_quality_score: 0,
+      supports_live: false,
+      supports_hot_swap: false
+    }
+  ],
+  summary: "后端 API 暂不可用，无法确认策略竞争层。"
+};
+
+const fallbackStrategyCompetitionSnapshots: StrategyCompetitionSnapshotHistoryPayload = {
+  snapshot_count: 0,
+  latest: null,
+  items: [],
+  summary: "后端 API 暂不可用，无法读取策略竞争快照历史。"
+};
+
+const fallbackStrategyAlphaIsolation: StrategyAlphaIsolationPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  isolated: false,
+  strategy_order_count: 0,
+  manual_override_order_count: 0,
+  manual_override_event_chain_count: 0,
+  filtered_event_chain_count: 0,
+  summary: "后端 API 暂不可用，无法确认手工覆盖是否隔离。"
 };
 
 const fallbackStrategyLifecycle: StrategyLifecyclePayload = {
@@ -614,14 +1383,250 @@ const fallbackStrategyLifecycle: StrategyLifecyclePayload = {
       message: "后端 API 暂不可用，无法确认生命周期门禁。"
     }
   ],
-  missing_capabilities: [
-    "lifecycle_state_persistence",
-    "manual_promotion_approval",
-    "shadow_account_adapter",
-    "live_small_account_adapter",
-    "kill_switch_audit_trail"
-  ],
+  missing_capabilities: [],
   summary: "后端 API 暂不可用，Lifecycle 使用离线占位。"
+};
+
+const fallbackStrategyLifecycleAudit: StrategyLifecycleAuditPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  items: [],
+  summary: "后端 API 暂不可用，无法读取生命周期审计。"
+};
+
+const fallbackTradingSystemReadiness: TradingSystemReadinessPayload = {
+  status: "blocked",
+  scheduler_running: false,
+  scheduler_next_run_at: null,
+  lifecycle_stage: "unknown",
+  alpha_ready: false,
+  event_bus_mode: "unknown",
+  event_bus_ready: false,
+  event_bus_stream_length: null,
+  event_ledger_replay_ready: false,
+  event_ledger_traceable_chain_count: 0,
+  event_ledger_complete_order_chain_count: 0,
+  event_ledger_broken_chain_count: 0,
+  event_ledger_traceability_ratio: 0,
+  shadow_can_record: false,
+  shadow_remaining_observations: 5,
+  live_small_review_ready: false,
+  live_or_broker_execution_enabled: false,
+  manual_override_isolated: false,
+  manual_override_order_count: 0,
+  manual_override_event_chain_count: 0,
+  alpha_filtered_event_chain_count: 0,
+  blockers: ["api_unavailable"],
+  pending_gates: [],
+  summary: "后端 API 暂不可用，无法确认交易系统运行态。"
+};
+
+const fallbackStrategyAlphaValidation: StrategyAlphaValidationPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  alpha_ready: false,
+  validation_level: "collecting",
+  blockers: ["api_unavailable"],
+  has_real_market_backtest: false,
+  review_day_count: 0,
+  consecutive_positive_expectancy_days: 0,
+  filled_order_count: 0,
+  closed_trade_count: 0,
+  event_chain_count: 0,
+  latest_expectancy: 0,
+  average_expectancy: 0,
+  max_drawdown: 0,
+  summary: "后端 API 暂不可用，Alpha 验证使用离线占位。"
+};
+
+const fallbackStrategyVersionControl: StrategyVersionControlPayload = {
+  active_strategy_id: "deterministic_watchlist_v1",
+  active_version: "v1",
+  previous_version: null,
+  versions: [
+    {
+      strategy_id: "deterministic_watchlist_v1",
+      version: "v1",
+      parameters_json: "{\"notional\": 2000}",
+      status: "offline_fallback",
+      is_active: true
+    }
+  ]
+};
+
+const fallbackStrategyRuntime: StrategyRuntimePayload = {
+  winner: {
+    strategy_id: "deterministic_watchlist_v1",
+    version: "v1",
+    ranking_score: 0,
+    eligible: true,
+    rank: 1,
+    block_reason: null
+  },
+  entries: [
+    {
+      strategy_id: "deterministic_watchlist_v1",
+      version: "v1",
+      ranking_score: 0,
+      eligible: true,
+      rank: 1,
+      block_reason: null
+    }
+  ],
+  summary: "后端 API 暂不可用，Runtime 使用离线占位。"
+};
+
+const fallbackAlphaGateProgress: AlphaGateProgressPayload = {
+  alpha_ready: false,
+  validation_level: "collecting",
+  passed_gates: 0,
+  total_gates: 0,
+  items: [],
+  summary: "后端 API 暂不可用，无法确认 Alpha 门禁进度。"
+};
+
+const fallbackAlphaValidationSnapshots: AlphaValidationSnapshotHistoryPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  snapshot_count: 0,
+  ready_snapshot_count: 0,
+  positive_expectancy_snapshot_count: 0,
+  positive_expectancy_streak: 0,
+  ready_streak: 0,
+  latest_blockers: [],
+  blocker_counts: [],
+  latest: null,
+  items: [],
+  summary: "后端 API 暂不可用，无法读取 Alpha 验证快照。"
+};
+
+const fallbackAlphaValidationForecast: AlphaValidationForecastPayload = {
+  alpha_ready: false,
+  status: "blocked",
+  estimated_sessions_to_alpha_ready: null,
+  limiting_gate: null,
+  items: [],
+  summary: "后端 API 暂不可用，无法预测 Alpha 验证进度。"
+};
+
+const fallbackShadowReview: ShadowReviewPayload = {
+  status: "blocked",
+  strategy_id: "deterministic_watchlist_v1",
+  can_request_shadow_review: false,
+  recommended_stage: "paper",
+  auto_promotion_enabled: false,
+  checklist: [],
+  residual_risks: [],
+  summary: "后端 API 暂不可用，无法生成 Shadow 评审包。"
+};
+
+const fallbackShadowObservationSummary: ShadowObservationSummaryPayload = {
+  can_record_shadow_observation: false,
+  latest: null,
+  items: [],
+  summary: "后端 API 暂不可用，无法读取 Shadow 观察记录。"
+};
+
+const fallbackShadowObservationHealth: ShadowObservationHealthPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  status: "collecting",
+  sample_ready: false,
+  observation_count: 0,
+  observing_count: 0,
+  blocked_count: 0,
+  consecutive_observing_count: 0,
+  latest_trading_day: null,
+  average_would_route_order_count: 0,
+  average_event_chain_count: 0,
+  average_residual_risk_count: 0,
+  warnings: ["api_unavailable"],
+  summary: "后端 API 暂不可用，无法确认 Shadow 观察健康度。"
+};
+
+const fallbackShadowValidation: ShadowValidationPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  shadow_ready: false,
+  status: "collecting",
+  observation_count: 0,
+  observing_count: 0,
+  blocked_count: 0,
+  latest_trading_day: null,
+  min_observations_required: 5,
+  remaining_observations: 5,
+  residual_risk_count: 0,
+  blockers: ["shadow_observation_sample"],
+  summary: "后端 API 暂不可用，无法确认 Shadow 验证门禁。"
+};
+
+const fallbackShadowDailyReport: ShadowDailyReportPayload = {
+  strategy_id: "deterministic_watchlist_v1",
+  trading_day: null,
+  status: "collecting",
+  observation_status: "not_recorded",
+  health_status: "collecting",
+  validation_status: "collecting",
+  live_small_status: "blocked",
+  observed_intent_count: 0,
+  would_route_order_count: 0,
+  event_chain_count: 0,
+  residual_risk_count: 0,
+  remaining_observations: 5,
+  warnings: ["api_unavailable"],
+  blockers: ["shadow_observation_sample"],
+  next_actions: [
+    {
+      priority: 1,
+      action_code: "record_shadow_observation",
+      title: "记录 Shadow 观察",
+      detail: "后端 API 暂不可用，暂不能确认 Shadow 日报。",
+      evidence: ["api_unavailable"]
+    }
+  ],
+  live_or_broker_execution_enabled: false,
+  summary: "后端 API 暂不可用，无法生成 Shadow 日报。"
+};
+
+const fallbackLiveSmallReview: LiveSmallReviewPayload = {
+  status: "blocked",
+  strategy_id: "deterministic_watchlist_v1",
+  can_request_live_small_review: false,
+  recommended_stage: "shadow",
+  auto_promotion_enabled: false,
+  checklist: [],
+  residual_risks: [],
+  summary: "后端 API 暂不可用，无法生成 live-small 人工评审包。"
+};
+
+const fallbackStrategyExecutionAccounts: StrategyExecutionAccountsPayload = {
+  accounts: [
+    {
+      id: "offline-paper",
+      team_id: "offline",
+      strategy_id: "deterministic_watchlist_v1",
+      name: "paper",
+      mode: "paper",
+      starting_cash: 100000,
+      cash: 100000,
+      realized_pnl: 0
+    },
+    {
+      id: "offline-shadow",
+      team_id: "offline",
+      strategy_id: "deterministic_watchlist_v1",
+      name: "shadow",
+      mode: "shadow",
+      starting_cash: 100000,
+      cash: 100000,
+      realized_pnl: 0
+    },
+    {
+      id: "offline-live-small",
+      team_id: "offline",
+      strategy_id: "deterministic_watchlist_v1",
+      name: "live-small",
+      mode: "live_small",
+      starting_cash: 5000,
+      cash: 5000,
+      realized_pnl: 0
+    }
+  ]
 };
 
 const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
@@ -642,12 +1647,205 @@ const fallbackPaperTradingSummary: PaperTradingSummaryPayload = {
   latest_review: null
 };
 
+const fallbackPaperDailyReport: PaperDailyReportPayload = {
+  trading_day: "offline",
+  run_state: "not_started",
+  health_status: "blocked",
+  recommended_action: "run_daily_paper_trading",
+  scheduler_running: false,
+  scheduler_next_run_at: null,
+  account_equity: 0,
+  cash: 0,
+  realized_pnl: 0,
+  unrealized_pnl: 0,
+  candidate_count: 0,
+  order_count: 0,
+  open_position_count: 0,
+  latest_expectancy: 0,
+  average_expectancy: 0,
+  consecutive_positive_expectancy_days: 0,
+  event_ledger_ready: false,
+  alpha_ready: false,
+  alpha_blockers: ["api_unavailable"],
+  data_quality_warnings: ["api_unavailable"],
+  summary: "后端 API 暂不可用，无法生成今日简报。"
+};
+
 const fallbackPaperSchedulerStatus: PaperSchedulerStatusPayload = {
+  calendar_provider: "offline",
+  can_run_now: false,
   cron: "30 6 * * *",
   enabled: false,
+  execution_gate: "api_unavailable",
+  gate_reason: "api_unavailable",
   job_count: 0,
+  job_id: "paper_trading_daily_run",
+  last_checked_at: "local",
+  market_date: "offline",
+  next_run_at: null,
   running: false,
+  session_closed: false,
+  is_market_session: false,
+  trading_day: "offline",
   timezone: "Asia/Shanghai"
+};
+
+const fallbackPaperMarketSession: PaperMarketSessionPayload = {
+  market_date: "offline",
+  trading_day: "offline",
+  is_market_session: false,
+  session_closed: false,
+  calendar_provider: "offline",
+  reason: "api_unavailable"
+};
+
+const fallbackPaperOperationsStatus: PaperOperationsStatusPayload = {
+  trading_day: "offline",
+  run_state: "not_started",
+  health_status: "blocked",
+  latest_run_id: null,
+  latest_run_trading_day: null,
+  latest_run_status: null,
+  today_run_id: null,
+  review_id: null,
+  latest_error: null,
+  can_retry_today: true,
+  event_ledger_ready: false,
+  latest_run_event_count: 0,
+  legacy_manual_future_run_count: 0,
+  latest_legacy_manual_future_trading_day: null,
+  data_quality_warnings: [],
+  blockers: ["api_unavailable"],
+  recommended_action: "run_daily_paper_trading",
+  summary: "后端 API 暂不可用，无法确认每日运行健康。"
+};
+
+const fallbackPaperOperationsHistory: PaperOperationsHistoryPayload = {
+  window_size: 0,
+  completed_days: 0,
+  failed_days: 0,
+  blocked_days: 0,
+  replayable_days: 0,
+  review_days: 0,
+  completion_rate: 0,
+  replay_rate: 0,
+  latest_health_status: "blocked",
+  items: [],
+  summary: "后端 API 暂不可用，无法确认运行稳定趋势。"
+};
+
+const fallbackPaperOperationsRepair: PaperOperationsRepairPayload = {
+  scanned_runs: 0,
+  repaired_runs: 0,
+  skipped_runs: 0,
+  items: [],
+  summary: "后端 API 暂不可用，无法修复事件账本。"
+};
+
+const fallbackPaperOperationsQuarantine: PaperOperationsQuarantinePayload = {
+  scanned_runs: 0,
+  quarantined_runs: 0,
+  skipped_runs: 0,
+  items: [],
+  summary: "后端 API 暂不可用，无法标记旧运行。"
+};
+
+const fallbackPaperReviewTrend: PaperReviewTrendPayload = {
+  sample_size: 0,
+  positive_expectancy_days: 0,
+  consecutive_positive_expectancy_days: 0,
+  average_expectancy: 0,
+  latest_expectancy: 0,
+  total_realized_pnl: 0,
+  total_unrealized_pnl: 0,
+  latest_readiness: "collecting",
+  items: [],
+  summary: "后端 API 暂不可用，无法确认净期望趋势。"
+};
+
+const fallbackPaperSimulation: PaperSimulationPayload = {
+  scenario: "bullish",
+  start_date: "offline",
+  days_requested: 0,
+  days_completed: 0,
+  days_skipped: 0,
+  review_day_count: 0,
+  consecutive_positive_expectancy_days: 0,
+  latest_expectancy: 0,
+  average_expectancy: 0,
+  event_chain_count: 0,
+  alpha_ready: false,
+  blockers: ["api_unavailable"],
+  items: [],
+  summary: "后端 API 暂不可用，无法运行多日模拟。"
+};
+
+const fallbackPaperExecutionDiagnostics: PaperExecutionDiagnosticsPayload = {
+  order_count: 0,
+  filled_order_count: 0,
+  rejected_order_count: 0,
+  buy_order_count: 0,
+  sell_order_count: 0,
+  closed_trade_count: 0,
+  fill_rate: 0,
+  rejection_rate: 0,
+  realized_pnl: 0,
+  average_realized_pnl: 0,
+  latest_rejection_code: null,
+  max_daily_order_rejections: 0,
+  max_daily_order_buy_rejections: 0,
+  max_daily_order_sell_rejections: 0,
+  rejection_reasons: [],
+  summary: "后端 API 暂不可用，无法确认执行诊断。"
+};
+
+const fallbackPaperRiskProfile: PaperRiskProfilePayload = {
+  risk_engine: "Trading Core RiskEngine",
+  max_order_notional: 2000,
+  max_position_weight: 0.1,
+  max_daily_orders: 5,
+  exit_take_profit_pct: 0.1,
+  exit_stop_loss_pct: -0.05,
+  summary: "后端 API 暂不可用，显示默认纸面风控配置。"
+};
+
+const fallbackPaperRiskLimitReview: PaperRiskLimitReviewPayload = {
+  status: "hold",
+  current_max_daily_orders: 5,
+  recommended_paper_max_daily_orders: 5,
+  live_change_allowed: false,
+  max_daily_order_rejections: 0,
+  max_daily_order_buy_rejections: 0,
+  max_daily_order_sell_rejections: 0,
+  filled_order_count: 0,
+  closed_trade_count: 0,
+  sample_collection_blocked: false,
+  blockers: ["api_unavailable"],
+  summary: "后端 API 暂不可用，无法生成风险限额评审。"
+};
+
+const fallbackPaperRiskLimitApply: PaperRiskLimitApplyPayload = {
+  applied: false,
+  previous_max_daily_orders: 5,
+  applied_max_daily_orders: 5,
+  live_change_allowed: false,
+  audit_event_created: false,
+  summary: "后端 API 暂不可用，无法应用 Paper 风险限额建议。"
+};
+
+const fallbackPaperActionPlan: PaperActionPlanPayload = {
+  readiness: "blocked",
+  primary_action: "api_unavailable",
+  items: [
+    {
+      priority: 1,
+      action_code: "api_unavailable",
+      title: "等待 API 恢复",
+      detail: "后端 API 暂不可用，无法生成行动计划。",
+      evidence: []
+    }
+  ],
+  summary: "后端 API 暂不可用，无法生成行动计划。"
 };
 
 const fallbackPaperRuns: PaperRunsPayload = {
@@ -661,6 +1859,12 @@ const fallbackPaperEventLedger: PaperEventLedgerPayload = {
   latest_run_event_count: 0,
   latest_topic_counts: [],
   latest_correlation_count: 0,
+  integrity_ready: false,
+  integrity_warnings: ["missing_core_events"],
+  traceable_chain_count: 0,
+  complete_order_chain_count: 0,
+  broken_chain_count: 0,
+  traceability_ratio: 0,
   replay_ready: false,
   warnings: ["missing_core_events"],
   summary: "后端 API 暂不可用，无法确认事件账本。",
@@ -856,6 +2060,309 @@ function isStrategyAttributionPayload(value: unknown): value is StrategyAttribut
   );
 }
 
+function isAlphaGateProgressItemPayload(value: unknown): value is AlphaGateProgressItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.gate === "string" &&
+    typeof value.label === "string" &&
+    typeof value.current === "number" &&
+    typeof value.required === "number" &&
+    typeof value.remaining === "number" &&
+    typeof value.unit === "string" &&
+    typeof value.comparison === "string" &&
+    typeof value.passed === "boolean"
+  );
+}
+
+function isAlphaGateProgressPayload(value: unknown): value is AlphaGateProgressPayload {
+  return (
+    isRecord(value) &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.validation_level === "string" &&
+    typeof value.passed_gates === "number" &&
+    typeof value.total_gates === "number" &&
+    Array.isArray(value.items) &&
+    value.items.every(isAlphaGateProgressItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isAlphaValidationSnapshotPayload(value: unknown): value is AlphaValidationSnapshotPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.team_id === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.validation_level === "string" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.has_real_market_backtest === "boolean" &&
+    typeof value.review_day_count === "number" &&
+    typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.closed_trade_count === "number" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.latest_expectancy === "number" &&
+    typeof value.average_expectancy === "number" &&
+    typeof value.max_drawdown === "number" &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string"
+  );
+}
+
+function isAlphaValidationSnapshotBlockerCountPayload(
+  value: unknown
+): value is AlphaValidationSnapshotBlockerCountPayload {
+  return isRecord(value) && typeof value.blocker === "string" && typeof value.count === "number";
+}
+
+function isAlphaValidationSnapshotHistoryPayload(value: unknown): value is AlphaValidationSnapshotHistoryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.snapshot_count === "number" &&
+    typeof value.ready_snapshot_count === "number" &&
+    typeof value.positive_expectancy_snapshot_count === "number" &&
+    typeof value.positive_expectancy_streak === "number" &&
+    typeof value.ready_streak === "number" &&
+    Array.isArray(value.latest_blockers) &&
+    value.latest_blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.blocker_counts) &&
+    value.blocker_counts.every(isAlphaValidationSnapshotBlockerCountPayload) &&
+    (value.latest === null || isAlphaValidationSnapshotPayload(value.latest)) &&
+    Array.isArray(value.items) &&
+    value.items.every(isAlphaValidationSnapshotPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isAlphaValidationForecastItemPayload(value: unknown): value is AlphaValidationForecastItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.gate === "string" &&
+    typeof value.label === "string" &&
+    typeof value.current === "number" &&
+    typeof value.required === "number" &&
+    typeof value.remaining === "number" &&
+    typeof value.unit === "string" &&
+    typeof value.passed === "boolean" &&
+    (typeof value.estimated_per_session === "number" || value.estimated_per_session === null) &&
+    (typeof value.estimated_sessions === "number" || value.estimated_sessions === null) &&
+    typeof value.reason === "string"
+  );
+}
+
+function isAlphaValidationForecastPayload(value: unknown): value is AlphaValidationForecastPayload {
+  return (
+    isRecord(value) &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.status === "string" &&
+    (typeof value.estimated_sessions_to_alpha_ready === "number" ||
+      value.estimated_sessions_to_alpha_ready === null) &&
+    (typeof value.limiting_gate === "string" || value.limiting_gate === null) &&
+    Array.isArray(value.items) &&
+    value.items.every(isAlphaValidationForecastItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isShadowReviewChecklistItemPayload(value: unknown): value is ShadowReviewChecklistItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.label === "string" &&
+    typeof value.passed === "boolean" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isShadowReviewResidualRiskPayload(value: unknown): value is ShadowReviewResidualRiskPayload {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.severity === "string" &&
+    typeof value.detail === "string" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isShadowReviewPayload(value: unknown): value is ShadowReviewPayload {
+  return (
+    isRecord(value) &&
+    typeof value.status === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.can_request_shadow_review === "boolean" &&
+    typeof value.recommended_stage === "string" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    Array.isArray(value.checklist) &&
+    value.checklist.every(isShadowReviewChecklistItemPayload) &&
+    Array.isArray(value.residual_risks) &&
+    value.residual_risks.every(isShadowReviewResidualRiskPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isShadowObservationPayload(value: unknown): value is ShadowObservationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.team_id === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.status === "string" &&
+    typeof value.can_request_shadow_review === "boolean" &&
+    typeof value.observed_intent_count === "number" &&
+    typeof value.would_route_order_count === "number" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.residual_risk_count === "number" &&
+    (typeof value.blocked_reason === "string" || value.blocked_reason === null) &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isShadowObservationSummaryPayload(value: unknown): value is ShadowObservationSummaryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.can_record_shadow_observation === "boolean" &&
+    (isShadowObservationPayload(value.latest) || value.latest === null) &&
+    Array.isArray(value.items) &&
+    value.items.every(isShadowObservationPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isShadowObservationHealthPayload(value: unknown): value is ShadowObservationHealthPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.status === "string" &&
+    typeof value.sample_ready === "boolean" &&
+    typeof value.observation_count === "number" &&
+    typeof value.observing_count === "number" &&
+    typeof value.blocked_count === "number" &&
+    typeof value.consecutive_observing_count === "number" &&
+    (typeof value.latest_trading_day === "string" || value.latest_trading_day === null) &&
+    typeof value.average_would_route_order_count === "number" &&
+    typeof value.average_event_chain_count === "number" &&
+    typeof value.average_residual_risk_count === "number" &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
+function isShadowValidationPayload(value: unknown): value is ShadowValidationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.shadow_ready === "boolean" &&
+    typeof value.status === "string" &&
+    typeof value.observation_count === "number" &&
+    typeof value.observing_count === "number" &&
+    typeof value.blocked_count === "number" &&
+    (typeof value.latest_trading_day === "string" || value.latest_trading_day === null) &&
+    typeof value.min_observations_required === "number" &&
+    typeof value.remaining_observations === "number" &&
+    typeof value.residual_risk_count === "number" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
+function isShadowDailyReportActionPayload(value: unknown): value is ShadowDailyReportActionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.priority === "number" &&
+    typeof value.action_code === "string" &&
+    typeof value.title === "string" &&
+    typeof value.detail === "string" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isShadowDailyReportPayload(value: unknown): value is ShadowDailyReportPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    (typeof value.trading_day === "string" || value.trading_day === null) &&
+    typeof value.status === "string" &&
+    typeof value.observation_status === "string" &&
+    typeof value.health_status === "string" &&
+    typeof value.validation_status === "string" &&
+    typeof value.live_small_status === "string" &&
+    typeof value.observed_intent_count === "number" &&
+    typeof value.would_route_order_count === "number" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.residual_risk_count === "number" &&
+    typeof value.remaining_observations === "number" &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every((item) => typeof item === "string") &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.next_actions) &&
+    value.next_actions.every(isShadowDailyReportActionPayload) &&
+    typeof value.live_or_broker_execution_enabled === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isLiveSmallReviewChecklistItemPayload(value: unknown): value is LiveSmallReviewChecklistItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.label === "string" &&
+    typeof value.passed === "boolean" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isLiveSmallReviewResidualRiskPayload(value: unknown): value is LiveSmallReviewResidualRiskPayload {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.severity === "string" &&
+    typeof value.detail === "string" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isLiveSmallReviewPayload(value: unknown): value is LiveSmallReviewPayload {
+  return (
+    isRecord(value) &&
+    typeof value.status === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.can_request_live_small_review === "boolean" &&
+    typeof value.recommended_stage === "string" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    Array.isArray(value.checklist) &&
+    value.checklist.every(isLiveSmallReviewChecklistItemPayload) &&
+    Array.isArray(value.residual_risks) &&
+    value.residual_risks.every(isLiveSmallReviewResidualRiskPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyShadowApprovalPayload(value: unknown): value is StrategyShadowApprovalPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.previous_stage === "string" &&
+    typeof value.current_stage === "string" &&
+    typeof value.approved_by === "string" &&
+    typeof value.reason === "string" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
 function isStrategyRegistryEntryPayload(value: unknown): value is StrategyRegistryEntryPayload {
   return (
     isRecord(value) &&
@@ -893,6 +2400,85 @@ function isStrategyRegistryPayload(value: unknown): value is StrategyRegistryPay
   );
 }
 
+function isStrategyCompetitionEntryPayload(value: unknown): value is StrategyCompetitionEntryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.version === "string" &&
+    typeof value.source === "string" &&
+    typeof value.execution_mode === "string" &&
+    typeof value.status === "string" &&
+    typeof value.rank === "number" &&
+    typeof value.ranking_score === "number" &&
+    typeof value.allocation_weight === "number" &&
+    typeof value.eligible_for_allocation === "boolean" &&
+    typeof value.recommended_action === "string" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.readiness === "string" &&
+    typeof value.promotion_gate === "string" &&
+    typeof value.sample_size === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.observed_pnl === "number" &&
+    typeof value.primary_regime === "string" &&
+    typeof value.signal_quality_score === "number" &&
+    typeof value.supports_live === "boolean" &&
+    typeof value.supports_hot_swap === "boolean"
+  );
+}
+
+function isStrategyCompetitionPayload(value: unknown): value is StrategyCompetitionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.status === "string" &&
+    typeof value.active_strategy_id === "string" &&
+    (typeof value.selected_strategy_id === "string" || value.selected_strategy_id === null) &&
+    typeof value.strategy_count === "number" &&
+    typeof value.allocatable_strategy_count === "number" &&
+    typeof value.competition_ready === "boolean" &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isStrategyCompetitionEntryPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyCompetitionSnapshotPayload(value: unknown): value is StrategyCompetitionSnapshotPayload {
+  const snapshot = value as Record<string, unknown>;
+  return (
+    isStrategyCompetitionPayload(value) &&
+    typeof snapshot.id === "string" &&
+    typeof snapshot.team_id === "string" &&
+    typeof snapshot.created_at === "string" &&
+    typeof snapshot.updated_at === "string"
+  );
+}
+
+function isStrategyCompetitionSnapshotHistoryPayload(value: unknown): value is StrategyCompetitionSnapshotHistoryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.snapshot_count === "number" &&
+    (value.latest === null || isStrategyCompetitionSnapshotPayload(value.latest)) &&
+    Array.isArray(value.items) &&
+    value.items.every(isStrategyCompetitionSnapshotPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyAlphaIsolationPayload(value: unknown): value is StrategyAlphaIsolationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.isolated === "boolean" &&
+    typeof value.strategy_order_count === "number" &&
+    typeof value.manual_override_order_count === "number" &&
+    typeof value.manual_override_event_chain_count === "number" &&
+    typeof value.filtered_event_chain_count === "number" &&
+    typeof value.summary === "string"
+  );
+}
+
 function isStrategyLifecycleRulePayload(value: unknown): value is StrategyLifecycleRulePayload {
   return (
     isRecord(value) &&
@@ -923,6 +2509,197 @@ function isStrategyLifecyclePayload(value: unknown): value is StrategyLifecycleP
     Array.isArray(value.missing_capabilities) &&
     value.missing_capabilities.every((item) => typeof item === "string") &&
     typeof value.summary === "string"
+  );
+}
+
+function isStrategyLifecycleAuditItemPayload(value: unknown): value is StrategyLifecycleAuditItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.action === "string" &&
+    typeof value.entity_type === "string" &&
+    (typeof value.entity_id === "string" || value.entity_id === null) &&
+    (typeof value.approved_by === "string" || value.approved_by === null) &&
+    (typeof value.reason === "string" || value.reason === null) &&
+    (typeof value.previous_stage === "string" || value.previous_stage === null) &&
+    (typeof value.current_stage === "string" || value.current_stage === null) &&
+    (typeof value.auto_promotion_enabled === "boolean" || value.auto_promotion_enabled === null) &&
+    (typeof value.execution_enabled === "boolean" ||
+      value.execution_enabled === null ||
+      value.execution_enabled === undefined) &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isStrategyLifecycleAuditPayload(value: unknown): value is StrategyLifecycleAuditPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    Array.isArray(value.items) &&
+    value.items.every(isStrategyLifecycleAuditItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isTradingSystemReadinessPayload(value: unknown): value is TradingSystemReadinessPayload {
+  return (
+    isRecord(value) &&
+    typeof value.status === "string" &&
+    typeof value.scheduler_running === "boolean" &&
+    (typeof value.scheduler_next_run_at === "string" || value.scheduler_next_run_at === null) &&
+    typeof value.lifecycle_stage === "string" &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.event_bus_mode === "string" &&
+    typeof value.event_bus_ready === "boolean" &&
+    (typeof value.event_bus_stream_length === "number" || value.event_bus_stream_length === null) &&
+    typeof value.event_ledger_replay_ready === "boolean" &&
+    typeof value.event_ledger_traceable_chain_count === "number" &&
+    typeof value.event_ledger_complete_order_chain_count === "number" &&
+    typeof value.event_ledger_broken_chain_count === "number" &&
+    typeof value.event_ledger_traceability_ratio === "number" &&
+    typeof value.shadow_can_record === "boolean" &&
+    typeof value.shadow_remaining_observations === "number" &&
+    typeof value.live_small_review_ready === "boolean" &&
+    typeof value.live_or_broker_execution_enabled === "boolean" &&
+    typeof value.manual_override_isolated === "boolean" &&
+    typeof value.manual_override_order_count === "number" &&
+    typeof value.manual_override_event_chain_count === "number" &&
+    typeof value.alpha_filtered_event_chain_count === "number" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.pending_gates) &&
+    value.pending_gates.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyAlphaValidationPayload(value: unknown): value is StrategyAlphaValidationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.validation_level === "string" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.review_day_count === "number" &&
+    typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.closed_trade_count === "number" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.latest_expectancy === "number" &&
+    typeof value.average_expectancy === "number" &&
+    typeof value.max_drawdown === "number" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyLiveSmallApprovalPayload(value: unknown): value is StrategyLiveSmallApprovalPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.previous_stage === "string" &&
+    typeof value.current_stage === "string" &&
+    typeof value.approved_by === "string" &&
+    typeof value.reason === "string" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    typeof value.live_or_broker_execution_enabled === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyKillApprovalPayload(value: unknown): value is StrategyKillApprovalPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.previous_stage === "string" &&
+    typeof value.current_stage === "string" &&
+    typeof value.approved_by === "string" &&
+    typeof value.reason === "string" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    typeof value.execution_enabled === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyLifecycleReconcilePayload(value: unknown): value is StrategyLifecycleReconcilePayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.previous_stage === "string" &&
+    typeof value.current_stage === "string" &&
+    typeof value.reconciled === "boolean" &&
+    typeof value.reconciled_by === "string" &&
+    typeof value.reason === "string" &&
+    typeof value.alpha_ready === "boolean" &&
+    typeof value.auto_promotion_enabled === "boolean" &&
+    typeof value.execution_enabled === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyVersionPayload(value: unknown): value is StrategyVersionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.version === "string" &&
+    typeof value.parameters_json === "string" &&
+    typeof value.status === "string" &&
+    typeof value.is_active === "boolean"
+  );
+}
+
+function isStrategyVersionControlPayload(value: unknown): value is StrategyVersionControlPayload {
+  return (
+    isRecord(value) &&
+    typeof value.active_strategy_id === "string" &&
+    typeof value.active_version === "string" &&
+    (typeof value.previous_version === "string" || value.previous_version === null) &&
+    Array.isArray(value.versions) &&
+    value.versions.every(isStrategyVersionPayload)
+  );
+}
+
+function isStrategyRuntimeEntryPayload(value: unknown): value is StrategyRuntimeEntryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.version === "string" &&
+    typeof value.ranking_score === "number" &&
+    typeof value.eligible === "boolean" &&
+    typeof value.rank === "number" &&
+    (typeof value.block_reason === "string" || value.block_reason === null)
+  );
+}
+
+function isStrategyRuntimePayload(value: unknown): value is StrategyRuntimePayload {
+  return (
+    isRecord(value) &&
+    (isStrategyRuntimeEntryPayload(value.winner) || value.winner === null) &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isStrategyRuntimeEntryPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isStrategyExecutionAccountPayload(value: unknown): value is StrategyExecutionAccountPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.team_id === "string" &&
+    typeof value.strategy_id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.mode === "string" &&
+    typeof value.starting_cash === "number" &&
+    typeof value.cash === "number" &&
+    typeof value.realized_pnl === "number"
+  );
+}
+
+function isStrategyExecutionAccountsPayload(value: unknown): value is StrategyExecutionAccountsPayload {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.accounts) &&
+    value.accounts.every(isStrategyExecutionAccountPayload)
   );
 }
 
@@ -1035,6 +2812,51 @@ export async function getStrategyRegistry(): Promise<StrategyRegistryPayload> {
   }
 }
 
+export async function getStrategyCompetition(): Promise<StrategyCompetitionPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/competition`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyCompetition;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyCompetitionPayload(payload) ? payload : fallbackStrategyCompetition;
+  } catch {
+    return fallbackStrategyCompetition;
+  }
+}
+
+export async function recordStrategyCompetitionSnapshot(): Promise<StrategyCompetitionSnapshotPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/competition/snapshot`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyCompetitionSnapshotPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStrategyCompetitionSnapshots(): Promise<StrategyCompetitionSnapshotHistoryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/competition/snapshots`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyCompetitionSnapshots;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyCompetitionSnapshotHistoryPayload(payload) ? payload : fallbackStrategyCompetitionSnapshots;
+  } catch {
+    return fallbackStrategyCompetitionSnapshots;
+  }
+}
+
 export async function getStrategyLifecycle(): Promise<StrategyLifecyclePayload> {
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle`, {
@@ -1047,6 +2869,344 @@ export async function getStrategyLifecycle(): Promise<StrategyLifecyclePayload> 
     return isStrategyLifecyclePayload(payload) ? payload : fallbackStrategyLifecycle;
   } catch {
     return fallbackStrategyLifecycle;
+  }
+}
+
+export async function getStrategyLifecycleAudit(): Promise<StrategyLifecycleAuditPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle/audit`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyLifecycleAudit;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyLifecycleAuditPayload(payload) ? payload : fallbackStrategyLifecycleAudit;
+  } catch {
+    return fallbackStrategyLifecycleAudit;
+  }
+}
+
+export async function getTradingSystemReadiness(): Promise<TradingSystemReadinessPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/system-readiness`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackTradingSystemReadiness;
+    }
+    const payload: unknown = await response.json();
+    return isTradingSystemReadinessPayload(payload) ? payload : fallbackTradingSystemReadiness;
+  } catch {
+    return fallbackTradingSystemReadiness;
+  }
+}
+
+export async function getStrategyAlphaIsolation(): Promise<StrategyAlphaIsolationPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-isolation`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyAlphaIsolation;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyAlphaIsolationPayload(payload) ? payload : fallbackStrategyAlphaIsolation;
+  } catch {
+    return fallbackStrategyAlphaIsolation;
+  }
+}
+
+export async function getStrategyAlphaValidation(): Promise<StrategyAlphaValidationPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-validation`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyAlphaValidation;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyAlphaValidationPayload(payload) ? payload : fallbackStrategyAlphaValidation;
+  } catch {
+    return fallbackStrategyAlphaValidation;
+  }
+}
+
+export async function getAlphaGateProgress(): Promise<AlphaGateProgressPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-gates`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackAlphaGateProgress;
+    }
+    const payload: unknown = await response.json();
+    return isAlphaGateProgressPayload(payload) ? payload : fallbackAlphaGateProgress;
+  } catch {
+    return fallbackAlphaGateProgress;
+  }
+}
+
+export async function getAlphaValidationSnapshots(): Promise<AlphaValidationSnapshotHistoryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-snapshots`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackAlphaValidationSnapshots;
+    }
+    const payload: unknown = await response.json();
+    return isAlphaValidationSnapshotHistoryPayload(payload) ? payload : fallbackAlphaValidationSnapshots;
+  } catch {
+    return fallbackAlphaValidationSnapshots;
+  }
+}
+
+export async function recordAlphaValidationSnapshot(): Promise<AlphaValidationSnapshotPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-snapshots/record`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isAlphaValidationSnapshotPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getAlphaValidationForecast(): Promise<AlphaValidationForecastPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/alpha-forecast`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackAlphaValidationForecast;
+    }
+    const payload: unknown = await response.json();
+    return isAlphaValidationForecastPayload(payload) ? payload : fallbackAlphaValidationForecast;
+  } catch {
+    return fallbackAlphaValidationForecast;
+  }
+}
+
+export async function getShadowReviewPacket(): Promise<ShadowReviewPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-review`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackShadowReview;
+    }
+    const payload: unknown = await response.json();
+    return isShadowReviewPayload(payload) ? payload : fallbackShadowReview;
+  } catch {
+    return fallbackShadowReview;
+  }
+}
+
+export async function getShadowObservations(): Promise<ShadowObservationSummaryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-observations`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackShadowObservationSummary;
+    }
+    const payload: unknown = await response.json();
+    return isShadowObservationSummaryPayload(payload) ? payload : fallbackShadowObservationSummary;
+  } catch {
+    return fallbackShadowObservationSummary;
+  }
+}
+
+export async function getShadowObservationHealth(): Promise<ShadowObservationHealthPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-observation-health`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackShadowObservationHealth;
+    }
+    const payload: unknown = await response.json();
+    return isShadowObservationHealthPayload(payload) ? payload : fallbackShadowObservationHealth;
+  } catch {
+    return fallbackShadowObservationHealth;
+  }
+}
+
+export async function getShadowValidation(): Promise<ShadowValidationPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-validation`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackShadowValidation;
+    }
+    const payload: unknown = await response.json();
+    return isShadowValidationPayload(payload) ? payload : fallbackShadowValidation;
+  } catch {
+    return fallbackShadowValidation;
+  }
+}
+
+export async function getShadowDailyReport(): Promise<ShadowDailyReportPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-daily-report`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackShadowDailyReport;
+    }
+    const payload: unknown = await response.json();
+    return isShadowDailyReportPayload(payload) ? payload : fallbackShadowDailyReport;
+  } catch {
+    return fallbackShadowDailyReport;
+  }
+}
+
+export async function getLiveSmallReviewPacket(): Promise<LiveSmallReviewPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/live-small-review`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackLiveSmallReview;
+    }
+    const payload: unknown = await response.json();
+    return isLiveSmallReviewPayload(payload) ? payload : fallbackLiveSmallReview;
+  } catch {
+    return fallbackLiveSmallReview;
+  }
+}
+
+export async function recordShadowObservation(): Promise<ShadowObservationPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/shadow-observations/record`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isShadowObservationPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function approveShadowPromotion(
+  input: StrategyShadowApprovalRequestPayload
+): Promise<StrategyShadowApprovalPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle/approve-shadow`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyShadowApprovalPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function approveLiveSmallPromotion(
+  input: StrategyLiveSmallApprovalRequestPayload
+): Promise<StrategyLiveSmallApprovalPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle/approve-live-small`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyLiveSmallApprovalPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function approveStrategyKill(
+  input: StrategyKillApprovalRequestPayload
+): Promise<StrategyKillApprovalPayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle/approve-kill`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyKillApprovalPayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function reconcileLifecycleWithAlphaValidation(): Promise<StrategyLifecycleReconcilePayload | null> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/lifecycle/reconcile`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyLifecycleReconcilePayload(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStrategyVersionControl(): Promise<StrategyVersionControlPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/version-control`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyVersionControl;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyVersionControlPayload(payload) ? payload : fallbackStrategyVersionControl;
+  } catch {
+    return fallbackStrategyVersionControl;
+  }
+}
+
+export async function getStrategyRuntime(): Promise<StrategyRuntimePayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/runtime`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyRuntime;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyRuntimePayload(payload) ? payload : fallbackStrategyRuntime;
+  } catch {
+    return fallbackStrategyRuntime;
+  }
+}
+
+export async function getStrategyExecutionAccounts(): Promise<StrategyExecutionAccountsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/execution-accounts`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackStrategyExecutionAccounts;
+    }
+    const payload: unknown = await response.json();
+    return isStrategyExecutionAccountsPayload(payload) ? payload : fallbackStrategyExecutionAccounts;
+  } catch {
+    return fallbackStrategyExecutionAccounts;
   }
 }
 
@@ -1269,6 +3429,10 @@ export type BacktestResultPayload = {
   run_id: string;
   strategy_id: string;
   status: "success" | "unavailable" | "failed" | "timeout" | "malformed_result";
+  engine: "lean" | "vectorbt";
+  data_source: string | null;
+  data_quality: "unknown" | "real_market_data" | "mock_data" | "deterministic_research_series";
+  uses_real_market_data: boolean;
   started_at: string;
   completed_at: string;
   duration_seconds: number;
@@ -1290,6 +3454,10 @@ export type BacktestHistoryItemPayload = {
   run_id: string;
   strategy_id: string;
   status: BacktestResultPayload["status"];
+  engine: BacktestResultPayload["engine"];
+  data_source: string | null;
+  data_quality: BacktestResultPayload["data_quality"];
+  uses_real_market_data: boolean;
   started_at: string;
   completed_at: string;
   duration_seconds: number;
@@ -1301,12 +3469,47 @@ export type BacktestHistoryPayload = {
   history: BacktestHistoryItemPayload[];
 };
 
+export type CandidateBacktestRecommendation = "candidate" | "watch" | "reject";
+
+export type CandidateBacktestItemPayload = {
+  rank: number;
+  ticker: string;
+  recommendation: CandidateBacktestRecommendation;
+  score: number;
+  reason: string;
+  run_id: string;
+  status: string;
+  engine: string;
+  data_source: string | null;
+  uses_real_market_data: boolean;
+  total_net_profit: string | null;
+  sharpe_ratio: string | null;
+  drawdown: string | null;
+  total_trades: string | null;
+};
+
+export type CandidateBacktestPayload = {
+  strategy_id: string;
+  candidate_count: number;
+  real_market_candidate_count: number;
+  best_ticker: string | null;
+  items: CandidateBacktestItemPayload[];
+  summary: string;
+};
+
 const backtestResultStatuses: BacktestResultPayload["status"][] = [
   "success",
   "unavailable",
   "failed",
   "timeout",
   "malformed_result"
+];
+const backtestEngines: BacktestResultPayload["engine"][] = ["lean", "vectorbt"];
+const backtestDataQualities: BacktestResultPayload["data_quality"][] = [
+  "unknown",
+  "real_market_data",
+  "mock_data",
+  "deterministic_research_series"
 ];
 
 const fallbackStrategies: StrategyListPayload = {
@@ -1341,6 +3544,10 @@ function fallbackBacktestResult(
     run_id: `offline-${strategyId}`,
     strategy_id: strategyId,
     status: "unavailable",
+    engine: "lean",
+    data_source: null,
+    data_quality: "unknown",
+    uses_real_market_data: false,
     started_at: now,
     completed_at: now,
     duration_seconds: 0,
@@ -1370,6 +3577,10 @@ function failedBacktestResult(
     run_id: `failed-${strategyId || "strategy"}`,
     strategy_id: strategyId,
     status: "failed",
+    engine: "lean",
+    data_source: null,
+    data_quality: "unknown",
+    uses_real_market_data: false,
     started_at: now,
     completed_at: now,
     duration_seconds: 0,
@@ -1480,6 +3691,12 @@ function isBacktestResultPayload(value: unknown): value is BacktestResultPayload
     typeof value.strategy_id === "string" &&
     typeof value.status === "string" &&
     backtestResultStatuses.includes(value.status as BacktestResultPayload["status"]) &&
+    typeof value.engine === "string" &&
+    backtestEngines.includes(value.engine as BacktestResultPayload["engine"]) &&
+    (typeof value.data_source === "string" || value.data_source === null) &&
+    typeof value.data_quality === "string" &&
+    backtestDataQualities.includes(value.data_quality as BacktestResultPayload["data_quality"]) &&
+    typeof value.uses_real_market_data === "boolean" &&
     typeof value.started_at === "string" &&
     typeof value.completed_at === "string" &&
     typeof value.duration_seconds === "number" &&
@@ -1505,6 +3722,12 @@ function isBacktestHistoryItem(value: unknown): value is BacktestHistoryItemPayl
     typeof value.strategy_id === "string" &&
     typeof value.status === "string" &&
     backtestResultStatuses.includes(value.status as BacktestResultPayload["status"]) &&
+    typeof value.engine === "string" &&
+    backtestEngines.includes(value.engine as BacktestResultPayload["engine"]) &&
+    (typeof value.data_source === "string" || value.data_source === null) &&
+    typeof value.data_quality === "string" &&
+    backtestDataQualities.includes(value.data_quality as BacktestResultPayload["data_quality"]) &&
+    typeof value.uses_real_market_data === "boolean" &&
     typeof value.started_at === "string" &&
     typeof value.completed_at === "string" &&
     typeof value.duration_seconds === "number" &&
@@ -1515,6 +3738,39 @@ function isBacktestHistoryItem(value: unknown): value is BacktestHistoryItemPayl
 
 function isBacktestHistoryPayload(value: unknown): value is BacktestHistoryPayload {
   return isRecord(value) && Array.isArray(value.history) && value.history.every(isBacktestHistoryItem);
+}
+
+function isCandidateBacktestItem(value: unknown): value is CandidateBacktestItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.rank === "number" &&
+    typeof value.ticker === "string" &&
+    ["candidate", "watch", "reject"].includes(String(value.recommendation)) &&
+    typeof value.score === "number" &&
+    typeof value.reason === "string" &&
+    typeof value.run_id === "string" &&
+    typeof value.status === "string" &&
+    typeof value.engine === "string" &&
+    (typeof value.data_source === "string" || value.data_source === null) &&
+    typeof value.uses_real_market_data === "boolean" &&
+    (typeof value.total_net_profit === "string" || value.total_net_profit === null) &&
+    (typeof value.sharpe_ratio === "string" || value.sharpe_ratio === null) &&
+    (typeof value.drawdown === "string" || value.drawdown === null) &&
+    (typeof value.total_trades === "string" || value.total_trades === null)
+  );
+}
+
+function isCandidateBacktestPayload(value: unknown): value is CandidateBacktestPayload {
+  return (
+    isRecord(value) &&
+    typeof value.strategy_id === "string" &&
+    typeof value.candidate_count === "number" &&
+    typeof value.real_market_candidate_count === "number" &&
+    (typeof value.best_ticker === "string" || value.best_ticker === null) &&
+    Array.isArray(value.items) &&
+    value.items.every(isCandidateBacktestItem) &&
+    typeof value.summary === "string"
+  );
 }
 
 export async function getStrategyCatalog(): Promise<StrategyListPayload> {
@@ -1586,6 +3842,64 @@ export async function runStrategyBacktest(
     return isBacktestResultPayload(payload) ? payload : fallbackBacktestResult(normalizedStrategyId, parameters);
   } catch {
     return fallbackBacktestResult(normalizedStrategyId, parameters);
+  }
+}
+
+export async function runCandidateBacktests(
+  strategyId: string,
+  tickers: string[],
+  parameters: BacktestParametersPayload = {}
+): Promise<CandidateBacktestPayload> {
+  const normalizedStrategyId = strategyId.trim();
+  const normalizedTickers = tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean);
+  if (!normalizedStrategyId || normalizedTickers.length < 2) {
+    return {
+      strategy_id: normalizedStrategyId,
+      candidate_count: 0,
+      real_market_candidate_count: 0,
+      best_ticker: null,
+      items: [],
+      summary: "请选择策略并至少输入两个候选标的。"
+    };
+  }
+
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/strategy-lab/candidate-backtests`, {
+      body: JSON.stringify({ strategy_id: normalizedStrategyId, tickers: normalizedTickers, parameters }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      const detail = await readResponseErrorDetail(response);
+      return {
+        strategy_id: normalizedStrategyId,
+        candidate_count: 0,
+        real_market_candidate_count: 0,
+        best_ticker: null,
+        items: [],
+        summary: `请求失败（${response.status}）：${detail}`
+      };
+    }
+    const payload: unknown = await response.json();
+    return isCandidateBacktestPayload(payload)
+      ? payload
+      : {
+          strategy_id: normalizedStrategyId,
+          candidate_count: 0,
+          real_market_candidate_count: 0,
+          best_ticker: null,
+          items: [],
+          summary: "候选池回测返回格式不可识别。"
+        };
+  } catch {
+    return {
+      strategy_id: normalizedStrategyId,
+      candidate_count: 0,
+      real_market_candidate_count: 0,
+      best_ticker: null,
+      items: [],
+      summary: "后端 API 暂不可用，无法运行候选池回测。"
+    };
   }
 }
 
@@ -1823,8 +4137,310 @@ function isPaperSchedulerStatusPayload(value: unknown): value is PaperSchedulerS
     typeof value.enabled === "boolean" &&
     typeof value.running === "boolean" &&
     typeof value.job_count === "number" &&
+    typeof value.job_id === "string" &&
     typeof value.cron === "string" &&
-    typeof value.timezone === "string"
+    typeof value.timezone === "string" &&
+    (typeof value.next_run_at === "string" || value.next_run_at === null) &&
+    typeof value.last_checked_at === "string" &&
+    typeof value.can_run_now === "boolean" &&
+    typeof value.execution_gate === "string" &&
+    typeof value.market_date === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.is_market_session === "boolean" &&
+    typeof value.session_closed === "boolean" &&
+    typeof value.calendar_provider === "string" &&
+    typeof value.gate_reason === "string"
+  );
+}
+
+function isPaperMarketSessionPayload(value: unknown): value is PaperMarketSessionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.market_date === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.is_market_session === "boolean" &&
+    typeof value.session_closed === "boolean" &&
+    typeof value.calendar_provider === "string" &&
+    typeof value.reason === "string"
+  );
+}
+
+function isPaperOperationsStatusPayload(value: unknown): value is PaperOperationsStatusPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.run_state === "string" &&
+    typeof value.health_status === "string" &&
+    (typeof value.latest_run_id === "string" || value.latest_run_id === null) &&
+    (typeof value.latest_run_trading_day === "string" || value.latest_run_trading_day === null) &&
+    (typeof value.latest_run_status === "string" || value.latest_run_status === null) &&
+    (typeof value.today_run_id === "string" || value.today_run_id === null) &&
+    (typeof value.review_id === "string" || value.review_id === null) &&
+    (typeof value.latest_error === "string" || value.latest_error === null) &&
+    typeof value.can_retry_today === "boolean" &&
+    typeof value.event_ledger_ready === "boolean" &&
+    typeof value.latest_run_event_count === "number" &&
+    typeof value.legacy_manual_future_run_count === "number" &&
+    (typeof value.latest_legacy_manual_future_trading_day === "string" ||
+      value.latest_legacy_manual_future_trading_day === null) &&
+    Array.isArray(value.data_quality_warnings) &&
+    value.data_quality_warnings.every((item) => typeof item === "string") &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.recommended_action === "string" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperOperationsHistoryItemPayload(value: unknown): value is PaperOperationsHistoryItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.run_id === "string" &&
+    typeof value.status === "string" &&
+    typeof value.health_status === "string" &&
+    typeof value.event_count === "number" &&
+    typeof value.has_review === "boolean" &&
+    typeof value.candidates_count === "number" &&
+    typeof value.orders_count === "number" &&
+    typeof value.positions_count === "number" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    (typeof value.error_message === "string" || value.error_message === null) &&
+    typeof value.started_at === "string" &&
+    (typeof value.finished_at === "string" || value.finished_at === null)
+  );
+}
+
+function isPaperOperationsHistoryPayload(value: unknown): value is PaperOperationsHistoryPayload {
+  return (
+    isRecord(value) &&
+    typeof value.window_size === "number" &&
+    typeof value.completed_days === "number" &&
+    typeof value.failed_days === "number" &&
+    typeof value.blocked_days === "number" &&
+    typeof value.replayable_days === "number" &&
+    typeof value.review_days === "number" &&
+    typeof value.completion_rate === "number" &&
+    typeof value.replay_rate === "number" &&
+    typeof value.latest_health_status === "string" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperOperationsHistoryItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperOperationsRepairItemPayload(value: unknown): value is PaperOperationsRepairItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.status === "string" &&
+    typeof value.event_created === "boolean" &&
+    (typeof value.topic === "string" || value.topic === null) &&
+    typeof value.reason === "string"
+  );
+}
+
+function isPaperOperationsRepairPayload(value: unknown): value is PaperOperationsRepairPayload {
+  return (
+    isRecord(value) &&
+    typeof value.scanned_runs === "number" &&
+    typeof value.repaired_runs === "number" &&
+    typeof value.skipped_runs === "number" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperOperationsRepairItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperOperationsQuarantineItemPayload(value: unknown): value is PaperOperationsQuarantineItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.trading_day === "string" &&
+    typeof value.status === "string" &&
+    typeof value.previous_trigger === "string" &&
+    typeof value.new_trigger === "string" &&
+    typeof value.audit_event_created === "boolean" &&
+    typeof value.reason === "string"
+  );
+}
+
+function isPaperOperationsQuarantinePayload(value: unknown): value is PaperOperationsQuarantinePayload {
+  return (
+    isRecord(value) &&
+    typeof value.scanned_runs === "number" &&
+    typeof value.quarantined_runs === "number" &&
+    typeof value.skipped_runs === "number" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperOperationsQuarantineItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperReviewTrendItemPayload(value: unknown): value is PaperReviewTrendItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.equity === "number" &&
+    typeof value.cash === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.trade_count === "number" &&
+    typeof value.win_rate === "number" &&
+    typeof value.expectancy === "number" &&
+    typeof value.readiness === "string"
+  );
+}
+
+function isPaperReviewTrendPayload(value: unknown): value is PaperReviewTrendPayload {
+  return (
+    isRecord(value) &&
+    typeof value.sample_size === "number" &&
+    typeof value.positive_expectancy_days === "number" &&
+    typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.average_expectancy === "number" &&
+    typeof value.latest_expectancy === "number" &&
+    typeof value.total_realized_pnl === "number" &&
+    typeof value.total_unrealized_pnl === "number" &&
+    typeof value.latest_readiness === "string" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperReviewTrendItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperSimulationItemPayload(value: unknown): value is PaperSimulationItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.run_status === "string" &&
+    typeof value.orders_count === "number" &&
+    typeof value.candidates_count === "number" &&
+    typeof value.positions_count === "number" &&
+    (typeof value.review_id === "string" || value.review_id === null)
+  );
+}
+
+function isPaperSimulationPayload(value: unknown): value is PaperSimulationPayload {
+  return (
+    isRecord(value) &&
+    typeof value.scenario === "string" &&
+    typeof value.start_date === "string" &&
+    typeof value.days_requested === "number" &&
+    typeof value.days_completed === "number" &&
+    typeof value.days_skipped === "number" &&
+    typeof value.review_day_count === "number" &&
+    typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.latest_expectancy === "number" &&
+    typeof value.average_expectancy === "number" &&
+    typeof value.event_chain_count === "number" &&
+    typeof value.alpha_ready === "boolean" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperSimulationItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperExecutionRejectionReasonPayload(value: unknown): value is PaperExecutionRejectionReasonPayload {
+  return (
+    isRecord(value) &&
+    typeof value.risk_code === "string" &&
+    typeof value.count === "number" &&
+    (typeof value.latest_reason === "string" || value.latest_reason === null)
+  );
+}
+
+function isPaperExecutionDiagnosticsPayload(value: unknown): value is PaperExecutionDiagnosticsPayload {
+  return (
+    isRecord(value) &&
+    typeof value.order_count === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.rejected_order_count === "number" &&
+    typeof value.buy_order_count === "number" &&
+    typeof value.sell_order_count === "number" &&
+    typeof value.closed_trade_count === "number" &&
+    typeof value.fill_rate === "number" &&
+    typeof value.rejection_rate === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.average_realized_pnl === "number" &&
+    (typeof value.latest_rejection_code === "string" || value.latest_rejection_code === null) &&
+    typeof value.max_daily_order_rejections === "number" &&
+    typeof value.max_daily_order_buy_rejections === "number" &&
+    typeof value.max_daily_order_sell_rejections === "number" &&
+    Array.isArray(value.rejection_reasons) &&
+    value.rejection_reasons.every(isPaperExecutionRejectionReasonPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperRiskProfilePayload(value: unknown): value is PaperRiskProfilePayload {
+  return (
+    isRecord(value) &&
+    typeof value.risk_engine === "string" &&
+    typeof value.max_order_notional === "number" &&
+    typeof value.max_position_weight === "number" &&
+    typeof value.max_daily_orders === "number" &&
+    typeof value.exit_take_profit_pct === "number" &&
+    typeof value.exit_stop_loss_pct === "number" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperRiskLimitReviewPayload(value: unknown): value is PaperRiskLimitReviewPayload {
+  return (
+    isRecord(value) &&
+    typeof value.status === "string" &&
+    typeof value.current_max_daily_orders === "number" &&
+    typeof value.recommended_paper_max_daily_orders === "number" &&
+    typeof value.live_change_allowed === "boolean" &&
+    typeof value.max_daily_order_rejections === "number" &&
+    typeof value.max_daily_order_buy_rejections === "number" &&
+    typeof value.max_daily_order_sell_rejections === "number" &&
+    typeof value.filled_order_count === "number" &&
+    typeof value.closed_trade_count === "number" &&
+    typeof value.sample_collection_blocked === "boolean" &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperRiskLimitApplyPayload(value: unknown): value is PaperRiskLimitApplyPayload {
+  return (
+    isRecord(value) &&
+    typeof value.applied === "boolean" &&
+    typeof value.previous_max_daily_orders === "number" &&
+    typeof value.applied_max_daily_orders === "number" &&
+    typeof value.live_change_allowed === "boolean" &&
+    typeof value.audit_event_created === "boolean" &&
+    typeof value.summary === "string"
+  );
+}
+
+function isPaperActionPlanItemPayload(value: unknown): value is PaperActionPlanItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.priority === "number" &&
+    typeof value.action_code === "string" &&
+    typeof value.title === "string" &&
+    typeof value.detail === "string" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isPaperActionPlanPayload(value: unknown): value is PaperActionPlanPayload {
+  return (
+    isRecord(value) &&
+    typeof value.readiness === "string" &&
+    typeof value.primary_action === "string" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperActionPlanItemPayload) &&
+    typeof value.summary === "string"
   );
 }
 
@@ -1863,6 +4479,9 @@ function isEventLedgerReplayChain(value: unknown): value is EventLedgerReplayCha
     Array.isArray(value.order_states) &&
     value.order_states.every((item) => typeof item === "string") &&
     (typeof value.terminal_state === "string" || value.terminal_state === null) &&
+    (value.integrity_warnings === undefined ||
+      (Array.isArray(value.integrity_warnings) &&
+        value.integrity_warnings.every((item) => typeof item === "string"))) &&
     typeof value.event_count === "number"
   );
 }
@@ -1888,6 +4507,14 @@ function isPaperEventLedgerPayload(value: unknown): value is PaperEventLedgerPay
     Array.isArray(value.latest_topic_counts) &&
     value.latest_topic_counts.every(isEventLedgerTopicCount) &&
     typeof value.latest_correlation_count === "number" &&
+    (value.integrity_ready === undefined || typeof value.integrity_ready === "boolean") &&
+    (value.integrity_warnings === undefined ||
+      (Array.isArray(value.integrity_warnings) &&
+        value.integrity_warnings.every((item) => typeof item === "string"))) &&
+    (value.traceable_chain_count === undefined || typeof value.traceable_chain_count === "number") &&
+    (value.complete_order_chain_count === undefined || typeof value.complete_order_chain_count === "number") &&
+    (value.broken_chain_count === undefined || typeof value.broken_chain_count === "number") &&
+    (value.traceability_ratio === undefined || typeof value.traceability_ratio === "number") &&
     typeof value.replay_ready === "boolean" &&
     Array.isArray(value.warnings) &&
     value.warnings.every((item) => typeof item === "string") &&
@@ -1942,6 +4569,35 @@ function isPaperTradingSummaryPayload(value: unknown): value is PaperTradingSumm
     Array.isArray(value.positions) &&
     value.positions.every(isPaperPositionPayload) &&
     (value.latest_review === null || isPaperReviewPayload(value.latest_review))
+  );
+}
+
+function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPayload {
+  return (
+    isRecord(value) &&
+    typeof value.trading_day === "string" &&
+    typeof value.run_state === "string" &&
+    typeof value.health_status === "string" &&
+    typeof value.recommended_action === "string" &&
+    typeof value.scheduler_running === "boolean" &&
+    (typeof value.scheduler_next_run_at === "string" || value.scheduler_next_run_at === null) &&
+    typeof value.account_equity === "number" &&
+    typeof value.cash === "number" &&
+    typeof value.realized_pnl === "number" &&
+    typeof value.unrealized_pnl === "number" &&
+    typeof value.candidate_count === "number" &&
+    typeof value.order_count === "number" &&
+    typeof value.open_position_count === "number" &&
+    typeof value.latest_expectancy === "number" &&
+    typeof value.average_expectancy === "number" &&
+    typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.event_ledger_ready === "boolean" &&
+    typeof value.alpha_ready === "boolean" &&
+    Array.isArray(value.alpha_blockers) &&
+    value.alpha_blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.data_quality_warnings) &&
+    value.data_quality_warnings.every((item) => typeof item === "string") &&
+    typeof value.summary === "string"
   );
 }
 
@@ -2108,6 +4764,19 @@ export async function getPaperTradingSummary(): Promise<PaperTradingSummaryPaylo
   }
 }
 
+export async function getPaperDailyReport(): Promise<PaperDailyReportPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/daily-report`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperDailyReport;
+    }
+    const payload: unknown = await response.json();
+    return isPaperDailyReportPayload(payload) ? payload : fallbackPaperDailyReport;
+  } catch {
+    return fallbackPaperDailyReport;
+  }
+}
+
 export async function getPaperSchedulerStatus(): Promise<PaperSchedulerStatusPayload> {
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/scheduler`, { cache: "no-store" });
@@ -2118,6 +4787,182 @@ export async function getPaperSchedulerStatus(): Promise<PaperSchedulerStatusPay
     return isPaperSchedulerStatusPayload(payload) ? payload : fallbackPaperSchedulerStatus;
   } catch {
     return fallbackPaperSchedulerStatus;
+  }
+}
+
+export async function getPaperMarketSession(): Promise<PaperMarketSessionPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/market-session`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperMarketSession;
+    }
+    const payload: unknown = await response.json();
+    return isPaperMarketSessionPayload(payload) ? payload : fallbackPaperMarketSession;
+  } catch {
+    return fallbackPaperMarketSession;
+  }
+}
+
+export async function getPaperOperationsStatus(): Promise<PaperOperationsStatusPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/operations`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperOperationsStatus;
+    }
+    const payload: unknown = await response.json();
+    return isPaperOperationsStatusPayload(payload) ? payload : fallbackPaperOperationsStatus;
+  } catch {
+    return fallbackPaperOperationsStatus;
+  }
+}
+
+export async function getPaperOperationsHistory(): Promise<PaperOperationsHistoryPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/operations/history`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackPaperOperationsHistory;
+    }
+    const payload: unknown = await response.json();
+    return isPaperOperationsHistoryPayload(payload) ? payload : fallbackPaperOperationsHistory;
+  } catch {
+    return fallbackPaperOperationsHistory;
+  }
+}
+
+export async function repairPaperEventLedger(): Promise<PaperOperationsRepairPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/operations/repair-ledger`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return fallbackPaperOperationsRepair;
+    }
+    const payload: unknown = await response.json();
+    return isPaperOperationsRepairPayload(payload) ? payload : fallbackPaperOperationsRepair;
+  } catch {
+    return fallbackPaperOperationsRepair;
+  }
+}
+
+export async function quarantineLegacyPaperRuns(): Promise<PaperOperationsQuarantinePayload> {
+  try {
+    const response = await fetch(
+      `${getPublicApiBaseUrl()}/api/mvp/paper-trading/operations/quarantine-legacy-runs`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      return fallbackPaperOperationsQuarantine;
+    }
+    const payload: unknown = await response.json();
+    return isPaperOperationsQuarantinePayload(payload) ? payload : fallbackPaperOperationsQuarantine;
+  } catch {
+    return fallbackPaperOperationsQuarantine;
+  }
+}
+
+export async function getPaperReviewTrend(): Promise<PaperReviewTrendPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/review-trend`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperReviewTrend;
+    }
+    const payload: unknown = await response.json();
+    return isPaperReviewTrendPayload(payload) ? payload : fallbackPaperReviewTrend;
+  } catch {
+    return fallbackPaperReviewTrend;
+  }
+}
+
+export async function runPaperSimulationLab(
+  input: PaperSimulationRequestPayload = { days: 5, scenario: "bullish" }
+): Promise<PaperSimulationPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/simulation/run`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return fallbackPaperSimulation;
+    }
+    const payload: unknown = await response.json();
+    return isPaperSimulationPayload(payload) ? payload : fallbackPaperSimulation;
+  } catch {
+    return fallbackPaperSimulation;
+  }
+}
+
+export async function getPaperExecutionDiagnostics(): Promise<PaperExecutionDiagnosticsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/execution-diagnostics`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackPaperExecutionDiagnostics;
+    }
+    const payload: unknown = await response.json();
+    return isPaperExecutionDiagnosticsPayload(payload) ? payload : fallbackPaperExecutionDiagnostics;
+  } catch {
+    return fallbackPaperExecutionDiagnostics;
+  }
+}
+
+export async function getPaperRiskProfile(): Promise<PaperRiskProfilePayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/risk-profile`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperRiskProfile;
+    }
+    const payload: unknown = await response.json();
+    return isPaperRiskProfilePayload(payload) ? payload : fallbackPaperRiskProfile;
+  } catch {
+    return fallbackPaperRiskProfile;
+  }
+}
+
+export async function getPaperRiskLimitReview(): Promise<PaperRiskLimitReviewPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/risk-limit-review`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackPaperRiskLimitReview;
+    }
+    const payload: unknown = await response.json();
+    return isPaperRiskLimitReviewPayload(payload) ? payload : fallbackPaperRiskLimitReview;
+  } catch {
+    return fallbackPaperRiskLimitReview;
+  }
+}
+
+export async function applyPaperRiskLimitRecommendation(): Promise<PaperRiskLimitApplyPayload> {
+  try {
+    const response = await fetch(
+      `${getPublicApiBaseUrl()}/api/mvp/paper-trading/risk-limit-review/apply-paper-recommendation`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      return fallbackPaperRiskLimitApply;
+    }
+    const payload: unknown = await response.json();
+    return isPaperRiskLimitApplyPayload(payload) ? payload : fallbackPaperRiskLimitApply;
+  } catch {
+    return fallbackPaperRiskLimitApply;
+  }
+}
+
+export async function getPaperActionPlan(): Promise<PaperActionPlanPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/action-plan`, { cache: "no-store" });
+    if (!response.ok) {
+      return fallbackPaperActionPlan;
+    }
+    const payload: unknown = await response.json();
+    return isPaperActionPlanPayload(payload) ? payload : fallbackPaperActionPlan;
+  } catch {
+    return fallbackPaperActionPlan;
   }
 }
 

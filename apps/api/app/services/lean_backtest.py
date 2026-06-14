@@ -18,6 +18,8 @@ API_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNTIME_ROOT = API_ROOT / ".runtime" / "strategy-lab"
 
 BacktestState = Literal["success", "unavailable", "failed", "timeout", "malformed_result"]
+BacktestEngine = Literal["lean", "vectorbt"]
+BacktestDataQuality = Literal["unknown", "real_market_data", "mock_data", "deterministic_research_series"]
 BacktestParameters = dict[str, str]
 CommandRunner = Callable[[list[str], Path, float], CompletedProcess[str]]
 StatusProvider = Callable[[], StrategyLabStatus]
@@ -45,6 +47,10 @@ class BacktestResult(BaseModel):
     run_id: str
     strategy_id: str
     status: BacktestState
+    engine: BacktestEngine = "lean"
+    data_source: str | None = None
+    data_quality: BacktestDataQuality = "unknown"
+    uses_real_market_data: bool = False
     started_at: str
     completed_at: str
     duration_seconds: float
@@ -60,6 +66,10 @@ class BacktestHistoryItem(BaseModel):
     run_id: str
     strategy_id: str
     status: BacktestState
+    engine: BacktestEngine = "lean"
+    data_source: str | None = None
+    data_quality: BacktestDataQuality = "unknown"
+    uses_real_market_data: bool = False
     started_at: str
     completed_at: str
     duration_seconds: float
@@ -72,6 +82,10 @@ class BacktestHistoryItem(BaseModel):
             run_id=result.run_id,
             strategy_id=result.strategy_id,
             status=result.status,
+            engine=result.engine,
+            data_source=result.data_source,
+            data_quality=result.data_quality,
+            uses_real_market_data=result.uses_real_market_data,
             started_at=result.started_at,
             completed_at=result.completed_at,
             duration_seconds=result.duration_seconds,
@@ -279,6 +293,8 @@ def run_lean_backtest(
     command_runner: CommandRunner = default_command_runner,
     status_provider: StatusProvider = get_strategy_lab_status,
     timeout_seconds: float = 180.0,
+    enable_vectorbt_fallback: bool = True,
+    market_data_provider: object | None = None,
 ) -> BacktestResult:
     strategy = get_strategy_by_id(strategy_id, catalog_path=catalog_path)
     parameters = _normalize_backtest_parameters(strategy, parameter_overrides)
@@ -287,7 +303,32 @@ def run_lean_backtest(
     output_dir = _runtime_output_directory(runtime_root, run_id)
 
     readiness = status_provider()
-    if not readiness.can_run_backtests:
+    if strategy.id == "deterministic_watchlist_v1":
+        result = _run_vectorbt_fallback(
+            strategy=strategy,
+            run_id=run_id,
+            started_at=started_at,
+            parameters=parameters,
+            output_dir=output_dir,
+            readiness=readiness,
+            runtime_root=runtime_root,
+            market_data_provider=market_data_provider,
+        )
+        return result
+
+    if not _lean_runtime_ready(readiness):
+        if enable_vectorbt_fallback:
+            return _run_vectorbt_fallback(
+                strategy=strategy,
+                run_id=run_id,
+                started_at=started_at,
+                parameters=parameters,
+                output_dir=output_dir,
+                readiness=readiness,
+                runtime_root=runtime_root,
+                market_data_provider=market_data_provider,
+            )
+
         result = _empty_result(
             run_id=run_id,
             strategy_id=strategy.id,
@@ -377,6 +418,42 @@ def run_lean_backtest(
     parsed = _parse_backtest_output(strategy, run_id, started_at, output_dir, logs, parameters)
     _save_result(parsed, runtime_root)
     return parsed
+
+
+def _run_vectorbt_fallback(
+    *,
+    strategy: StrategyDefinition,
+    run_id: str,
+    started_at: str,
+    parameters: BacktestParameters,
+    output_dir: Path,
+    readiness: StrategyLabStatus,
+    runtime_root: Path,
+    market_data_provider: object | None,
+) -> BacktestResult:
+    from app.services.vectorbt_backtest import run_vectorbt_backtest
+
+    result = run_vectorbt_backtest(
+        strategy,
+        run_id=run_id,
+        started_at=started_at,
+        parameters=parameters,
+        output_dir=output_dir,
+        readiness_logs=[tool.message for tool in readiness.tools if not tool.available],
+        market_data_provider=market_data_provider,
+    )
+    _save_result(result, runtime_root)
+    return result
+
+
+def _lean_runtime_ready(readiness: StrategyLabStatus) -> bool:
+    lean_tool_names = {"Docker CLI", "Docker Compose", "Docker engine", "LEAN CLI"}
+    lean_tools = [tool for tool in readiness.tools if tool.name in lean_tool_names]
+    if not lean_tools:
+        return False
+    if not any(tool.name == "LEAN CLI" and tool.available for tool in lean_tools):
+        return False
+    return all(tool.available for tool in lean_tools)
 
 
 def _parse_backtest_output(

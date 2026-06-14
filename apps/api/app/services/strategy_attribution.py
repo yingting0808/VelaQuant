@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.data.providers.base import MarketDataProvider, PriceHistoryBar
-from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperPosition, PaperReview
+from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperPosition, PaperReview, PaperRun
+from app.services.market_calendar import current_market_trading_day
+from app.services.strategy_event_filters import filter_strategy_trade_events
 from app.services.strategy_evaluation import DEFAULT_STRATEGY_ID, DEFAULT_STRATEGY_NAME
 from app.services.workspace import get_or_create_default_workspace
 
@@ -133,18 +135,31 @@ class StrategyAttributionPayload(BaseModel):
 def attribute_current_paper_strategy(
     session: Session,
     provider: MarketDataProvider | None = None,
+    *,
+    as_of_trading_day: str | None = None,
 ) -> StrategyAttributionPayload:
     workspace = get_or_create_default_workspace(session)
     team_id = workspace.team.id
-    events = list(
-        session.exec(select(CoreEventLog).where(CoreEventLog.team_id == team_id).order_by(CoreEventLog.sequence)).all()
-    )
-    orders = list(session.exec(select(PaperOrder).where(PaperOrder.team_id == team_id)).all())
+    as_of_trading_day = as_of_trading_day or _current_trading_day()
+    events = _events_as_of(session, team_id, as_of_trading_day)
+    orders = [
+        order
+        for order in session.exec(select(PaperOrder).where(PaperOrder.team_id == team_id)).all()
+        if order.strategy_id == DEFAULT_STRATEGY_ID
+        and order.submitted_at.date().isoformat() <= as_of_trading_day
+    ]
     positions = list(session.exec(select(PaperPosition).where(PaperPosition.team_id == team_id)).all())
     reviews = list(
-        session.exec(select(PaperReview).where(PaperReview.team_id == team_id).order_by(PaperReview.created_at)).all()
+        session.exec(
+            select(PaperReview)
+            .where(PaperReview.team_id == team_id)
+            .where(PaperReview.trading_day <= as_of_trading_day)
+            .order_by(PaperReview.created_at)
+        ).all()
     )
     warnings: list[str] = []
+    if positions and _has_future_runs(session, team_id, as_of_trading_day):
+        warnings.append("position_snapshot_may_include_future_run_state")
     signal_quality = _signal_quality(events, orders, positions, warnings)
     expectancy = _expectancy_decomposition(orders, positions)
     max_drawdown = _max_drawdown(reviews)
@@ -178,6 +193,36 @@ def attribute_current_paper_strategy(
         drawdown=drawdown,
         data_quality_warnings=_dedupe(warnings),
         summary=_summary(signal_quality, expectancy, regime, drawdown),
+    )
+
+
+def _events_as_of(session: Session, team_id, as_of_trading_day: str) -> list[CoreEventLog]:
+    eligible_run_ids = {
+        run.id
+        for run in session.exec(
+            select(PaperRun)
+            .where(PaperRun.team_id == team_id)
+            .where(PaperRun.trading_day <= as_of_trading_day)
+        ).all()
+    }
+    events = session.exec(select(CoreEventLog).where(CoreEventLog.team_id == team_id).order_by(CoreEventLog.sequence)).all()
+    eligible_events = [
+        event
+        for event in events
+        if (event.run_id in eligible_run_ids)
+        or (event.run_id is None and event.published_at.date().isoformat() <= as_of_trading_day)
+    ]
+    return filter_strategy_trade_events(eligible_events)
+
+
+def _has_future_runs(session: Session, team_id, as_of_trading_day: str) -> bool:
+    return (
+        session.exec(
+            select(PaperRun)
+            .where(PaperRun.team_id == team_id)
+            .where(PaperRun.trading_day > as_of_trading_day)
+        ).first()
+        is not None
     )
 
 
@@ -368,6 +413,10 @@ def _aware_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _current_trading_day() -> str:
+    return current_market_trading_day()
 
 
 def _expectancy_components(

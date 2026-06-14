@@ -1,5 +1,6 @@
-import pytest
 import json
+import pytest
+from datetime import datetime, timezone
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
@@ -11,7 +12,22 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
-from app.domain.models import CoreEventLog, PaperOrder, PaperReview, PaperRun, PaperRunStatus, PaperRunTrigger
+from app.domain.models import (
+    CoreEventLog,
+    PaperAccount,
+    PaperCandidate,
+    PaperOrder,
+    PaperOrderSide,
+    PaperRiskSetting,
+    PaperReview,
+    PaperRun,
+    PaperRunStatus,
+    PaperRunTrigger,
+    StrategyCompetitionEntry,
+    StrategyCompetitionSnapshot,
+    StrategyAlphaSnapshot,
+)
+from app.services import paper_trading
 from app.services.paper_trading import (
     PaperOrderCreate,
     get_paper_trading_summary,
@@ -21,6 +37,8 @@ from app.services.paper_trading import (
     submit_paper_order,
 )
 from app.services.event_ledger import get_event_ledger_status, replay_paper_run
+from app.services.workspace import get_or_create_default_workspace
+from app.trading_core.event_bus import RedisStreamEventBus
 
 
 class FixtureProvider(MarketDataProvider):
@@ -98,10 +116,69 @@ class FailingQuoteProvider(FixtureProvider):
         raise RuntimeError(f"quote source failed for {ticker}")
 
 
+class FakeRedisStreamClient:
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, dict[str, str]]] = []
+
+    def xadd(self, stream_name: str, fields: dict[str, str]):
+        self.entries.append((stream_name, fields))
+        return "1-0"
+
+
 def make_session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     return Session(engine)
+
+
+def test_summary_latest_review_ignores_future_simulation_reviews():
+    with make_session() as session:
+        provider = FixtureProvider()
+        get_paper_trading_summary(session, provider)
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-13",
+                equity=100000,
+                cash=99000,
+                realized_pnl=10,
+                unrealized_pnl=5,
+                trade_count=1,
+                win_rate=1,
+                average_win=10,
+                average_loss=0,
+                expectancy=10,
+                notes="today review",
+                created_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-30",
+                equity=120000,
+                cash=110000,
+                realized_pnl=1000,
+                unrealized_pnl=500,
+                trade_count=30,
+                win_rate=0.9,
+                average_win=100,
+                average_loss=10,
+                expectancy=90,
+                notes="future simulation review",
+                created_at=datetime(2026, 6, 30, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        summary = get_paper_trading_summary(session, provider, as_of_trading_day="2026-06-13")
+
+        assert summary.latest_review is not None
+        assert summary.latest_review.trading_day == "2026-06-13"
+        assert summary.latest_review.expectancy == 10
 
 
 def test_daily_run_creates_account_candidates_and_review():
@@ -138,6 +215,37 @@ def test_daily_run_creates_account_candidates_and_review():
         assert runs[0].orders_count == len(summary.orders)
         assert runs[0].review_id == summary.latest_review.id
         assert runs[0].finished_at is not None
+        snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
+        assert len(snapshots) == 1
+        assert snapshots[0].trading_day == summary.latest_review.trading_day
+        assert snapshots[0].latest_expectancy == summary.latest_review.expectancy
+        competition_snapshots = session.exec(select(StrategyCompetitionSnapshot)).all()
+        competition_entries = session.exec(select(StrategyCompetitionEntry)).all()
+        assert len(competition_snapshots) == 1
+        assert competition_snapshots[0].trading_day == summary.latest_review.trading_day
+        assert competition_snapshots[0].strategy_count >= 1
+        assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
+
+
+def test_daily_run_auto_exits_profitable_open_position_before_review():
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 125.0
+
+        summary = run_daily_paper_trading_loop(session, provider)
+
+        orders = session.exec(select(PaperOrder).order_by(PaperOrder.submitted_at)).all()
+        sell_orders = [order for order in orders if order.side == PaperOrderSide.sell]
+        assert sell_orders
+        assert sell_orders[0].ticker == "AAPL"
+        assert sell_orders[0].status.value == "filled"
+        assert sell_orders[0].realized_pnl == 50.0
+        assert summary.latest_review is not None
+        assert summary.latest_review.trade_count == 1
+        assert summary.latest_review.expectancy == 50.0
+        intent_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_intent")).all()
+        assert any("Paper exit rule take_profit" in event.payload_json for event in intent_events)
 
 
 def test_daily_run_persists_core_order_state_events_for_run():
@@ -185,6 +293,7 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "risk_decision",
             "order_state",
             "order_state",
             "order_state",
@@ -200,6 +309,10 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
         ordered_candidate = next(candidate for candidate in summary.candidates if candidate.status == "ordered")
         assert trade_intent_payload["reason"] in ordered_candidate.thesis
         assert trade_intent_payload["ticker"] == ordered_candidate.ticker
+
+        risk_payload = json.loads(selected_chain[3].payload_json)
+        assert risk_payload["status"] == "approved"
+        assert risk_payload["code"] == "approved"
 
 
 def test_list_paper_run_events_returns_persisted_core_events():
@@ -239,6 +352,7 @@ def test_event_ledger_status_replays_latest_completed_run_chain():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "risk_decision",
             "order_state",
         }
         assert selected_chain.ticker == summary.orders[0].ticker
@@ -246,6 +360,7 @@ def test_event_ledger_status_replays_latest_completed_run_chain():
             "market_event",
             "strategy_input",
             "trade_intent",
+            "risk_decision",
             "order_state",
             "order_state",
             "order_state",
@@ -257,7 +372,7 @@ def test_event_ledger_status_replays_latest_completed_run_chain():
         assert replay.chains[0].event_count > 0
 
 
-def test_event_ledger_status_warns_when_latest_run_has_no_events():
+def test_event_ledger_status_keeps_completed_chain_when_same_day_run_is_repeated():
     with make_session() as session:
         provider = FixtureProvider()
         run_daily_paper_trading_loop(session, provider)
@@ -266,11 +381,12 @@ def test_event_ledger_status_warns_when_latest_run_has_no_events():
         status = get_event_ledger_status(session)
 
         assert status.total_event_count > 0
-        assert status.latest_run_status == "skipped"
-        assert status.latest_run_event_count == 0
-        assert status.latest_replay is None
-        assert status.replay_ready is False
-        assert "latest_run_has_no_events" in status.warnings
+        assert status.latest_run_status == "completed"
+        assert status.latest_run_event_count > 1
+        assert status.latest_replay is not None
+        assert status.replay_ready is True
+        assert status.warnings == []
+        assert "order_state" in status.latest_replay.chains[0].topics
 
 
 def test_daily_run_is_idempotent_for_current_trading_day():
@@ -285,9 +401,164 @@ def test_daily_run_is_idempotent_for_current_trading_day():
         runs = session.exec(select(PaperRun).order_by(PaperRun.started_at)).all()
         assert len(orders) == 1
         assert len(reviews) == 1
-        assert [run.status for run in runs] == [PaperRunStatus.completed, PaperRunStatus.skipped]
+        assert [run.status for run in runs] == [PaperRunStatus.completed]
         assert second.account.cash == first.account.cash
         assert second.orders[0].id == first.orders[0].id
+
+
+def test_daily_run_reruns_when_existing_review_has_no_completed_core_run():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        account = PaperAccount(team_id=workspace.team.id, strategy_id="deterministic_watchlist_v1", name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        legacy_review = PaperReview(
+            account_id=account.id,
+            team_id=workspace.team.id,
+            trading_day="2026-06-13",
+            equity=100000,
+            cash=100000,
+            realized_pnl=0,
+            unrealized_pnl=0,
+            trade_count=0,
+            win_rate=0,
+            average_win=0,
+            average_loss=0,
+            expectancy=0,
+            notes="legacy placeholder review",
+        )
+        session.add(legacy_review)
+        session.commit()
+        session.refresh(legacy_review)
+        session.add(
+            PaperRun(
+                account_id=account.id,
+                team_id=workspace.team.id,
+                review_id=legacy_review.id,
+                trading_day="2026-06-13",
+                trigger=PaperRunTrigger.manual,
+                status=PaperRunStatus.skipped,
+            )
+        )
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-13")
+
+        runs = session.exec(select(PaperRun).where(PaperRun.trading_day == "2026-06-13")).all()
+        reviews = session.exec(select(PaperReview).where(PaperReview.trading_day == "2026-06-13")).all()
+        completed_run = next(run for run in runs if run.status == PaperRunStatus.completed)
+        events = list_paper_run_events(session, completed_run.id)
+        assert len(reviews) == 2
+        assert summary.candidates
+        assert summary.orders[0].core_order_id is not None
+        order_correlation = next(event.correlation_id for event in events if event.topic == "order_state")
+        selected_chain = [event.topic for event in events if event.correlation_id == order_correlation]
+        assert selected_chain == [
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "risk_decision",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+        ]
+
+
+def test_daily_run_anchors_candidate_timestamps_to_explicit_trading_day():
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-12")
+
+        candidates = session.exec(select(PaperCandidate)).all()
+        assert summary.candidates
+        assert candidates
+        assert {candidate.created_at.date().isoformat() for candidate in candidates} == {"2026-06-12"}
+
+
+def test_daily_run_reruns_when_completed_run_has_future_dated_candidates():
+    with make_session() as session:
+        run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-12")
+        for candidate in session.exec(select(PaperCandidate)).all():
+            candidate.created_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
+            session.add(candidate)
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-12")
+
+        runs = session.exec(select(PaperRun).where(PaperRun.trading_day == "2026-06-12")).all()
+        completed_runs = [run for run in runs if run.status == PaperRunStatus.completed]
+        assert len(completed_runs) == 2
+        assert summary.candidates
+        assert {candidate.created_at.date().isoformat() for candidate in session.exec(select(PaperCandidate)).all()} == {
+            "2026-06-12"
+        }
+
+
+def test_daily_run_rejects_when_same_trading_day_run_is_already_started():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        account = PaperAccount(team_id=workspace.team.id, strategy_id="deterministic_watchlist_v1", name="paper")
+        session.add(account)
+        session.commit()
+        session.add(
+            PaperRun(
+                account_id=account.id,
+                team_id=workspace.team.id,
+                trading_day="2026-06-13",
+                trigger=PaperRunTrigger.scheduled,
+                status=PaperRunStatus.started,
+            )
+        )
+        session.commit()
+
+        with pytest.raises(ValueError, match="already running for 2026-06-13"):
+            run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-13")
+
+        assert len(session.exec(select(PaperRun)).all()) == 1
+        assert session.exec(select(PaperOrder)).all() == []
+
+
+def test_daily_run_recovers_stale_started_run_before_starting_new_run():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        account = PaperAccount(team_id=workspace.team.id, strategy_id="deterministic_watchlist_v1", name="paper")
+        session.add(account)
+        session.commit()
+        stale_run = PaperRun(
+            account_id=account.id,
+            team_id=workspace.team.id,
+            trading_day="2026-06-13",
+            trigger=PaperRunTrigger.scheduled,
+            status=PaperRunStatus.started,
+            started_at=datetime(2026, 6, 13, 0, 0, tzinfo=timezone.utc),
+        )
+        session.add(stale_run)
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(session, FixtureProvider(), trading_day="2026-06-13")
+
+        runs = session.exec(select(PaperRun).order_by(PaperRun.started_at)).all()
+        assert summary.latest_review is not None
+        assert len(runs) == 2
+        assert runs[0].status == PaperRunStatus.failed
+        assert "stale running lock expired" in runs[0].error_message
+        assert runs[1].status == PaperRunStatus.completed
+
+
+def test_daily_run_accepts_explicit_trading_day_for_lab_simulation():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        run_daily_paper_trading_loop(session, provider, trading_day="2026-06-14")
+        run_daily_paper_trading_loop(session, provider, trading_day="2026-06-15")
+
+        reviews = session.exec(select(PaperReview).order_by(PaperReview.trading_day)).all()
+        runs = session.exec(select(PaperRun).order_by(PaperRun.trading_day)).all()
+        assert [review.trading_day for review in reviews] == ["2026-06-14", "2026-06-15"]
+        assert [run.trading_day for run in runs] == ["2026-06-14", "2026-06-15"]
+        assert all(run.status == PaperRunStatus.completed for run in runs)
 
 
 def test_scheduled_daily_run_records_scheduled_trigger():
@@ -342,6 +613,149 @@ def test_buy_order_fills_and_updates_cash_and_position():
         assert summary.positions[0].unrealized_pnl == 0.0
 
 
+def test_manual_order_rejects_unregistered_strategy():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        with pytest.raises(ValueError, match="Strategy is not registered for execution"):
+            submit_paper_order(
+                session,
+                provider,
+                PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="missing_strategy"),
+            )
+
+
+def test_manual_order_is_tagged_as_manual_override_for_alpha_isolation():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        order = submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="deterministic_watchlist_v1"),
+        )
+
+        assert order.strategy_id == "deterministic_watchlist_v1:manual_override"
+
+
+def test_manual_order_event_metadata_marks_manual_override_origin():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="deterministic_watchlist_v1"),
+        )
+        market_event = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "market_event")).first()
+
+        payload = json.loads(market_event.payload_json)
+        assert payload["source"] == "manual"
+        assert payload["metadata"]["order_origin"] == "manual_override"
+        assert payload["metadata"]["order_strategy_id"] == "deterministic_watchlist_v1:manual_override"
+
+
+def test_run_scoped_system_order_event_metadata_is_not_manual_override():
+    with make_session() as session:
+        provider = FixtureProvider()
+        workspace = get_or_create_default_workspace(session)
+        account = PaperAccount(team_id=workspace.team.id, strategy_id="deterministic_watchlist_v1", name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        run = PaperRun(
+            account_id=account.id,
+            team_id=workspace.team.id,
+            trading_day="2026-06-13",
+            trigger=PaperRunTrigger.manual,
+            status=PaperRunStatus.started,
+        )
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="deterministic_watchlist_v1"),
+            run_id=run.id,
+            trading_day=run.trading_day,
+        )
+        market_event = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "market_event")).first()
+
+        payload = json.loads(market_event.payload_json)
+        assert payload["source"] == "market_data"
+        assert payload["metadata"]["order_origin"] == "paper_run_order"
+        assert payload["metadata"]["order_strategy_id"] == "deterministic_watchlist_v1"
+
+
+def test_manual_order_persists_ordered_event_chain_with_strategy_id():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        order = submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="deterministic_watchlist_v1"),
+        )
+        events = list(
+            session.exec(
+                select(CoreEventLog)
+                .where(CoreEventLog.correlation_id != str(order.core_order_id))
+                .order_by(CoreEventLog.sequence)
+            ).all()
+        )
+
+        assert [event.sequence for event in events] == list(range(1, 10))
+        assert [event.topic for event in events] == [
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "risk_decision",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+            "order_state",
+        ]
+        assert len({event.correlation_id for event in events}) == 1
+
+
+def test_manual_order_streams_full_event_chain_to_redis(monkeypatch):
+    redis_client = FakeRedisStreamClient()
+
+    def fake_build_event_bus(**kwargs):
+        return RedisStreamEventBus(
+            client=redis_client,
+            stream_name="trading:events",
+            initial_sequence=kwargs.get("initial_sequence", 0),
+        )
+
+    monkeypatch.setattr("app.services.paper_trading.build_event_bus", fake_build_event_bus)
+
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="aapl", side="buy", quantity=2, strategy_id="deterministic_watchlist_v1"),
+        )
+
+    assert [entry[1]["topic"] for entry in redis_client.entries] == [
+        "market_event",
+        "strategy_input",
+        "trade_intent",
+        "risk_decision",
+        "order_state",
+        "order_state",
+        "order_state",
+        "order_state",
+        "order_state",
+    ]
+    assert [int(entry[1]["sequence"]) for entry in redis_client.entries] == list(range(1, 10))
+
+
 def test_sell_order_realizes_profit_and_reduces_position():
     with make_session() as session:
         provider = FixtureProvider()
@@ -358,6 +772,21 @@ def test_sell_order_realizes_profit_and_reduces_position():
         assert summary.account.equity == 100050.0
         assert summary.positions[0].quantity == 1
         assert summary.positions[0].unrealized_pnl == 25.0
+
+
+def test_review_expectancy_excludes_manual_override_closed_trades():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        provider.prices["AAPL"] = 125.0
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="sell", quantity=1))
+        account = session.exec(select(PaperAccount)).first()
+
+        review = paper_trading._create_review(session, account, "2026-06-13")
+
+        assert review.trade_count == 0
+        assert review.expectancy == 0.0
 
 
 def test_order_rejects_insufficient_cash_and_oversell():
@@ -379,3 +808,86 @@ def test_order_rejects_insufficient_cash_and_oversell():
         assert rejected_sell.status == "rejected"
         assert rejected_sell.risk_status == "rejected"
         assert rejected_sell.risk_code == "insufficient_position_value"
+
+
+def test_submit_paper_order_uses_paper_risk_setting_daily_order_limit():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        session.add(
+            PaperRiskSetting(
+                team_id=workspace.team.id,
+                max_daily_orders=6,
+                source="risk_limit_review",
+            )
+        )
+        session.commit()
+        provider = FixtureProvider()
+
+        tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "META", "AAPL"]
+        filled_orders = [
+            submit_paper_order(session, provider, PaperOrderCreate(ticker=ticker, side="buy", quantity=1))
+            for ticker in tickers
+        ]
+        rejected = submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1))
+
+        assert [order.status for order in filled_orders] == ["filled"] * 6
+        assert rejected.status == "rejected"
+        assert rejected.risk_code == "max_daily_orders"
+
+
+def test_paper_trading_summary_filters_future_orders_for_as_of_trading_day():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        account = PaperAccount(team_id=workspace.team.id, name="paper", cash=50)
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        session.add(
+            PaperOrder(
+                account_id=account.id,
+                team_id=workspace.team.id,
+                ticker="AAPL",
+                side=PaperOrderSide.buy,
+                order_type="market",
+                quantity=1,
+                status="filled",
+                fill_price=100,
+                submitted_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperOrder(
+                account_id=account.id,
+                team_id=workspace.team.id,
+                ticker="MSFT",
+                side=PaperOrderSide.buy,
+                order_type="market",
+                quantity=1,
+                status="rejected",
+                risk_code="max_daily_orders",
+                submitted_at=datetime(2026, 6, 20, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            PaperOrder(
+                account_id=account.id,
+                team_id=workspace.team.id,
+                ticker="AAPL",
+                side=PaperOrderSide.sell,
+                order_type="market",
+                quantity=1,
+                status="filled",
+                fill_price=120,
+                realized_pnl=20,
+                submitted_at=datetime(2026, 6, 20, 21, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        summary = get_paper_trading_summary(session, FixtureProvider(), as_of_trading_day="2026-06-13")
+
+        assert [order.ticker for order in summary.orders] == ["AAPL"]
+        assert summary.account.cash == 99900
+        assert summary.account.realized_pnl == 0
+        assert summary.account.equity == 100000
+        assert [(position.ticker, position.quantity) for position in summary.positions] == [("AAPL", 1)]

@@ -34,7 +34,10 @@ class StaticEvidenceProvider:
 
 
 def test_hybrid_provider_uses_mock_quotes_and_sec_evidence():
-    provider = HybridMarketDataProvider(sec_provider=StaticEvidenceProvider())
+    provider = HybridMarketDataProvider(
+        sec_provider=StaticEvidenceProvider(),
+        openbb_provider=OpenBBOptionalProvider(module_finder=lambda _: None),
+    )
 
     quote = provider.get_quote("aapl")
     evidence = provider.get_research_evidence("aapl")
@@ -58,7 +61,11 @@ def test_provider_registry_builds_hybrid_by_default():
     assert isinstance(provider, HybridMarketDataProvider)
 
 
-def test_provider_registry_openbb_optional_uses_mock_quotes_with_openbb_status():
+def test_provider_registry_openbb_optional_uses_mock_quotes_with_openbb_status(monkeypatch):
+    monkeypatch.setattr(
+        "app.data.providers.registry.OpenBBOptionalProvider",
+        lambda: OpenBBOptionalProvider(module_finder=lambda _: None),
+    )
     provider = build_market_data_provider(Settings(data_mode="openbb_optional"))
 
     quote = provider.get_quote("aapl")

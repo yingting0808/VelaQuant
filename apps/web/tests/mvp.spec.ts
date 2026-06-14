@@ -1,9 +1,35 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   runStrategyBacktest,
+  type AlphaGateProgressPayload,
+  type AlphaValidationSnapshotHistoryPayload,
+  type AlphaValidationSnapshotPayload,
+  type AlphaValidationForecastPayload,
+  type LiveSmallReviewPayload,
+  type PaperActionPlanPayload,
+  type PaperDailyReportPayload,
   type PaperEventLedgerPayload,
+  type PaperExecutionDiagnosticsPayload,
+  type PaperOperationsHistoryPayload,
+  type PaperOperationsStatusPayload,
+  type PaperRiskLimitApplyPayload,
+  type PaperRiskLimitReviewPayload,
+  type PaperRiskProfilePayload,
+  type PaperReviewTrendPayload,
+  type PaperSchedulerStatusPayload,
+  type PaperSimulationPayload,
   type PaperTradingSummaryPayload,
-  type PositionPayload
+  type PositionPayload,
+  type ShadowDailyReportPayload,
+  type ShadowObservationHealthPayload,
+  type ShadowObservationPayload,
+  type ShadowObservationSummaryPayload,
+  type ShadowReviewPayload,
+  type ShadowValidationPayload,
+  type StrategyCompetitionSnapshotHistoryPayload,
+  type StrategyCompetitionPayload,
+  type StrategyLifecycleAuditPayload,
+  type TradingSystemReadinessPayload
 } from "../src/lib/client-api";
 
 const movingAverageParameters = [
@@ -14,6 +40,34 @@ const movingAverageParameters = [
   { name: "fast_period", label: "Fast SMA", kind: "integer", default: "20", min: 2, max: 400, required: true },
   { name: "slow_period", label: "Slow SMA", kind: "integer", default: "50", min: 3, max: 600, required: true }
 ];
+
+const paperMarketSession = {
+  market_date: "2026-06-13",
+  trading_day: "2026-06-12",
+  is_market_session: false,
+  session_closed: false,
+  calendar_provider: "pandas_market_calendars",
+  reason: "market_closed"
+};
+
+const paperSchedulerStatus: PaperSchedulerStatusPayload = {
+  enabled: true,
+  running: true,
+  job_count: 1,
+  job_id: "paper_trading_daily_run",
+  cron: "30 6 * * *",
+  timezone: "Asia/Shanghai",
+  next_run_at: "2026-06-14T06:30:00+08:00",
+  last_checked_at: "2026-06-13T00:00:00Z",
+  can_run_now: false,
+  execution_gate: "market_closed",
+  market_date: "2026-06-13",
+  trading_day: "2026-06-12",
+  is_market_session: false,
+  session_closed: false,
+  calendar_provider: "pandas_market_calendars",
+  gate_reason: "market_closed"
+};
 
 async function gotoDashboard(page: Page) {
   await page.goto("/");
@@ -168,47 +222,382 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     latest_run_event_count: 0,
     latest_topic_counts: [],
     latest_correlation_count: 0,
+    integrity_ready: false,
+    integrity_warnings: ["missing_core_events"],
+    traceable_chain_count: 0,
+    complete_order_chain_count: 0,
+    broken_chain_count: 0,
+    traceability_ratio: 0,
     replay_ready: false,
     warnings: ["missing_core_events"],
     summary: "No paper runs found; event replay is not available.",
     latest_replay: null
   };
   const filledLedger: PaperEventLedgerPayload = {
-    total_event_count: 8,
+    total_event_count: 9,
     latest_run_id: "paper-run-today",
     latest_run_status: "completed",
-    latest_run_event_count: 8,
+    latest_run_event_count: 9,
     latest_topic_counts: [
       { topic: "market_event", count: 1 },
       { topic: "order_state", count: 5 },
+      { topic: "risk_decision", count: 1 },
       { topic: "strategy_input", count: 1 },
       { topic: "trade_intent", count: 1 }
     ],
     latest_correlation_count: 1,
+    integrity_ready: true,
+    integrity_warnings: [],
+    traceable_chain_count: 1,
+    complete_order_chain_count: 1,
+    broken_chain_count: 0,
+    traceability_ratio: 1,
     replay_ready: true,
     warnings: [],
-    summary: "Latest paper run is completed with 8 replayable core events across 1 chains.",
+    summary: "Latest paper run is completed with 9 replayable core events across 1 chains.",
     latest_replay: {
       run_id: "paper-run-today",
-      event_count: 8,
+      event_count: 9,
       chain_count: 1,
       chains: [
         {
           correlation_id: "core-chain",
           ticker: "NVDA",
-          topics: ["market_event", "strategy_input", "trade_intent", "order_state"],
+          topics: ["market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"],
           order_states: ["new", "validated", "risk_approved", "sent", "filled"],
           terminal_state: "filled",
-          event_count: 8
+          event_count: 9,
+          integrity_warnings: []
         }
       ]
     }
   };
+  const blockedOperations = {
+    trading_day: "2026-06-13",
+    run_state: "not_started",
+    health_status: "blocked",
+    latest_run_id: null,
+    latest_run_trading_day: null,
+    latest_run_status: null,
+    today_run_id: null,
+    review_id: null,
+    latest_error: null,
+    can_retry_today: true,
+    event_ledger_ready: false,
+    latest_run_event_count: 0,
+    legacy_manual_future_run_count: 0,
+    latest_legacy_manual_future_trading_day: null,
+    data_quality_warnings: [],
+    blockers: ["daily_run_missing"],
+    recommended_action: "run_daily_paper_trading",
+    summary: "Daily paper pipeline has not run for this trading day."
+  };
+  const readyOperations = {
+    ...blockedOperations,
+    health_status: "ready",
+    event_ledger_ready: true,
+    latest_run_event_count: 8,
+    blockers: [],
+    recommended_action: "hold_until_next_session",
+    summary: "Daily paper pipeline is complete for the trading day."
+  };
+  const blockedOperationsHistory: PaperOperationsHistoryPayload = {
+    window_size: 0,
+    completed_days: 0,
+    failed_days: 0,
+    blocked_days: 0,
+    replayable_days: 0,
+    review_days: 0,
+    completion_rate: 0,
+    replay_rate: 0,
+    latest_health_status: "blocked",
+    items: [],
+    summary: "No paper operations history is available yet."
+  };
+  const readyOperationsHistory: PaperOperationsHistoryPayload = {
+    window_size: 1,
+    completed_days: 1,
+    failed_days: 0,
+    blocked_days: 0,
+    replayable_days: 1,
+    review_days: 1,
+    completion_rate: 1,
+    replay_rate: 1,
+    latest_health_status: "ready",
+    items: [
+      {
+        trading_day: "2026-06-13",
+        run_id: "paper-run-today",
+        status: "skipped",
+        health_status: "ready",
+        event_count: 8,
+        has_review: true,
+        candidates_count: 3,
+        orders_count: 1,
+        positions_count: 1,
+        blockers: [],
+        error_message: null,
+        started_at: "2026-06-13T00:02:00Z",
+        finished_at: "2026-06-13T00:02:03Z"
+      }
+    ],
+    summary: "Last 1 paper runs are operationally healthy; completion 100%, replay 100%."
+  };
+  const emptyReviewTrend: PaperReviewTrendPayload = {
+    sample_size: 0,
+    positive_expectancy_days: 0,
+    consecutive_positive_expectancy_days: 0,
+    average_expectancy: 0,
+    latest_expectancy: 0,
+    total_realized_pnl: 0,
+    total_unrealized_pnl: 0,
+    latest_readiness: "collecting",
+    items: [],
+    summary: "No paper reviews are available yet."
+  };
+  const readyReviewTrend: PaperReviewTrendPayload = {
+    sample_size: 1,
+    positive_expectancy_days: 0,
+    consecutive_positive_expectancy_days: 0,
+    average_expectancy: 0,
+    latest_expectancy: 0,
+    total_realized_pnl: 0,
+    total_unrealized_pnl: 0,
+    latest_readiness: "collecting",
+    items: [
+      {
+        trading_day: "2026-06-13",
+        equity: 100000,
+        cash: 94936.42,
+        realized_pnl: 0,
+        unrealized_pnl: 0,
+        trade_count: 0,
+        win_rate: 0,
+        expectancy: 0,
+        readiness: "collecting"
+      }
+    ],
+    summary: "Paper review trend is not validated: latest expectancy 0.00, average 0.00, consecutive positive days 0."
+  };
+  const blockedDailyReport: PaperDailyReportPayload = {
+    trading_day: "2026-06-13",
+    run_state: "not_started",
+    health_status: "blocked",
+    recommended_action: "run_daily_paper_trading",
+    scheduler_running: true,
+    scheduler_next_run_at: "2026-06-14T06:30:00+08:00",
+    account_equity: 100000,
+    cash: 100000,
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    candidate_count: 0,
+    order_count: 0,
+    open_position_count: 0,
+    latest_expectancy: 0,
+    average_expectancy: 0,
+    consecutive_positive_expectancy_days: 0,
+    event_ledger_ready: false,
+    alpha_ready: false,
+    alpha_blockers: ["review_day_sample"],
+    data_quality_warnings: [],
+    summary: "Daily paper report: operations blocked, run not_started, latest expectancy 0.00; continue paper validation before live capital."
+  };
+  const readyDailyReport: PaperDailyReportPayload = {
+    ...blockedDailyReport,
+    run_state: "skipped",
+    health_status: "ready",
+    recommended_action: "hold_until_next_session",
+    cash: 94936.42,
+    candidate_count: 3,
+    order_count: 1,
+    open_position_count: 1,
+    event_ledger_ready: true,
+    summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
+  };
+  const emptyExecutionDiagnostics: PaperExecutionDiagnosticsPayload = {
+    order_count: 0,
+    filled_order_count: 0,
+    rejected_order_count: 0,
+    buy_order_count: 0,
+    sell_order_count: 0,
+    closed_trade_count: 0,
+    fill_rate: 0,
+    rejection_rate: 0,
+    realized_pnl: 0,
+    average_realized_pnl: 0,
+    latest_rejection_code: null,
+    max_daily_order_rejections: 0,
+    max_daily_order_buy_rejections: 0,
+    max_daily_order_sell_rejections: 0,
+    rejection_reasons: [],
+    summary: "No paper execution orders are available yet."
+  };
+  const readyExecutionDiagnostics: PaperExecutionDiagnosticsPayload = {
+    order_count: 1,
+    filled_order_count: 1,
+    rejected_order_count: 0,
+    buy_order_count: 1,
+    sell_order_count: 0,
+    closed_trade_count: 0,
+    fill_rate: 1,
+    rejection_rate: 0,
+    realized_pnl: 0,
+    average_realized_pnl: 0,
+    latest_rejection_code: null,
+    max_daily_order_rejections: 0,
+    max_daily_order_buy_rejections: 0,
+    max_daily_order_sell_rejections: 0,
+    rejection_reasons: [],
+    summary: "Paper execution diagnostics: 1 filled, 0 rejected, 0 closed trades, realized PnL 0.00."
+  };
+  let riskProfile: PaperRiskProfilePayload = {
+    risk_engine: "Trading Core RiskEngine",
+    max_order_notional: 2000,
+    max_position_weight: 0.1,
+    max_daily_orders: 5,
+    exit_take_profit_pct: 0.1,
+    exit_stop_loss_pct: -0.05,
+    summary: "Paper risk profile: max_order_notional 2000.00, max_position_weight 10.00%, max_daily_orders 5."
+  };
+  const riskLimitReview: PaperRiskLimitReviewPayload = {
+    status: "review_required",
+    current_max_daily_orders: 5,
+    recommended_paper_max_daily_orders: 6,
+    live_change_allowed: false,
+    max_daily_order_rejections: 26,
+    max_daily_order_buy_rejections: 6,
+    max_daily_order_sell_rejections: 20,
+    filled_order_count: 42,
+    closed_trade_count: 20,
+    sample_collection_blocked: true,
+    blockers: ["filled_order_sample", "closed_trade_sample", "max_daily_orders"],
+    summary: "Paper risk limit review: paper-only review required; max_daily_orders 5 -> 6."
+  };
+  const appliedRiskProfile: PaperRiskProfilePayload = {
+    ...riskProfile,
+    max_daily_orders: 6,
+    summary: "Paper risk profile: max_order_notional 2000.00, max_position_weight 10.00%, max_daily_orders 6."
+  };
+  let activeRiskLimitReview = riskLimitReview;
+  const appliedRiskLimitReview: PaperRiskLimitReviewPayload = {
+    ...riskLimitReview,
+    status: "hold",
+    current_max_daily_orders: 6,
+    recommended_paper_max_daily_orders: 6,
+    sample_collection_blocked: false,
+    blockers: [],
+    summary: "Paper risk limit review: hold max_daily_orders at 6; no paper-only capacity change is recommended."
+  };
+  const riskLimitApply: PaperRiskLimitApplyPayload = {
+    applied: true,
+    previous_max_daily_orders: 5,
+    applied_max_daily_orders: 6,
+    live_change_allowed: false,
+    audit_event_created: true,
+    summary: "Paper risk limit recommendation applied: max_daily_orders 5 -> 6; live limits unchanged."
+  };
+  const alphaGates: AlphaGateProgressPayload = {
+    alpha_ready: false,
+    validation_level: "collecting",
+    passed_gates: 5,
+    total_gates: 9,
+    items: [
+      {
+        gate: "closed_trade_sample",
+        label: "闭环交易",
+        current: 9,
+        required: 10,
+        remaining: 1,
+        unit: "笔",
+        comparison: "at_least",
+        passed: false
+      },
+      {
+        gate: "real_market_backtest",
+        label: "真实历史回测",
+        current: 0,
+        required: 1,
+        remaining: 1,
+        unit: "次",
+        comparison: "at_least",
+        passed: false
+      }
+    ],
+    summary: "Alpha gate progress: 5/9 gates passed; validation level collecting."
+  };
+  const alphaForecast: AlphaValidationForecastPayload = {
+    alpha_ready: false,
+    status: "forecastable",
+    estimated_sessions_to_alpha_ready: 5,
+    limiting_gate: "filled_order_sample",
+    items: [
+      {
+        gate: "filled_order_sample",
+        label: "成交订单",
+        current: 20,
+        required: 30,
+        remaining: 10,
+        unit: "笔",
+        passed: false,
+        estimated_per_session: 2,
+        estimated_sessions: 5,
+        reason: "按当前样本速度估算。"
+      }
+    ],
+    summary: "Alpha validation needs about 5 more paper sessions if current sample rates continue."
+  };
+  const actionPlan: PaperActionPlanPayload = {
+    readiness: "ready",
+    primary_action: "review_daily_order_limit",
+    items: [
+      {
+        priority: 2,
+        action_code: "review_daily_order_limit",
+        title: "复核日订单上限",
+        detail: "执行诊断显示 26 笔 max_daily_orders 拒单；当前 max_daily_orders=5。",
+        evidence: ["rejected=26"]
+      }
+    ],
+    summary: "Paper action plan primary action: review_daily_order_limit; 1 actions available."
+  };
+  const simulationResult: PaperSimulationPayload = {
+    scenario: "bullish",
+    start_date: "2026-06-14",
+    days_requested: 5,
+    days_completed: 5,
+    days_skipped: 0,
+    review_day_count: 5,
+    consecutive_positive_expectancy_days: 2,
+    latest_expectancy: 12.5,
+    average_expectancy: 4.2,
+    event_chain_count: 40,
+    alpha_ready: false,
+    blockers: ["closed_trade_sample"],
+    items: [
+      {
+        trading_day: "2026-06-14",
+        run_status: "completed",
+        orders_count: 1,
+        candidates_count: 5,
+        positions_count: 1,
+        review_id: "review-1"
+      }
+    ],
+    summary: "Paper simulation completed 5/5 days under bullish; latest expectancy is positive."
+  };
   let summary = baseSummary;
+  let dailyReport = blockedDailyReport;
   let ledger = emptyLedger;
+  let operations = blockedOperations;
+  let operationsHistory = blockedOperationsHistory;
+  let reviewTrend = emptyReviewTrend;
+  let executionDiagnostics = emptyExecutionDiagnostics;
 
   await page.route("**/api/mvp/paper-trading/summary", async (route) => {
     await route.fulfill({ contentType: "application/json", json: summary });
+  });
+  await page.route("**/api/mvp/paper-trading/daily-report", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: dailyReport });
   });
   await page.route("**/api/mvp/paper-trading/daily-run", async (route) => {
     expect(route.request().method()).toBe("POST");
@@ -220,20 +609,22 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     const payload = route.request().postDataJSON() as { quantity?: number; side?: string; ticker?: string };
     expect(payload).toEqual({ order_type: "market", quantity: 40, side: "buy", ticker: "NVDA" });
     summary = filledSummary;
+    dailyReport = readyDailyReport;
     ledger = filledLedger;
+    operations = readyOperations;
+    operationsHistory = readyOperationsHistory;
+    reviewTrend = readyReviewTrend;
+    executionDiagnostics = readyExecutionDiagnostics;
     await route.fulfill({ contentType: "application/json", json: filledSummary.orders[0] });
   });
   await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
     await route.fulfill({
       contentType: "application/json",
-      json: {
-        enabled: true,
-        running: true,
-        job_count: 1,
-        cron: "30 6 * * *",
-        timezone: "Asia/Shanghai"
-      }
+      json: paperSchedulerStatus
     });
+  });
+  await page.route("**/api/mvp/paper-trading/market-session", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: paperMarketSession });
   });
   await page.route("**/api/mvp/paper-trading/runs", async (route) => {
     await route.fulfill({
@@ -260,6 +651,44 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
     await route.fulfill({ contentType: "application/json", json: ledger });
   });
+  await page.route("**/api/mvp/paper-trading/operations", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: operations });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/history", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: operationsHistory });
+  });
+  await page.route("**/api/mvp/paper-trading/review-trend", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: reviewTrend });
+  });
+  await page.route("**/api/mvp/paper-trading/simulation/run", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ days: 5, scenario: "bullish" });
+    await route.fulfill({ contentType: "application/json", json: simulationResult });
+  });
+  await page.route("**/api/mvp/paper-trading/execution-diagnostics", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: executionDiagnostics });
+  });
+  await page.route("**/api/mvp/paper-trading/risk-profile", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: riskProfile });
+  });
+  await page.route("**/api/mvp/paper-trading/risk-limit-review", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: activeRiskLimitReview });
+  });
+  await page.route("**/api/mvp/paper-trading/risk-limit-review/apply-paper-recommendation", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    riskProfile = appliedRiskProfile;
+    activeRiskLimitReview = appliedRiskLimitReview;
+    await route.fulfill({ contentType: "application/json", json: riskLimitApply });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-gates", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: alphaGates });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-forecast", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: alphaForecast });
+  });
+  await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: actionPlan });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "模拟盘" }).click();
@@ -267,12 +696,66 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page).toHaveURL("/paper-trading");
   await expect(page.getByRole("heading", { level: 2, name: "模拟盘" })).toBeVisible();
   await expect(page.getByText("默认模拟盘")).toBeVisible();
-  await expect(page.getByRole("region", { name: "每日调度" }).getByText("运行中")).toBeVisible();
+  const marketSessionPanel = page.getByRole("region", { name: "市场交易日" });
+  await expect(marketSessionPanel.getByText("生效交易日")).toBeVisible();
+  await expect(marketSessionPanel.getByText("2026-06-12")).toBeVisible();
+  await expect(marketSessionPanel.getByText("市场日期")).toBeVisible();
+  await expect(marketSessionPanel.getByText("2026-06-13")).toBeVisible();
+  await expect(marketSessionPanel.getByText("market_closed")).toBeVisible();
+  await expect(marketSessionPanel.getByText("pandas_market_calendars")).toBeVisible();
+  const dailyReportPanel = page.getByRole("region", { name: "今日简报" });
+  await expect(dailyReportPanel.getByText("Daily paper report: operations blocked")).toBeVisible();
+  await expect(dailyReportPanel.getByText("review_day_sample")).toBeVisible();
+  const operationsPanel = page.getByRole("region", { name: "运行健康" });
+  await expect(operationsPanel.getByText("blocked", { exact: true })).toBeVisible();
+  await expect(operationsPanel.getByText("run_daily_paper_trading")).toBeVisible();
+  await expect(operationsPanel.getByText("事件链缺失", { exact: true })).toBeVisible();
+  const stabilityPanel = page.getByRole("region", { name: "稳定趋势" });
+  await expect(stabilityPanel.getByText("No paper operations history is available yet.")).toBeVisible();
+  await expect(stabilityPanel.getByText("0.0%")).toHaveCount(2);
+  const reviewTrendPanel = page.getByRole("region", { name: "净期望趋势" });
+  await expect(reviewTrendPanel.getByText("No paper reviews are available yet.")).toBeVisible();
+  const executionPanel = page.getByRole("region", { name: "执行诊断" });
+  await expect(executionPanel.getByText("No paper execution orders are available yet.")).toBeVisible();
+  const riskPanel = page.getByRole("region", { name: "风险配置" });
+  await expect(riskPanel.getByText("Trading Core RiskEngine")).toBeVisible();
+  await expect(riskPanel.getByText("5 笔")).toBeVisible();
+  const riskLimitReviewPanel = page.getByRole("region", { name: "风险限额评审" });
+  await expect(riskLimitReviewPanel.getByText("Paper risk limit review: paper-only review required")).toBeVisible();
+  await expect(riskLimitReviewPanel.getByText("5 → 6")).toBeVisible();
+  await expect(riskLimitReviewPanel.getByText("Live 不变")).toBeVisible();
+  await riskLimitReviewPanel.getByRole("button", { name: "应用 Paper 建议" }).click();
+  await expect(riskLimitReviewPanel.getByText("Paper risk limit recommendation applied")).toBeVisible();
+  await expect(riskLimitReviewPanel.getByText("6 → 6")).toBeVisible();
+  await expect(riskPanel.getByText("6 笔")).toBeVisible();
+  const alphaGatePanel = page.getByRole("region", { name: "Alpha 门禁" });
+  await expect(alphaGatePanel.getByText("Alpha gate progress: 5/9 gates passed")).toBeVisible();
+  await expect(alphaGatePanel.getByText("5 / 9")).toBeVisible();
+  await expect(alphaGatePanel.getByText("闭环交易", { exact: true })).toBeVisible();
+  await expect(alphaGatePanel.getByText("真实历史回测", { exact: true })).toBeVisible();
+  const alphaForecastPanel = page.getByRole("region", { name: "Alpha 预测" });
+  await expect(alphaForecastPanel.getByText("Alpha validation needs about 5 more paper sessions")).toBeVisible();
+  await expect(alphaForecastPanel.getByText("5 次", { exact: true })).toBeVisible();
+  await expect(alphaForecastPanel.getByText("filled_order_sample")).toBeVisible();
+  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
+  await expect(actionPlanPanel.getByText("Paper action plan primary action: review_daily_order_limit")).toBeVisible();
+  await expect(actionPlanPanel.getByText("复核日订单上限")).toBeVisible();
+  const simulationPanel = page.getByRole("region", { name: "多日模拟" });
+  await expect(simulationPanel.getByText("多日模拟")).toBeVisible();
+  await page.getByRole("button", { name: "运行 5 日模拟" }).click();
+  await expect(simulationPanel.getByText("Paper simulation completed 5/5 days under bullish")).toBeVisible();
+  await expect(simulationPanel.getByText("5 / 5")).toBeVisible();
+  await expect(simulationPanel.getByText("closed_trade_sample")).toBeVisible();
+  const schedulerPanel = page.getByRole("region", { name: "每日调度" });
+  await expect(schedulerPanel.getByText("休市跳过")).toBeVisible();
+  await expect(schedulerPanel.getByText("运行中")).toBeVisible();
   await expect(page.getByText("30 6 * * *")).toBeVisible();
+  await expect(schedulerPanel.getByText("paper_trading_daily_run")).toBeVisible();
+  await expect(schedulerPanel.getByText("下次运行")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();
-  await expect(page.getByRole("region", { name: "事件账本" }).getByText("不可回放")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("需修复")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("missing_core_events")).toBeVisible();
 
   await page.getByRole("button", { name: "运行今日模拟" }).click();
@@ -284,9 +767,25 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.getByRole("button", { name: "模拟买入 NVDA" }).click();
 
   await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
-  await expect(page.getByRole("region", { name: "事件账本" }).getByText("可回放")).toBeVisible();
+  await expect(dailyReportPanel.getByText("Daily paper report: operations ready")).toBeVisible();
+  await expect(dailyReportPanel.getByText("hold_until_next_session")).toBeVisible();
+  await expect(operationsPanel.getByText("ready", { exact: true })).toBeVisible();
+  await expect(operationsPanel.getByText("hold_until_next_session")).toBeVisible();
+  await expect(operationsPanel.getByText("事件链可回放")).toBeVisible();
+  await expect(stabilityPanel.getByText("100.0%")).toHaveCount(2);
+  await expect(stabilityPanel.getByText("2026-06-13")).toBeVisible();
+  await expect(reviewTrendPanel.getByText("Paper review trend is not validated")).toBeVisible();
+  await expect(reviewTrendPanel.getByText("2026-06-13")).toBeVisible();
+  await expect(executionPanel.getByText("Paper execution diagnostics: 1 filled, 0 rejected")).toBeVisible();
+  await expect(executionPanel.getByText("100.0%")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("完整", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("NVDA · filled")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("order_state 5")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("完整链")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("断链")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("链路率")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("100%")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("链路警告 无")).toBeVisible();
   await expect(
     page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
   ).toBeVisible();
@@ -296,6 +795,436 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   ).toBeVisible();
   await expect(page.getByRole("region", { name: "模拟订单" }).getByText("risk_approved")).toBeVisible();
   await expect(page.getByRole("region", { name: "模拟持仓" }).getByText("NVDA", { exact: true })).toBeVisible();
+});
+
+test("paper trading disables daily run when today's operations are complete", async ({ page }) => {
+  await page.route("**/api/mvp/paper-trading/summary", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        account: {
+          id: "paper-account",
+          name: "默认模拟盘",
+          mode: "paper",
+          starting_cash: 100000,
+          cash: 98000,
+          realized_pnl: 0,
+          unrealized_pnl: 0,
+          equity: 100000,
+          updated_at: "2026-06-13T00:00:00Z"
+        },
+        candidates: [],
+        orders: [],
+        positions: [],
+        latest_review: null
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/daily-report", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        trading_day: "2026-06-13",
+        run_state: "skipped",
+        health_status: "ready",
+        recommended_action: "hold_until_next_session",
+        scheduler_running: true,
+        scheduler_next_run_at: "2026-06-14T06:30:00+08:00",
+        account_equity: 100000,
+        cash: 98000,
+        realized_pnl: 0,
+        unrealized_pnl: 0,
+        candidate_count: 0,
+        order_count: 0,
+        open_position_count: 0,
+        latest_expectancy: 0,
+        average_expectancy: 0,
+        consecutive_positive_expectancy_days: 0,
+        event_ledger_ready: true,
+        alpha_ready: false,
+        alpha_blockers: ["review_day_sample"],
+        data_quality_warnings: [],
+        summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: paperSchedulerStatus
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        trading_day: "2026-06-13",
+        run_state: "skipped",
+        health_status: "ready",
+        latest_run_id: "paper-run-today",
+        latest_run_trading_day: "2026-06-13",
+        latest_run_status: "skipped",
+        today_run_id: "paper-run-today",
+        review_id: "paper-review",
+        latest_error: null,
+        can_retry_today: false,
+        event_ledger_ready: true,
+        latest_run_event_count: 1,
+        legacy_manual_future_run_count: 0,
+        latest_legacy_manual_future_trading_day: null,
+        data_quality_warnings: [],
+        blockers: [],
+        recommended_action: "hold_until_next_session",
+        summary: "Daily paper pipeline is complete for the trading day."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/history", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        window_size: 1,
+        completed_days: 1,
+        failed_days: 0,
+        blocked_days: 0,
+        replayable_days: 1,
+        review_days: 1,
+        completion_rate: 1,
+        replay_rate: 1,
+        latest_health_status: "ready",
+        items: [
+          {
+            trading_day: "2026-06-13",
+            run_id: "paper-run-today",
+            status: "skipped",
+            health_status: "ready",
+            event_count: 1,
+            has_review: true,
+            candidates_count: 0,
+            orders_count: 0,
+            positions_count: 0,
+            blockers: [],
+            error_message: null,
+            started_at: "2026-06-13T00:00:00Z",
+            finished_at: "2026-06-13T00:01:00Z"
+          }
+        ],
+        summary: "Last 1 paper runs are operationally healthy; completion 100%, replay 100%."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/review-trend", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        sample_size: 1,
+        positive_expectancy_days: 0,
+        consecutive_positive_expectancy_days: 0,
+        average_expectancy: 0,
+        latest_expectancy: 0,
+        total_realized_pnl: 0,
+        total_unrealized_pnl: 0,
+        latest_readiness: "collecting",
+        items: [],
+        summary: "Paper review trend is not validated: latest expectancy 0.00, average 0.00, consecutive positive days 0."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/market-session", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: paperMarketSession });
+  });
+  await page.route("**/api/mvp/paper-trading/runs", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { runs: [] } });
+  });
+  await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        total_event_count: 1,
+        latest_run_id: "paper-run-today",
+        latest_run_status: "skipped",
+        latest_run_event_count: 1,
+        latest_topic_counts: [{ topic: "run_audit", count: 1 }],
+        latest_correlation_count: 1,
+        replay_ready: true,
+        warnings: [],
+        summary: "Latest paper run is skipped with 1 replayable core event across 1 chains.",
+        latest_replay: null
+      }
+    });
+  });
+
+  await page.goto("/paper-trading");
+
+  await expect(page.getByRole("button", { name: "今日已完成" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "运行健康" }).getByText("hold_until_next_session")).toBeVisible();
+  await expect(page.getByRole("region", { name: "稳定趋势" }).getByText("100.0%")).toHaveCount(2);
+});
+
+test("paper trading can repair missing historical event ledgers", async ({ page }) => {
+  const summary = {
+    account: {
+      id: "paper-account",
+      name: "默认模拟盘",
+      mode: "paper",
+      starting_cash: 100000,
+      cash: 98000,
+      realized_pnl: 0,
+      unrealized_pnl: 0,
+      equity: 100000,
+      updated_at: "2026-06-13T00:00:00Z"
+    },
+    candidates: [],
+    orders: [],
+    positions: [],
+    latest_review: null
+  };
+  let operations: PaperOperationsStatusPayload = {
+    trading_day: "2026-06-13",
+    run_state: "skipped",
+    health_status: "ready",
+    latest_run_id: "paper-run-today",
+    latest_run_trading_day: "2026-06-13",
+    latest_run_status: "skipped",
+    today_run_id: "paper-run-today",
+    review_id: "paper-review",
+    latest_error: null,
+    can_retry_today: false,
+    event_ledger_ready: true,
+    latest_run_event_count: 1,
+    legacy_manual_future_run_count: 1,
+    latest_legacy_manual_future_trading_day: "2026-06-30",
+    data_quality_warnings: ["legacy_manual_future_runs_detected"],
+    blockers: [],
+    recommended_action: "hold_until_next_session",
+    summary:
+      "Daily paper pipeline is complete for the trading day. Data quality warning: legacy manual future-dated runs detected."
+  };
+  const missingHistory = {
+    window_size: 2,
+    completed_days: 1,
+    failed_days: 0,
+    blocked_days: 1,
+    replayable_days: 1,
+    review_days: 2,
+    completion_rate: 0.5,
+    replay_rate: 0.5,
+    latest_health_status: "ready",
+    items: [
+      {
+        trading_day: "2026-06-13",
+        run_id: "paper-run-today",
+        status: "skipped",
+        health_status: "ready",
+        event_count: 1,
+        has_review: true,
+        candidates_count: 5,
+        orders_count: 2,
+        positions_count: 2,
+        blockers: [],
+        error_message: null,
+        started_at: "2026-06-13T00:02:00Z",
+        finished_at: "2026-06-13T00:02:03Z"
+      },
+      {
+        trading_day: "2026-06-12",
+        run_id: "paper-run-old",
+        status: "skipped",
+        health_status: "blocked",
+        event_count: 0,
+        has_review: true,
+        candidates_count: 5,
+        orders_count: 2,
+        positions_count: 2,
+        blockers: ["event_ledger_not_replayable"],
+        error_message: null,
+        started_at: "2026-06-12T00:02:00Z",
+        finished_at: "2026-06-12T00:02:03Z"
+      }
+    ],
+    summary: "Last 2 paper runs include 1 blocked and 0 failed runs; completion 50%, replay 50%."
+  };
+  const repairedHistory = {
+    ...missingHistory,
+    completed_days: 2,
+    blocked_days: 0,
+    replayable_days: 2,
+    completion_rate: 1,
+    replay_rate: 1,
+    items: missingHistory.items.map((item) => ({ ...item, health_status: "ready", event_count: 1, blockers: [] })),
+    summary: "Last 2 paper runs are operationally healthy; completion 100%, replay 100%."
+  };
+  const dailyReport: PaperDailyReportPayload = {
+    trading_day: "2026-06-13",
+    run_state: "skipped",
+    health_status: "ready",
+    recommended_action: "hold_until_next_session",
+    scheduler_running: true,
+    scheduler_next_run_at: "2026-06-14T06:30:00+08:00",
+    account_equity: 100000,
+    cash: 98000,
+    realized_pnl: 0,
+    unrealized_pnl: 0,
+    candidate_count: 0,
+    order_count: 0,
+    open_position_count: 0,
+    latest_expectancy: 1,
+    average_expectancy: 0.5,
+    consecutive_positive_expectancy_days: 1,
+    event_ledger_ready: true,
+    alpha_ready: false,
+    alpha_blockers: ["review_day_sample"],
+    data_quality_warnings: ["future_runs_excluded_from_as_of_report"],
+    summary: "Daily paper report: operations ready, run skipped, latest expectancy 1.00; continue paper validation before live capital."
+  };
+  const actionPlan: PaperActionPlanPayload = {
+    readiness: "ready",
+    primary_action: "quarantine_legacy_manual_future_runs",
+    items: [
+      {
+        priority: 1,
+        action_code: "quarantine_legacy_manual_future_runs",
+        title: "标记旧运行",
+        detail: "检测到 1 条旧 manual 未来日期运行；先标记为 simulation，避免继续污染纸面账户复盘。",
+        evidence: ["legacy_manual_future_run_count=1", "latest_legacy_trading_day=2026-06-30"]
+      }
+    ],
+    summary: "Paper action plan primary action: quarantine_legacy_manual_future_runs; 1 actions available."
+  };
+  let history = missingHistory;
+
+  await page.route("**/api/mvp/paper-trading/summary", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: summary });
+  });
+  await page.route("**/api/mvp/paper-trading/daily-report", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: dailyReport });
+  });
+  await page.route("**/api/mvp/paper-trading/scheduler", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: paperSchedulerStatus
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: operations });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/history", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: history });
+  });
+  await page.route("**/api/mvp/paper-trading/review-trend", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        sample_size: 2,
+        positive_expectancy_days: 1,
+        consecutive_positive_expectancy_days: 1,
+        average_expectancy: 0.5,
+        latest_expectancy: 1,
+        total_realized_pnl: 10,
+        total_unrealized_pnl: 20,
+        latest_readiness: "watch",
+        items: [],
+        summary: "Paper review trend is positive: latest expectancy 1.00, average 0.50, consecutive positive days 1."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/repair-ledger", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    history = repairedHistory;
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        scanned_runs: 2,
+        repaired_runs: 1,
+        skipped_runs: 1,
+        items: [
+          {
+            run_id: "paper-run-old",
+            trading_day: "2026-06-12",
+            status: "skipped",
+            event_created: true,
+            topic: "run_audit",
+            reason: "audit_event_created"
+          }
+        ],
+        summary: "Scanned 2 paper runs; repaired 1 missing event ledgers and skipped 1."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/operations/quarantine-legacy-runs", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    operations = {
+      ...operations,
+      legacy_manual_future_run_count: 0,
+      latest_legacy_manual_future_trading_day: null,
+      data_quality_warnings: [],
+      summary: "Daily paper pipeline is complete for the trading day."
+    };
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        scanned_runs: 1,
+        quarantined_runs: 1,
+        skipped_runs: 0,
+        items: [
+          {
+            run_id: "paper-run-future",
+            trading_day: "2026-06-30",
+            status: "completed",
+            previous_trigger: "manual",
+            new_trigger: "simulation",
+            audit_event_created: true,
+            reason: "manual_future_dated_run_reclassified_as_simulation"
+          }
+        ],
+        summary: "Scanned 1 legacy manual future-dated runs; quarantined 1 as simulation and skipped 0."
+      }
+    });
+  });
+  await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: actionPlan });
+  });
+  await page.route("**/api/mvp/paper-trading/runs", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { runs: [] } });
+  });
+  await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        total_event_count: 2,
+        latest_run_id: "paper-run-today",
+        latest_run_status: "skipped",
+        latest_run_event_count: 1,
+        latest_topic_counts: [{ topic: "run_audit", count: 1 }],
+        latest_correlation_count: 1,
+        replay_ready: true,
+        warnings: [],
+        summary: "Latest paper run is skipped with 1 replayable core event across 1 chains.",
+        latest_replay: null
+      }
+    });
+  });
+
+  await page.goto("/paper-trading");
+
+  await expect(page.getByText("数据警告 未来模拟运行已从当前日报排除")).toBeVisible();
+  await expect(page.getByText("数据质量 检测到早期手动未来日期运行 · 数量 1 · 最新 2026-06-30")).toBeVisible();
+  await expect(page.getByRole("region", { name: "行动计划" }).getByText("标记旧运行")).toBeVisible();
+  await expect(page.getByRole("button", { name: "标记旧运行" })).toBeEnabled();
+  await page.getByRole("button", { name: "标记旧运行" }).click();
+  await expect(page.getByText("旧运行已标记：1 条改为 simulation。")).toBeVisible();
+  await expect(page.getByText("数据质量 检测到早期手动未来日期运行 · 数量 1 · 最新 2026-06-30")).not.toBeVisible();
+  const stabilityPanel = page.getByRole("region", { name: "稳定趋势" });
+  await expect(stabilityPanel.getByText("50.0%")).toHaveCount(2);
+  await expect(stabilityPanel.getByText("事件链缺失")).toBeVisible();
+  await expect(page.getByRole("button", { name: "修复事件链" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "修复事件链" }).click();
+
+  await expect(page.getByText("事件链修复完成：修复 1 条运行记录。")).toBeVisible();
+  await expect(stabilityPanel.getByText("100.0%")).toHaveCount(2);
+  await expect(stabilityPanel.getByText("Scanned 2 paper runs; repaired 1 missing event ledgers and skipped 1.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "修复事件链" })).toBeDisabled();
 });
 
 test("AI prompts return a visible research result after click", async ({ page }) => {
@@ -653,56 +1582,583 @@ test("strategy lab renders readiness status", async ({ page }) => {
       }
     });
   });
+  let strategyCompetition: StrategyCompetitionPayload = {
+    trading_day: "2026-06-14",
+    status: "allocation_ready",
+    active_strategy_id: "deterministic_watchlist_v1",
+    selected_strategy_id: "deterministic_watchlist_v1",
+    strategy_count: 2,
+    allocatable_strategy_count: 1,
+    competition_ready: false,
+    entries: [
+      {
+        strategy_id: "deterministic_watchlist_v1",
+        name: "Deterministic Watchlist Strategy",
+        version: "v1",
+        source: "paper_core",
+        execution_mode: "paper",
+        status: "active",
+        rank: 1,
+        ranking_score: 80,
+        allocation_weight: 1,
+        eligible_for_allocation: true,
+        recommended_action: "allocate_paper_capital",
+        blockers: [],
+        readiness: "paper_ready",
+        promotion_gate: "eligible_for_shadow",
+        sample_size: 42,
+        filled_order_count: 40,
+        observed_pnl: 125,
+        primary_regime: "range_market",
+        signal_quality_score: 0.7,
+        supports_live: false,
+        supports_hot_swap: true
+      },
+      {
+        strategy_id: "moving_average_cross",
+        name: "MovingAverageCross",
+        version: "catalog",
+        source: "lean_catalog",
+        execution_mode: "backtest",
+        status: "available",
+        rank: 2,
+        ranking_score: 0,
+        allocation_weight: 0,
+        eligible_for_allocation: false,
+        recommended_action: "keep_in_lab",
+        blockers: ["not_connected_to_paper_runtime"],
+        readiness: "backtest_only",
+        promotion_gate: "not_connected_to_paper_runtime",
+        sample_size: 0,
+        filled_order_count: 0,
+        observed_pnl: 0,
+        primary_regime: "backtest_only",
+        signal_quality_score: 0,
+        supports_live: false,
+        supports_hot_swap: false
+      }
+    ],
+    summary: "Strategy competition fixture."
+  };
+  await page.route("**/api/mvp/strategy-lab/competition", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: strategyCompetition });
+  });
+  await page.route("**/api/mvp/strategy-lab/competition/snapshot", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ...strategyCompetition,
+        id: "competition-snapshot-1",
+        team_id: "team-1",
+        created_at: "2026-06-14T00:00:00+00:00",
+        updated_at: "2026-06-14T00:00:00+00:00"
+      }
+    });
+  });
+  const strategyCompetitionHistory: StrategyCompetitionSnapshotHistoryPayload = {
+    snapshot_count: 1,
+    latest: {
+      ...strategyCompetition,
+      id: "competition-snapshot-1",
+      team_id: "team-1",
+      created_at: "2026-06-14T00:00:00+00:00",
+      updated_at: "2026-06-14T00:00:00+00:00"
+    },
+    items: [
+      {
+        ...strategyCompetition,
+        id: "competition-snapshot-1",
+        team_id: "team-1",
+        created_at: "2026-06-14T00:00:00+00:00",
+        updated_at: "2026-06-14T00:00:00+00:00"
+      }
+    ],
+    summary: "Strategy competition snapshots: 1 days recorded, latest selected strategy deterministic_watchlist_v1."
+  };
+  await page.route("**/api/mvp/strategy-lab/competition/snapshots", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: strategyCompetitionHistory });
+  });
+  let lifecycle = {
+    strategy_id: "deterministic_watchlist_v1",
+    strategy_name: "Deterministic Watchlist Strategy",
+    current_stage: "shadow",
+    recommended_stage: "shadow",
+    recommended_action: "hold_current_stage",
+    gate_status: "watch",
+    promotion_gate: "keep_paper_running",
+    can_promote: false,
+    can_kill: false,
+    auto_actions_enabled: false,
+    rules: [
+      {
+        name: "minimum_filled_orders",
+        passed: false,
+        severity: "blocker",
+        actual: "21 filled orders",
+        required: ">= 30 filled orders",
+        message: "More filled orders required."
+      },
+      {
+        name: "positive_expectancy",
+        passed: true,
+        severity: "blocker",
+        actual: "4.20",
+        required: "> 0.00 expectancy",
+        message: "Positive expectancy."
+      },
+      {
+        name: "drawdown_limit",
+        passed: true,
+        severity: "blocker",
+        actual: "8.00%",
+        required: "<= 15.00%",
+        message: "Drawdown is acceptable."
+      },
+      {
+        name: "event_ledger_populated",
+        passed: true,
+        severity: "blocker",
+        actual: "80 chains",
+        required: "> 0 chains",
+        message: "Event ledger has replayable trade chains."
+      },
+      {
+        name: "closed_trade_sample",
+        passed: false,
+        severity: "blocker",
+        actual: "5 closed trades",
+        required: ">= 10 closed trades",
+        message: "More closed trades required."
+      },
+      {
+        name: "alpha_validation_ready",
+        passed: false,
+        severity: "blocker",
+        actual: "not ready",
+        required: "paper alpha validation passed",
+        message: "Alpha validation is not ready."
+      }
+    ],
+    missing_capabilities: [
+      "lifecycle_state_persistence",
+      "manual_promotion_approval",
+      "shadow_account_adapter",
+      "live_small_account_adapter",
+      "kill_switch_audit_trail"
+    ],
+    summary: "Strategy is in Shadow but paper alpha validation is still collecting evidence."
+  };
   await page.route("**/api/mvp/strategy-lab/lifecycle", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: lifecycle
+    });
+  });
+  let lifecycleAudit: StrategyLifecycleAuditPayload = {
+    strategy_id: "deterministic_watchlist_v1",
+    items: [
+      {
+        id: "lifecycle-audit-1",
+        action: "strategy_shadow_approved",
+        entity_type: "strategy",
+        entity_id: "deterministic_watchlist_v1",
+        approved_by: "operator",
+        reason: "Paper gates reviewed.",
+        previous_stage: "paper",
+        current_stage: "shadow",
+        auto_promotion_enabled: false,
+        created_at: "2026-06-13T00:00:00Z"
+      }
+    ],
+    summary: "1 lifecycle audit entries recorded for this strategy."
+  };
+  await page.route("**/api/mvp/strategy-lab/lifecycle/audit", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: lifecycleAudit });
+  });
+  let systemReadiness: TradingSystemReadinessPayload = {
+    status: "blocked",
+    scheduler_running: true,
+    scheduler_next_run_at: "2026-06-14T06:30:00+08:00",
+    lifecycle_stage: "shadow",
+    alpha_ready: false,
+    event_bus_mode: "redis",
+    event_bus_ready: true,
+    event_bus_stream_length: 42,
+    event_ledger_replay_ready: true,
+    event_ledger_traceable_chain_count: 80,
+    event_ledger_complete_order_chain_count: 80,
+    event_ledger_broken_chain_count: 0,
+    event_ledger_traceability_ratio: 1,
+    shadow_can_record: true,
+    shadow_remaining_observations: 4,
+    live_small_review_ready: false,
+    live_or_broker_execution_enabled: false,
+    manual_override_isolated: true,
+    manual_override_order_count: 2,
+    manual_override_event_chain_count: 2,
+    alpha_filtered_event_chain_count: 80,
+    blockers: ["lifecycle_stage_ahead_of_alpha_validation"],
+    pending_gates: ["paper_alpha_validation", "shadow_validation_sample", "live_small_manual_review"],
+    summary: "Trading system readiness is blocked by lifecycle_stage_ahead_of_alpha_validation."
+  };
+  await page.route("**/api/mvp/strategy-lab/system-readiness", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: systemReadiness });
+  });
+  await page.route("**/api/mvp/strategy-lab/lifecycle/reconcile", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    lifecycle = {
+      ...lifecycle,
+      current_stage: "paper",
+      recommended_stage: "paper",
+      recommended_action: "keep_paper_running",
+      summary: "Positive expectancy is emerging, but paper-stage gates still need more evidence."
+    };
+    systemReadiness = {
+      ...systemReadiness,
+      status: "attention",
+      lifecycle_stage: "paper",
+      blockers: [],
+      pending_gates: [
+        "paper_alpha_validation",
+        "shadow_stage",
+        "shadow_validation_sample",
+        "live_small_manual_review"
+      ],
+      summary:
+        "Trading system is operational for controlled daily runs; pending gates: paper_alpha_validation, shadow_stage, shadow_validation_sample, live_small_manual_review."
+    };
+    lifecycleAudit = {
+      strategy_id: "deterministic_watchlist_v1",
+      items: [
+        {
+          id: "lifecycle-audit-2",
+          action: "strategy_lifecycle_reconciled",
+          entity_type: "strategy",
+          entity_id: "deterministic_watchlist_v1",
+          approved_by: "system_reconcile",
+          reason: "Alpha validation is not ready.",
+          previous_stage: "shadow",
+          current_stage: "paper",
+          auto_promotion_enabled: false,
+          execution_enabled: false,
+          created_at: "2026-06-13T00:05:00Z"
+        },
+        ...lifecycleAudit.items
+      ],
+      summary: "2 lifecycle audit entries recorded for this strategy."
+    };
     await route.fulfill({
       contentType: "application/json",
       json: {
         strategy_id: "deterministic_watchlist_v1",
-        strategy_name: "Deterministic Watchlist Strategy",
+        previous_stage: "shadow",
         current_stage: "paper",
-        recommended_stage: "paper",
-        recommended_action: "keep_paper_running",
-        gate_status: "watch",
-        promotion_gate: "keep_paper_running",
-        can_promote: false,
-        can_kill: false,
-        auto_actions_enabled: false,
-        rules: [
-          {
-            name: "minimum_filled_orders",
-            passed: false,
-            severity: "blocker",
-            actual: "21 filled orders",
-            required: ">= 30 filled orders",
-            message: "More filled orders required."
-          },
-          {
-            name: "event_ledger_populated",
-            passed: true,
-            severity: "blocker",
-            actual: "80 events",
-            required: "> 0 events",
-            message: "Event ledger is populated."
-          },
-          {
-            name: "closed_trade_sample",
-            passed: false,
-            severity: "blocker",
-            actual: "5 closed trades",
-            required: ">= 10 closed trades",
-            message: "More closed trades required."
-          }
-        ],
-        missing_capabilities: [
-          "lifecycle_state_persistence",
-          "manual_promotion_approval",
-          "shadow_account_adapter",
-          "live_small_account_adapter",
-          "kill_switch_audit_trail"
-        ],
-        summary: "Positive expectancy is emerging, but paper-stage gates still need more evidence."
+        reconciled: true,
+        reconciled_by: "system_reconcile",
+        reason: "Alpha validation is not ready.",
+        alpha_ready: false,
+        auto_promotion_enabled: false,
+        execution_enabled: false,
+        summary: "Strategy deterministic_watchlist_v1 reconciled from shadow to paper."
       }
     });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-validation", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategy_id: "deterministic_watchlist_v1",
+        alpha_ready: false,
+        validation_level: "collecting",
+        blockers: ["consecutive_positive_expectancy", "closed_trade_sample"],
+        has_real_market_backtest: false,
+        review_day_count: 3,
+        consecutive_positive_expectancy_days: 1,
+        filled_order_count: 21,
+        closed_trade_count: 5,
+        event_chain_count: 80,
+        latest_expectancy: 4.2,
+        average_expectancy: 1.7,
+        max_drawdown: 0.08,
+        summary: "Paper alpha validation is collecting evidence."
+      }
+    });
+  });
+  const alphaSnapshot: AlphaValidationSnapshotPayload = {
+    id: "alpha-snapshot-1",
+    team_id: "team-1",
+    strategy_id: "deterministic_watchlist_v1",
+    trading_day: "2026-06-14",
+    alpha_ready: false,
+    validation_level: "collecting",
+    blockers: ["closed_trade_sample"],
+    has_real_market_backtest: true,
+    review_day_count: 3,
+    consecutive_positive_expectancy_days: 1,
+    filled_order_count: 21,
+    closed_trade_count: 5,
+    event_chain_count: 80,
+    latest_expectancy: 4.2,
+    average_expectancy: 1.7,
+    max_drawdown: 0.08,
+    created_at: "2026-06-14T00:00:00+00:00",
+    updated_at: "2026-06-14T00:00:00+00:00"
+  };
+  let alphaSnapshotHistory: AlphaValidationSnapshotHistoryPayload = {
+    strategy_id: "deterministic_watchlist_v1",
+    snapshot_count: 1,
+    ready_snapshot_count: 0,
+    positive_expectancy_snapshot_count: 1,
+    positive_expectancy_streak: 2,
+    ready_streak: 0,
+    latest_blockers: ["closed_trade_sample"],
+    blocker_counts: [
+      { blocker: "closed_trade_sample", count: 2 },
+      { blocker: "filled_order_sample", count: 1 }
+    ],
+    latest: alphaSnapshot,
+    items: [alphaSnapshot],
+    summary: "Alpha validation snapshots: 1 days recorded, 1 positive-expectancy days, 0 ready days."
+  };
+  await page.route("**/api/mvp/strategy-lab/alpha-snapshots**", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: alphaSnapshotHistory });
+  });
+  await page.route("**/api/mvp/strategy-lab/alpha-snapshots/record", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    alphaSnapshotHistory = {
+      ...alphaSnapshotHistory,
+      latest: alphaSnapshot,
+      items: [alphaSnapshot],
+      summary: "Alpha validation snapshots: 1 days recorded, 1 positive-expectancy days, 0 ready days."
+    };
+    await route.fulfill({ contentType: "application/json", json: alphaSnapshot });
+  });
+  const shadowReview: ShadowReviewPayload = {
+    status: "blocked",
+    strategy_id: "deterministic_watchlist_v1",
+    can_request_shadow_review: false,
+    recommended_stage: "paper",
+    auto_promotion_enabled: false,
+    checklist: [
+      {
+        code: "alpha_gates_passed",
+        label: "Alpha 门禁通过",
+        passed: false,
+        evidence: ["Alpha gate progress: 7/9 gates passed."]
+      },
+      {
+        code: "event_ledger_replayable",
+        label: "事件账本可回放",
+        passed: true,
+        evidence: ["80 events"]
+      }
+    ],
+    residual_risks: [
+      {
+        code: "paper_to_shadow_gap",
+        severity: "info",
+        detail: "模拟盘门禁通过只允许进入 Shadow 人工评审，不代表可以实盘交易。",
+        evidence: ["auto_promotion_enabled=false"]
+      }
+    ],
+    summary: "Shadow review packet is blocked; continue paper validation before manual review."
+  };
+  await page.route("**/api/mvp/strategy-lab/shadow-review", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: shadowReview });
+  });
+  const shadowObservation: ShadowObservationPayload = {
+    id: "shadow-observation-1",
+    team_id: "team-1",
+    strategy_id: "deterministic_watchlist_v1",
+    trading_day: "2026-06-30",
+    status: "observing",
+    can_request_shadow_review: true,
+    observed_intent_count: 6,
+    would_route_order_count: 6,
+    event_chain_count: 6,
+    residual_risk_count: 2,
+    blocked_reason: null,
+    created_at: "2026-06-13T00:00:00Z"
+  };
+  let shadowObservationSummary: ShadowObservationSummaryPayload = {
+    can_record_shadow_observation: true,
+    latest: null,
+    items: [],
+    summary: "No shadow observations have been recorded yet."
+  };
+  let shadowValidation: ShadowValidationPayload = {
+    strategy_id: "deterministic_watchlist_v1",
+    shadow_ready: false,
+    status: "collecting",
+    observation_count: 0,
+    observing_count: 0,
+    blocked_count: 0,
+    latest_trading_day: null,
+    min_observations_required: 5,
+    remaining_observations: 5,
+    residual_risk_count: 0,
+    blockers: ["shadow_observation_sample"],
+    summary: "Shadow validation is collecting observations; 5 more observing samples required."
+  };
+  await page.route("**/api/mvp/strategy-lab/shadow-observations", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: shadowObservationSummary });
+  });
+  let shadowObservationHealth: ShadowObservationHealthPayload = {
+    strategy_id: "deterministic_watchlist_v1",
+    status: "collecting",
+    sample_ready: false,
+    observation_count: 0,
+    observing_count: 0,
+    blocked_count: 0,
+    consecutive_observing_count: 0,
+    latest_trading_day: null,
+    average_would_route_order_count: 0,
+    average_event_chain_count: 0,
+    average_residual_risk_count: 0,
+    warnings: ["sample_not_ready"],
+    summary: "Shadow observation health is collecting samples; 0/5 observations recorded."
+  };
+  await page.route("**/api/mvp/strategy-lab/shadow-observation-health", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: shadowObservationHealth });
+  });
+  await page.route("**/api/mvp/strategy-lab/shadow-validation", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: shadowValidation });
+  });
+  let shadowDailyReport: ShadowDailyReportPayload = {
+    strategy_id: "deterministic_watchlist_v1",
+    trading_day: null,
+    status: "collecting",
+    observation_status: "not_recorded",
+    health_status: "collecting",
+    validation_status: "collecting",
+    live_small_status: "blocked",
+    observed_intent_count: 0,
+    would_route_order_count: 0,
+    event_chain_count: 0,
+    residual_risk_count: 0,
+    remaining_observations: 5,
+    warnings: ["sample_not_ready"],
+    blockers: ["shadow_observation_sample"],
+    next_actions: [
+      {
+        priority: 1,
+        action_code: "record_shadow_observation",
+        title: "记录 Shadow 观察",
+        detail: "当前没有 Shadow 观察记录；先记录一条观察样本，再进入健康与验证判断。",
+        evidence: ["No shadow observations have been recorded yet."]
+      }
+    ],
+    live_or_broker_execution_enabled: false,
+    summary: "Shadow daily report is waiting for the first observation record."
+  };
+  await page.route("**/api/mvp/strategy-lab/shadow-daily-report", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: shadowDailyReport });
+  });
+  const liveSmallReview: LiveSmallReviewPayload = {
+    status: "blocked",
+    strategy_id: "deterministic_watchlist_v1",
+    can_request_live_small_review: false,
+    recommended_stage: "shadow",
+    auto_promotion_enabled: false,
+    checklist: [
+      {
+        code: "current_stage_shadow",
+        label: "当前处于 Shadow",
+        passed: false,
+        evidence: ["current_stage=paper", "manual shadow approval required before live-small review"]
+      },
+      {
+        code: "shadow_validation_passed",
+        label: "Shadow 验证通过",
+        passed: false,
+        evidence: ["Shadow validation is collecting observations; 4 more observing samples required."]
+      },
+      {
+        code: "shadow_health_stable",
+        label: "Shadow 健康稳定",
+        passed: false,
+        evidence: ["Shadow observation health is collecting samples; 1/5 observations recorded."]
+      }
+    ],
+    residual_risks: [
+      {
+        code: "live_small_requires_separate_manual_approval",
+        severity: "info",
+        detail: "Live-small 只能作为人工评审结论，不能由系统自动晋级或自动实盘下单。",
+        evidence: ["auto_promotion_enabled=false"]
+      }
+    ],
+    summary: "Live-small review packet is blocked; remain in Shadow or paper workflow until all gates pass."
+  };
+  await page.route("**/api/mvp/strategy-lab/live-small-review", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: liveSmallReview });
+  });
+  await page.route("**/api/mvp/strategy-lab/shadow-observations/record", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    shadowObservationSummary = {
+      can_record_shadow_observation: true,
+      latest: shadowObservation,
+      items: [shadowObservation],
+      summary: "Shadow observation latest observing on 2026-06-30; 1 observations recorded, no broker orders created."
+    };
+    shadowValidation = {
+      strategy_id: "deterministic_watchlist_v1",
+      shadow_ready: false,
+      status: "collecting",
+      observation_count: 1,
+      observing_count: 1,
+      blocked_count: 0,
+      latest_trading_day: "2026-06-30",
+      min_observations_required: 5,
+      remaining_observations: 4,
+      residual_risk_count: 2,
+      blockers: ["shadow_observation_sample"],
+      summary: "Shadow validation is collecting observations; 4 more observing samples required."
+    };
+    shadowObservationHealth = {
+      strategy_id: "deterministic_watchlist_v1",
+      status: "collecting",
+      sample_ready: false,
+      observation_count: 1,
+      observing_count: 1,
+      blocked_count: 0,
+      consecutive_observing_count: 1,
+      latest_trading_day: "2026-06-30",
+      average_would_route_order_count: 2,
+      average_event_chain_count: 6,
+      average_residual_risk_count: 2,
+      warnings: ["sample_not_ready"],
+      summary: "Shadow observation health is collecting samples; 1/5 observations recorded."
+    };
+    shadowDailyReport = {
+      strategy_id: "deterministic_watchlist_v1",
+      trading_day: "2026-06-30",
+      status: "collecting",
+      observation_status: "observing",
+      health_status: "collecting",
+      validation_status: "collecting",
+      live_small_status: "blocked",
+      observed_intent_count: 6,
+      would_route_order_count: 2,
+      event_chain_count: 6,
+      residual_risk_count: 2,
+      remaining_observations: 4,
+      warnings: ["sample_not_ready"],
+      blockers: ["shadow_observation_sample"],
+      next_actions: [
+        {
+          priority: 1,
+          action_code: "continue_shadow_observation",
+          title: "继续记录 Shadow 观察",
+          detail: "还需要 4 条 observing 样本，保持 broker 执行关闭。",
+          evidence: ["Shadow validation is collecting observations; 4 more observing samples required."]
+        }
+      ],
+      live_or_broker_execution_enabled: false,
+      summary: "Shadow daily report is collecting observations; 4 more samples required."
+    };
+    await route.fulfill({ contentType: "application/json", json: shadowObservation });
   });
 
   await gotoDashboard(page);
@@ -719,12 +2175,39 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(statusPanel.getByText("LEAN CLI", { exact: true })).toBeVisible();
   await expect(statusPanel.getByText("LEAN CLI is not installed or is not on PATH.")).toBeVisible();
   await expect(page.getByText("不可回测")).toBeVisible();
+  const readinessPanel = page.getByRole("region", { name: "交易系统运行态" });
+  await expect(readinessPanel.getByText("blocked", { exact: true })).toBeVisible();
+  await expect(readinessPanel.getByText("定时任务 运行中")).toBeVisible();
+  await expect(readinessPanel.getByText("生命周期 shadow")).toBeVisible();
+  await expect(readinessPanel.getByText("lifecycle_stage_ahead_of_alpha_validation", { exact: true })).toBeVisible();
+  await readinessPanel.getByRole("button", { name: "纠偏到 Paper" }).click();
+  await expect(readinessPanel.getByText("attention", { exact: true })).toBeVisible();
+  await expect(readinessPanel.getByText("生命周期 paper")).toBeVisible();
+  await expect(readinessPanel.getByText("lifecycle_stage_ahead_of_alpha_validation", { exact: true })).not.toBeVisible();
+  await expect(readinessPanel.getByText("Event Bus redis")).toBeVisible();
+  await expect(readinessPanel.getByText("Redis stream 42 events")).toBeVisible();
+  await expect(readinessPanel.getByText("事件链完整率 100%")).toBeVisible();
+  await expect(readinessPanel.getByText("完整链 80 · 断链 0 · 可追溯链 80")).toBeVisible();
+  await expect(readinessPanel.getByText("Shadow 剩余 4")).toBeVisible();
+  await expect(readinessPanel.getByText("手工覆盖 已隔离")).toBeVisible();
+  await expect(readinessPanel.getByText("手工订单 2 · 手工链 2 · Alpha 链 80")).toBeVisible();
+  await expect(readinessPanel.getByText("shadow_validation_sample", { exact: true })).toBeVisible();
   const alphaPanel = page.getByRole("region", { name: "Alpha 验证" });
-  await expect(alphaPanel.getByText("watch", { exact: true })).toBeVisible();
+  await expect(alphaPanel.getByText("collecting", { exact: true })).toBeVisible();
   await expect(alphaPanel.getByText("样本 21", { exact: true })).toBeVisible();
   await expect(alphaPanel.getByText("信号精度 71.43%")).toBeVisible();
   await expect(alphaPanel.getByText("最大回撤 8.00%")).toBeVisible();
   await expect(alphaPanel.getByText("keep_paper_running")).toBeVisible();
+  await expect(alphaPanel.getByText("连续正期望 1 / 5 天")).toBeVisible();
+  await expect(alphaPanel.getByText("验证阻断 consecutive_positive_expectancy / closed_trade_sample")).toBeVisible();
+  await expect(alphaPanel.getByText("真实历史回测", { exact: true })).toBeVisible();
+  await expect(alphaPanel.getByText("Alpha gate 需要至少一次同策略真实历史回测。")).toBeVisible();
+  await expect(alphaPanel.getByText("快照账本 1 天")).toBeVisible();
+  await expect(alphaPanel.getByText("正期望 1 · Ready 0 · 最新 2026-06-14")).toBeVisible();
+  await expect(alphaPanel.getByText("连续正期望 2 天 · 连续 Ready 0 天")).toBeVisible();
+  await expect(alphaPanel.getByText("主要阻断 closed_trade_sample ×2")).toBeVisible();
+  await alphaPanel.getByRole("button", { name: "记录快照" }).click();
+  await expect(alphaPanel.getByText("已记录 2026-06-14 Alpha 快照")).toBeVisible();
   const registryPanel = page.getByRole("region", { name: "策略注册表" });
   await expect(registryPanel.getByText("只读")).toBeVisible();
   await expect(registryPanel.getByText("评分 74.00")).toBeVisible();
@@ -734,15 +2217,76 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(registryPanel.getByText("moving_average_cross · lean_catalog · backtest")).toBeVisible();
   await expect(registryPanel.getByText("控制缺口 5")).toBeVisible();
   await expect(registryPanel.getByText("实盘关闭")).toBeVisible();
+  const competitionPanel = page.getByRole("region", { name: "策略竞争层" });
+  await expect(competitionPanel.getByText("allocation_ready", { exact: true })).toBeVisible();
+  await expect(competitionPanel.getByText("策略池 2")).toBeVisible();
+  await expect(competitionPanel.getByText("可分配 1 · 选中 deterministic_watchlist_v1")).toBeVisible();
+  await expect(competitionPanel.getByText("竞争账本 1 天")).toBeVisible();
+  await expect(competitionPanel.getByText("最新 2026-06-14 · 可分配 1")).toBeVisible();
+  await expect(competitionPanel.getByText("#1 Deterministic Watchlist Strategy")).toBeVisible();
+  await expect(competitionPanel.getByText("deterministic_watchlist_v1 · paper_core · paper")).toBeVisible();
+  await expect(competitionPanel.getByText("allocation 100.00%")).toBeVisible();
+  await expect(competitionPanel.getByText("allocate_paper_capital")).toBeVisible();
+  await expect(competitionPanel.getByText("#2 MovingAverageCross")).toBeVisible();
+  await expect(competitionPanel.getByText("not_connected_to_paper_runtime")).toBeVisible();
+  await expect(competitionPanel.getByText("keep_in_lab")).toBeVisible();
+  await competitionPanel.getByRole("button", { name: "记录竞争快照" }).click();
+  await expect(competitionPanel.getByText("已记录 2026-06-14 策略竞争快照")).toBeVisible();
   const lifecyclePanel = page.getByRole("region", { name: "策略生命周期" });
   await expect(lifecyclePanel.getByText("watch", { exact: true })).toBeVisible();
   await expect(lifecyclePanel.getByText("paper → paper")).toBeVisible();
   await expect(lifecyclePanel.getByText("keep_paper_running").first()).toBeVisible();
   await expect(lifecyclePanel.getByText("自动动作 关闭")).toBeVisible();
+  await expect(lifecyclePanel.getByRole("button", { name: "停用策略" })).toBeDisabled();
   await expect(lifecyclePanel.getByText("禁止晋级")).toBeVisible();
   await expect(lifecyclePanel.getByText("通过 event_ledger_populated")).toBeVisible();
   await expect(lifecyclePanel.getByText("阻断 closed_trade_sample")).toBeVisible();
+  await expect(lifecyclePanel.getByText("阻断 alpha_validation_ready")).toBeVisible();
   await expect(lifecyclePanel.getByText("生命周期缺口 5")).toBeVisible();
+  const lifecycleAuditPanel = page.getByRole("region", { name: "生命周期审计" });
+  await expect(lifecycleAuditPanel.getByText("2 lifecycle audit entries recorded")).toBeVisible();
+  await expect(lifecycleAuditPanel.getByText("shadow → paper")).toBeVisible();
+  await expect(lifecycleAuditPanel.getByText("strategy_lifecycle_reconciled · system_reconcile · Alpha validation is not ready.")).toBeVisible();
+  await expect(lifecycleAuditPanel.getByText("paper → shadow")).toBeVisible();
+  await expect(lifecycleAuditPanel.getByText("strategy_shadow_approved · operator · Paper gates reviewed.")).toBeVisible();
+  await expect(lifecycleAuditPanel.getByText("manual")).toBeVisible();
+  const shadowReviewPanel = page.getByRole("region", { name: "Shadow 评审包" });
+  await expect(shadowReviewPanel.getByText("Shadow review packet is blocked")).toBeVisible();
+  await expect(shadowReviewPanel.getByText("deterministic_watchlist_v1 → paper")).toBeVisible();
+  await expect(shadowReviewPanel.getByText("自动晋级 关闭")).toBeVisible();
+  await expect(shadowReviewPanel.getByRole("button", { name: "批准进入 Shadow" })).toBeDisabled();
+  await expect(shadowReviewPanel.getByText("阻断 Alpha 门禁通过")).toBeVisible();
+  await expect(shadowReviewPanel.getByText("模拟盘门禁通过只允许进入 Shadow 人工评审")).toBeVisible();
+  const shadowObservationPanel = page.getByRole("region", { name: "Shadow 观察" });
+  await expect(shadowObservationPanel.getByText("No shadow observations have been recorded yet.")).toBeVisible();
+  await expect(shadowObservationPanel.getByText("可记录")).toBeVisible();
+  await shadowObservationPanel.getByRole("button", { name: "记录观察" }).click();
+  await expect(shadowObservationPanel.getByText("Shadow observation latest observing on 2026-06-30")).toBeVisible();
+  await expect(shadowObservationPanel.getByText("intent 6 / would-route 6 / chain 6")).toBeVisible();
+  const shadowDailyReportPanel = page.getByRole("region", { name: "Shadow 日报" });
+  await expect(shadowDailyReportPanel.getByText("Shadow daily report is collecting observations; 4 more samples required.")).toBeVisible();
+  await expect(shadowDailyReportPanel.getByText("交易日 2026-06-30 · observation observing")).toBeVisible();
+  await expect(shadowDailyReportPanel.getByText("intent 6 / would-route 2 / chain 6")).toBeVisible();
+  await expect(shadowDailyReportPanel.getByText("continue_shadow_observation", { exact: true })).toBeVisible();
+  await expect(shadowDailyReportPanel.getByText("broker off", { exact: true })).toBeVisible();
+  const shadowHealthPanel = page.getByRole("region", { name: "Shadow 健康" });
+  await expect(shadowHealthPanel.getByText("Shadow observation health is collecting samples; 1/5 observations recorded.")).toBeVisible();
+  await expect(shadowHealthPanel.getByText("样本 1 / 连续 1")).toBeVisible();
+  await expect(shadowHealthPanel.getByText("平均 would-route 2.00")).toBeVisible();
+  await expect(shadowHealthPanel.getByText("sample_not_ready", { exact: true })).toBeVisible();
+  const shadowValidationPanel = page.getByRole("region", { name: "Shadow 验证" });
+  await expect(shadowValidationPanel.getByText("Shadow validation is collecting observations; 4 more observing samples required.")).toBeVisible();
+  await expect(shadowValidationPanel.getByText("观察样本 1 / 5")).toBeVisible();
+  await expect(shadowValidationPanel.getByText("剩余 4 次 · 最新交易日 2026-06-30")).toBeVisible();
+  await expect(shadowValidationPanel.getByText("shadow_observation_sample")).toBeVisible();
+  const liveSmallReviewPanel = page.getByRole("region", { name: "Live-small 评审包" });
+  await expect(liveSmallReviewPanel.getByText("Live-small review packet is blocked")).toBeVisible();
+  await expect(liveSmallReviewPanel.getByText("deterministic_watchlist_v1 → shadow")).toBeVisible();
+  await expect(liveSmallReviewPanel.getByText("自动晋级 关闭")).toBeVisible();
+  await expect(liveSmallReviewPanel.getByRole("button", { name: "批准进入 Live-small" })).toBeDisabled();
+  await expect(liveSmallReviewPanel.getByText("阻断 当前处于 Shadow")).toBeVisible();
+  await expect(liveSmallReviewPanel.getByText("阻断 Shadow 健康稳定")).toBeVisible();
+  await expect(liveSmallReviewPanel.getByText("Live-small 只能作为人工评审结论")).toBeVisible();
   const attributionPanel = page.getByRole("region", { name: "归因分析" });
   await expect(attributionPanel.getByText("drawdown_pressure")).toBeVisible();
   await expect(attributionPanel.getByText("可行动信号 50.00%")).toBeVisible();
@@ -1098,6 +2642,10 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
             run_id: "20260612T101500Z-moving_average_cross",
             strategy_id: "moving_average_cross",
             status: "success",
+            engine: "lean",
+            data_source: "openbb_yfinance",
+            data_quality: "real_market_data",
+            uses_real_market_data: true,
             started_at: "2026-06-12T10:15:00Z",
             completed_at: "2026-06-12T10:16:15Z",
             duration_seconds: 75,
@@ -1140,6 +2688,10 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
         run_id: "20260612T101500Z-moving_average_cross",
         strategy_id: "moving_average_cross",
         status: "success",
+        engine: "lean",
+        data_source: "openbb_yfinance",
+        data_quality: "real_market_data",
+        uses_real_market_data: true,
         started_at: "2026-06-12T10:15:00Z",
         completed_at: "2026-06-12T10:16:15Z",
         duration_seconds: 75,
@@ -1166,6 +2718,77 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/strategy-lab/candidate-backtests", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    const requestBody = route.request().postDataJSON() as {
+      parameters?: Record<string, string>;
+      strategy_id?: unknown;
+      tickers?: string[];
+    };
+    expect(requestBody.strategy_id).toBe("moving_average_cross");
+    expect(requestBody.tickers).toEqual(["AAPL", "MSFT", "NVDA"]);
+    expect(requestBody.parameters?.start_date).toBe("2020-02-01");
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        strategy_id: "moving_average_cross",
+        candidate_count: 3,
+        real_market_candidate_count: 3,
+        best_ticker: "NVDA",
+        items: [
+          {
+            rank: 1,
+            ticker: "NVDA",
+            recommendation: "candidate",
+            score: 1.42,
+            reason: "真实历史数据；收益为正；Sharpe 1.80；结论 candidate",
+            run_id: "run-NVDA",
+            status: "success",
+            engine: "vectorbt",
+            data_source: "openbb_yfinance",
+            uses_real_market_data: true,
+            total_net_profit: "42.00%",
+            sharpe_ratio: "1.80",
+            drawdown: "12.00%",
+            total_trades: "9"
+          },
+          {
+            rank: 2,
+            ticker: "MSFT",
+            recommendation: "candidate",
+            score: 0.94,
+            reason: "真实历史数据；收益为正；Sharpe 0.90；结论 candidate",
+            run_id: "run-MSFT",
+            status: "success",
+            engine: "vectorbt",
+            data_source: "openbb_yfinance",
+            uses_real_market_data: true,
+            total_net_profit: "18.00%",
+            sharpe_ratio: "0.90",
+            drawdown: "6.00%",
+            total_trades: "5"
+          },
+          {
+            rank: 3,
+            ticker: "AAPL",
+            recommendation: "reject",
+            score: -0.22,
+            reason: "真实历史数据；收益未通过；结论 reject",
+            run_id: "run-AAPL",
+            status: "success",
+            engine: "vectorbt",
+            data_source: "openbb_yfinance",
+            uses_real_market_data: true,
+            total_net_profit: "-3.00%",
+            sharpe_ratio: "-0.20",
+            drawdown: "9.00%",
+            total_trades: "4"
+          }
+        ],
+        summary: "Ranked 3 candidates; 2 passed, best ticker NVDA."
+      }
+    });
+  });
 
   await page.goto("/strategy-lab");
   const panel = page.getByRole("region", { name: "LEAN 回测" });
@@ -1188,7 +2811,15 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   await expect(panel.locator(".backtest-metrics").getByText("12.34%")).toBeVisible();
   await expect(panel.locator(".backtest-metrics").getByText("Sharpe", { exact: true })).toBeVisible();
   await expect(page.getByText("TRACE:: Backtest completed")).toBeVisible();
+  await expect(panel.getByLabel("回测数据质量").getByText("真实历史数据")).toBeVisible();
+  await expect(panel.getByLabel("回测数据质量").getByText("可用于历史验证")).toBeVisible();
   await expect(panel.locator(".result-toolbar .status-pill")).toHaveText("回测完成");
+  await expect(panel.getByRole("textbox", { name: "候选池" })).toHaveValue("AAPL,MSFT,NVDA");
+  await page.getByRole("button", { name: "运行候选池回测" }).click();
+  await expect(panel.getByText("Ranked 3 candidates; 2 passed, best ticker NVDA.")).toBeVisible();
+  await expect(panel.getByText("#1 NVDA")).toBeVisible();
+  await expect(panel.getByText("42.00% · Sharpe 1.80 · 回撤 12.00%")).toBeVisible();
+  await expect(panel.getByText("真实历史数据；收益为正；Sharpe 1.80；结论 candidate")).toBeVisible();
   await expect(panel.getByRole("heading", { name: "历史记录" })).toBeVisible();
   await expect(panel.getByText("MSFT · 2020-02-01 到 2020-12-31")).toBeVisible();
   await expect(panel.getByText("10 / 30")).toBeVisible();
@@ -1242,6 +2873,10 @@ test("strategy lab displays LEAN backtest failures", async ({ page }) => {
         run_id: "20260612T101500Z-moving_average_cross",
         strategy_id: "moving_average_cross",
         status: "unavailable",
+        engine: "lean",
+        data_source: null,
+        data_quality: "unknown",
+        uses_real_market_data: false,
         started_at: "2026-06-12T10:15:00Z",
         completed_at: "2026-06-12T10:15:01Z",
         duration_seconds: 1,

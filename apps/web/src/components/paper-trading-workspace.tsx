@@ -1,19 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Play, ShoppingCart } from "lucide-react";
+import { CalendarClock, Play, ShoppingCart, Wrench } from "lucide-react";
 import {
+  getPaperDailyReport,
   getPaperEventLedger,
+  getPaperExecutionDiagnostics,
+  getPaperOperationsHistory,
+  getPaperOperationsStatus,
+  getPaperRiskProfile,
+  getPaperRiskLimitReview,
   getPaperSchedulerStatus,
+  getPaperMarketSession,
   getPaperRuns,
+  getPaperReviewTrend,
   getPaperTradingSummary,
+  getAlphaGateProgress,
+  getAlphaValidationForecast,
+  getPaperActionPlan,
+  applyPaperRiskLimitRecommendation,
+  quarantineLegacyPaperRuns,
+  repairPaperEventLedger,
+  runPaperSimulationLab,
   runPaperTradingDailyLoop,
   submitPaperOrder,
   type PaperEventLedgerPayload,
   type PaperCandidatePayload,
+  type PaperDailyReportPayload,
+  type PaperExecutionDiagnosticsPayload,
+  type PaperOperationsHistoryPayload,
+  type PaperOperationsRepairPayload,
+  type PaperOperationsStatusPayload,
+  type PaperRiskProfilePayload,
+  type PaperRiskLimitApplyPayload,
+  type PaperRiskLimitReviewPayload,
+  type PaperMarketSessionPayload,
+  type PaperReviewTrendPayload,
   type PaperRunPayload,
   type PaperSchedulerStatusPayload,
-  type PaperTradingSummaryPayload
+  type PaperSimulationPayload,
+  type PaperTradingSummaryPayload,
+  type AlphaGateProgressPayload,
+  type AlphaValidationForecastPayload,
+  type PaperActionPlanPayload
 } from "@/lib/client-api";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -55,22 +84,122 @@ function readinessLabel(value: string | undefined): string {
   return readinessLabels[value] ?? value;
 }
 
+function formatTimestamp(value: string | null | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function operationBlockerLabel(value: string): string {
+  const labels: Record<string, string> = {
+    api_unavailable: "API 不可用",
+    daily_run_missing: "今日未运行",
+    event_ledger_not_replayable: "事件链缺失",
+    latest_run_failed: "最新运行失败",
+    review_missing: "复盘缺失"
+  };
+  return labels[value] ?? value;
+}
+
+function dataQualityWarningLabel(value: string): string {
+  const labels: Record<string, string> = {
+    future_runs_excluded_from_as_of_report: "未来模拟运行已从当前日报排除",
+    legacy_manual_future_runs_detected: "检测到早期手动未来日期运行"
+  };
+  return labels[value] ?? value;
+}
+
+function schedulerGateLabel(value: PaperSchedulerStatusPayload | null): string {
+  if (!value) {
+    return "未同步";
+  }
+  if (value.can_run_now) {
+    return "允许执行";
+  }
+  const labels: Record<string, string> = {
+    api_unavailable: "API 不可用",
+    market_closed: "休市跳过",
+    waiting_for_close: "等待收盘"
+  };
+  return labels[value.execution_gate] ?? value.execution_gate;
+}
+
 export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
+  const [dailyReport, setDailyReport] = useState<PaperDailyReportPayload | null>(null);
   const [scheduler, setScheduler] = useState<PaperSchedulerStatusPayload | null>(null);
+  const [marketSession, setMarketSession] = useState<PaperMarketSessionPayload | null>(null);
+  const [operations, setOperations] = useState<PaperOperationsStatusPayload | null>(null);
+  const [operationsHistory, setOperationsHistory] = useState<PaperOperationsHistoryPayload | null>(null);
+  const [reviewTrend, setReviewTrend] = useState<PaperReviewTrendPayload | null>(null);
   const [runs, setRuns] = useState<PaperRunPayload[]>([]);
   const [eventLedger, setEventLedger] = useState<PaperEventLedgerPayload | null>(null);
+  const [executionDiagnostics, setExecutionDiagnostics] = useState<PaperExecutionDiagnosticsPayload | null>(null);
+  const [riskProfile, setRiskProfile] = useState<PaperRiskProfilePayload | null>(null);
+  const [riskLimitReview, setRiskLimitReview] = useState<PaperRiskLimitReviewPayload | null>(null);
+  const [riskLimitApply, setRiskLimitApply] = useState<PaperRiskLimitApplyPayload | null>(null);
+  const [alphaGateProgress, setAlphaGateProgress] = useState<AlphaGateProgressPayload | null>(null);
+  const [alphaForecast, setAlphaForecast] = useState<AlphaValidationForecastPayload | null>(null);
+  const [actionPlan, setActionPlan] = useState<PaperActionPlanPayload | null>(null);
+  const [repairResult, setRepairResult] = useState<PaperOperationsRepairPayload | null>(null);
+  const [simulationResult, setSimulationResult] = useState<PaperSimulationPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isRunning, setIsRunning] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
+  const [isQuarantining, setIsQuarantining] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [isApplyingRiskLimit, setIsApplyingRiskLimit] = useState(false);
   const [orderingTicker, setOrderingTicker] = useState<string | null>(null);
 
   async function refreshSummary(nextMessage?: string) {
-    const [payload, runPayload, ledgerPayload] = await Promise.all([
+    const [
+      payload,
+      reportPayload,
+      marketSessionPayload,
+      operationsPayload,
+      historyPayload,
+      reviewTrendPayload,
+      executionDiagnosticsPayload,
+      riskProfilePayload,
+      riskLimitReviewPayload,
+      alphaGateProgressPayload,
+      alphaForecastPayload,
+      actionPlanPayload,
+      runPayload,
+      ledgerPayload
+    ] = await Promise.all([
       getPaperTradingSummary(),
+      getPaperDailyReport(),
+      getPaperMarketSession(),
+      getPaperOperationsStatus(),
+      getPaperOperationsHistory(),
+      getPaperReviewTrend(),
+      getPaperExecutionDiagnostics(),
+      getPaperRiskProfile(),
+      getPaperRiskLimitReview(),
+      getAlphaGateProgress(),
+      getAlphaValidationForecast(),
+      getPaperActionPlan(),
       getPaperRuns(),
       getPaperEventLedger()
     ]);
     setSummary(payload);
+    setDailyReport(reportPayload);
+    setMarketSession(marketSessionPayload);
+    setOperations(operationsPayload);
+    setOperationsHistory(historyPayload);
+    setReviewTrend(reviewTrendPayload);
+    setExecutionDiagnostics(executionDiagnosticsPayload);
+    setRiskProfile(riskProfilePayload);
+    setRiskLimitReview(riskLimitReviewPayload);
+    setAlphaGateProgress(alphaGateProgressPayload);
+    setAlphaForecast(alphaForecastPayload);
+    setActionPlan(actionPlanPayload);
     setRuns(runPayload.runs);
     setEventLedger(ledgerPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
@@ -78,13 +207,56 @@ export function PaperTradingWorkspace() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getPaperTradingSummary(), getPaperSchedulerStatus(), getPaperRuns(), getPaperEventLedger()]).then(
-      ([payload, schedulerStatus, runPayload, ledgerPayload]) => {
+    Promise.all([
+      getPaperTradingSummary(),
+      getPaperDailyReport(),
+      getPaperSchedulerStatus(),
+      getPaperMarketSession(),
+      getPaperOperationsStatus(),
+      getPaperOperationsHistory(),
+      getPaperReviewTrend(),
+      getPaperExecutionDiagnostics(),
+      getPaperRiskProfile(),
+      getPaperRiskLimitReview(),
+      getAlphaGateProgress(),
+      getAlphaValidationForecast(),
+      getPaperActionPlan(),
+      getPaperRuns(),
+      getPaperEventLedger()
+    ]).then(
+      ([
+        payload,
+        reportPayload,
+        schedulerStatus,
+        marketSessionPayload,
+        operationsPayload,
+        historyPayload,
+        reviewTrendPayload,
+        executionDiagnosticsPayload,
+        riskProfilePayload,
+        riskLimitReviewPayload,
+        alphaGateProgressPayload,
+        alphaForecastPayload,
+        actionPlanPayload,
+        runPayload,
+        ledgerPayload
+      ]) => {
         if (!active) {
           return;
         }
         setSummary(payload);
+        setDailyReport(reportPayload);
         setScheduler(schedulerStatus);
+        setMarketSession(marketSessionPayload);
+        setOperations(operationsPayload);
+        setOperationsHistory(historyPayload);
+        setReviewTrend(reviewTrendPayload);
+        setExecutionDiagnostics(executionDiagnosticsPayload);
+        setRiskProfile(riskProfilePayload);
+        setRiskLimitReview(riskLimitReviewPayload);
+        setAlphaGateProgress(alphaGateProgressPayload);
+        setAlphaForecast(alphaForecastPayload);
+        setActionPlan(actionPlanPayload);
         setRuns(runPayload.runs);
         setEventLedger(ledgerPayload);
         setMessage("模拟盘已同步。");
@@ -96,12 +268,56 @@ export function PaperTradingWorkspace() {
   }, []);
 
   async function handleDailyRun() {
+    if (operations && !operations.can_retry_today) {
+      setMessage("今日模拟已完成，等待下一交易日。");
+      return;
+    }
     setIsRunning(true);
     setMessage("正在运行今日模拟。");
     try {
       const payload = await runPaperTradingDailyLoop();
-      const [runPayload, ledgerPayload] = await Promise.all([getPaperRuns(), getPaperEventLedger()]);
+      const [
+        reportPayload,
+        marketSessionPayload,
+        operationsPayload,
+        historyPayload,
+        reviewTrendPayload,
+        executionDiagnosticsPayload,
+        riskProfilePayload,
+        riskLimitReviewPayload,
+        alphaGateProgressPayload,
+        alphaForecastPayload,
+        actionPlanPayload,
+        runPayload,
+        ledgerPayload
+      ] =
+        await Promise.all([
+        getPaperDailyReport(),
+        getPaperMarketSession(),
+        getPaperOperationsStatus(),
+        getPaperOperationsHistory(),
+        getPaperReviewTrend(),
+        getPaperExecutionDiagnostics(),
+        getPaperRiskProfile(),
+        getPaperRiskLimitReview(),
+        getAlphaGateProgress(),
+        getAlphaValidationForecast(),
+        getPaperActionPlan(),
+        getPaperRuns(),
+        getPaperEventLedger()
+      ]);
       setSummary(payload);
+      setDailyReport(reportPayload);
+      setMarketSession(marketSessionPayload);
+      setOperations(operationsPayload);
+      setOperationsHistory(historyPayload);
+      setReviewTrend(reviewTrendPayload);
+      setExecutionDiagnostics(executionDiagnosticsPayload);
+      setRiskProfile(riskProfilePayload);
+      setRiskLimitReview(riskLimitReviewPayload);
+      setAlphaGateProgress(alphaGateProgressPayload);
+      setAlphaForecast(alphaForecastPayload);
+      setActionPlan(actionPlanPayload);
       setRuns(runPayload.runs);
       setEventLedger(ledgerPayload);
       setMessage("今日模拟已完成。");
@@ -130,18 +346,81 @@ export function PaperTradingWorkspace() {
     }
   }
 
+  async function handleRepairLedger() {
+    setIsRepairing(true);
+    setMessage("正在修复历史事件链。");
+    try {
+      const repair = await repairPaperEventLedger();
+      setRepairResult(repair);
+      await refreshSummary(`事件链修复完成：修复 ${repair.repaired_runs} 条运行记录。`);
+    } finally {
+      setIsRepairing(false);
+    }
+  }
+
+  async function handleQuarantineLegacyRuns() {
+    setIsQuarantining(true);
+    setMessage("正在标记旧运行。");
+    try {
+      const quarantine = await quarantineLegacyPaperRuns();
+      await refreshSummary(`旧运行已标记：${quarantine.quarantined_runs} 条改为 simulation。`);
+    } finally {
+      setIsQuarantining(false);
+    }
+  }
+
+  async function handleSimulation() {
+    setIsSimulating(true);
+    setMessage("正在运行 5 日多日模拟。");
+    try {
+      const result = await runPaperSimulationLab({ days: 5, scenario: "bullish" });
+      setSimulationResult(result);
+      await refreshSummary(`多日模拟完成：${result.days_completed}/${result.days_requested} 天。`);
+    } finally {
+      setIsSimulating(false);
+    }
+  }
+
+  async function handleApplyRiskLimitRecommendation() {
+    setIsApplyingRiskLimit(true);
+    setMessage("正在应用 Paper 风险限额建议。");
+    try {
+      const result = await applyPaperRiskLimitRecommendation();
+      setRiskLimitApply(result);
+      await refreshSummary(result.summary);
+    } finally {
+      setIsApplyingRiskLimit(false);
+    }
+  }
+
   const account = summary?.account;
   const review = summary?.latest_review;
   const candidates = summary?.candidates ?? [];
   const orders = summary?.orders ?? [];
   const positions = summary?.positions ?? [];
   const schedulerLabel = scheduler?.enabled ? (scheduler.running ? "运行中" : "已启用") : "未启用";
+  const schedulerGate = schedulerGateLabel(scheduler);
+  const canRunDaily = operations?.can_retry_today ?? true;
+  const dailyRunLabel = isRunning ? "运行中" : canRunDaily ? "运行今日模拟" : "今日已完成";
+  const simulationRunLabel = isSimulating ? "模拟中" : "运行 5 日模拟";
+  const canApplyRiskLimitRecommendation =
+    riskLimitReview?.status === "review_required" &&
+    (riskLimitReview?.recommended_paper_max_daily_orders ?? 0) > (riskLimitReview?.current_max_daily_orders ?? 0) &&
+    riskLimitReview.live_change_allowed === false;
+  const hasRepairableLedger = (operationsHistory?.items ?? []).some((item) =>
+    item.blockers.includes("event_ledger_not_replayable")
+  );
+  const hasLegacyManualFutureRuns = (operations?.legacy_manual_future_run_count ?? 0) > 0;
   const replayChain =
     eventLedger?.latest_replay?.chains.find((chain) => chain.order_states.length > 0) ??
     eventLedger?.latest_replay?.chains[0] ??
     null;
   const topicSummary =
     eventLedger?.latest_topic_counts.map((item) => `${item.topic} ${item.count}`).join(" / ") ?? "暂无事件";
+  const ledgerIntegrityReady = eventLedger?.integrity_ready ?? eventLedger?.replay_ready ?? false;
+  const ledgerWarnings =
+    eventLedger?.integrity_warnings?.length ? eventLedger.integrity_warnings : eventLedger?.warnings ?? [];
+  const chainWarnings = replayChain?.integrity_warnings ?? [];
 
   return (
     <div className="module-view">
@@ -174,9 +453,9 @@ export function PaperTradingWorkspace() {
             <h3>{account?.name ?? "默认模拟盘"}</h3>
             <p>默认 paper-only；净期望未稳定前不进入实盘。</p>
           </div>
-          <button className="primary-action" type="button" onClick={handleDailyRun} disabled={isRunning}>
+          <button className="primary-action" type="button" onClick={handleDailyRun} disabled={isRunning || !canRunDaily}>
             <Play size={15} aria-hidden="true" />
-            {isRunning ? "运行中" : "运行今日模拟"}
+            {dailyRunLabel}
           </button>
         </div>
         <p className="workspace-message" aria-live="polite">
@@ -184,13 +463,666 @@ export function PaperTradingWorkspace() {
         </p>
       </section>
 
+      <section className="data-panel workspace-panel" aria-label="市场交易日">
+        <div className="panel-heading">
+          <div>
+            <h3>
+              <CalendarClock size={17} aria-hidden="true" />
+              市场交易日
+            </h3>
+            <p>按 NYSE 日历确定复盘与调度口径。</p>
+          </div>
+          <span
+            className={
+              marketSession?.session_closed
+                ? "status-pill success"
+                : marketSession?.is_market_session
+                  ? "status-pill warning"
+                  : "status-pill neutral"
+            }
+          >
+            {marketSession?.session_closed ? "已收盘" : marketSession?.is_market_session ? "未收盘" : "休市"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>生效交易日</span>
+            <strong>{marketSession?.trading_day ?? "未同步"}</strong>
+          </div>
+          <div>
+            <span>市场日期</span>
+            <strong>{marketSession?.market_date ?? "未同步"}</strong>
+          </div>
+          <div>
+            <span>原因</span>
+            <strong>{marketSession?.reason ?? "unknown"}</strong>
+          </div>
+          <div>
+            <span>日历源</span>
+            <strong>{marketSession?.calendar_provider ?? "unknown"}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="今日简报">
+        <div className="panel-heading">
+          <div>
+            <h3>今日简报</h3>
+            <p>{dailyReport?.summary ?? "正在生成今日简报。"}</p>
+          </div>
+          <span className={dailyReport?.health_status === "ready" ? "status-pill success" : "status-pill warning"}>
+            {dailyReport?.health_status ?? "blocked"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>交易日</span>
+            <strong>{dailyReport?.trading_day ?? "未同步"}</strong>
+          </div>
+          <div>
+            <span>运行</span>
+            <strong>{dailyReport?.run_state ?? "not_started"}</strong>
+          </div>
+          <div>
+            <span>建议</span>
+            <strong>{dailyReport?.recommended_action ?? "run_daily_paper_trading"}</strong>
+          </div>
+          <div>
+            <span>候选 / 订单</span>
+            <strong>
+              {dailyReport?.candidate_count ?? 0} / {dailyReport?.order_count ?? 0}
+            </strong>
+          </div>
+          <div>
+            <span>权益</span>
+            <strong>{formatCurrency(dailyReport?.account_equity ?? 0)}</strong>
+          </div>
+          <div>
+            <span>Alpha</span>
+            <strong>{dailyReport?.alpha_ready ? "已达标" : "未达标"}</strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>
+            期望 {formatCurrency(dailyReport?.latest_expectancy ?? 0)} · 连续正期望{" "}
+            {dailyReport?.consecutive_positive_expectancy_days ?? 0} 天
+          </strong>
+          <p>
+            已实现 {formatCurrency(dailyReport?.realized_pnl ?? 0)} · 未实现{" "}
+            {formatCurrency(dailyReport?.unrealized_pnl ?? 0)} · 事件链{" "}
+            {dailyReport?.event_ledger_ready ? "可回放" : "缺失"}
+          </p>
+          <p>阻断 {(dailyReport?.alpha_blockers ?? []).join(" / ") || "无"}</p>
+          <p>数据警告 {(dailyReport?.data_quality_warnings ?? []).map(dataQualityWarningLabel).join(" / ") || "无"}</p>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="多日模拟">
+        <div className="panel-heading">
+          <div>
+            <h3>多日模拟</h3>
+            <p>{simulationResult?.summary ?? "使用推荐默认场景加速收集纸面交易样本。"}</p>
+          </div>
+          <div className="panel-heading-actions">
+            <span className={simulationResult?.alpha_ready ? "status-pill success" : "status-pill neutral"}>
+              {simulationResult?.alpha_ready ? "Alpha 达标" : "Lab"}
+            </span>
+            <button className="ghost-action" type="button" onClick={handleSimulation} disabled={isSimulating}>
+              <Play size={14} aria-hidden="true" />
+              {simulationRunLabel}
+            </button>
+          </div>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>完成</span>
+            <strong>
+              {simulationResult?.days_completed ?? 0} / {simulationResult?.days_requested ?? 5}
+            </strong>
+          </div>
+          <div>
+            <span>正期望</span>
+            <strong>{simulationResult?.consecutive_positive_expectancy_days ?? 0} 天</strong>
+          </div>
+          <div>
+            <span>最新期望</span>
+            <strong>{formatCurrency(simulationResult?.latest_expectancy ?? 0)}</strong>
+          </div>
+          <div>
+            <span>平均期望</span>
+            <strong>{formatCurrency(simulationResult?.average_expectancy ?? 0)}</strong>
+          </div>
+          <div>
+            <span>事件</span>
+            <strong>{simulationResult?.event_chain_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>跳过</span>
+            <strong>{simulationResult?.days_skipped ?? 0}</strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>
+            场景 {simulationResult?.scenario ?? "bullish"} · 起始日 {simulationResult?.start_date ?? "待运行"}
+          </strong>
+          <p>阻断 {(simulationResult?.blockers ?? []).join(" / ") || "无"}</p>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="运行健康">
+        <div className="panel-heading">
+          <div>
+            <h3>运行健康</h3>
+            <p>{operations?.summary ?? "正在读取每日运行健康。"}</p>
+          </div>
+          <div className="panel-heading-actions">
+            <span className={operations?.health_status === "ready" ? "status-pill success" : "status-pill warning"}>
+              {operations?.health_status ?? "blocked"}
+            </span>
+            <button
+              className="ghost-action"
+              type="button"
+              onClick={handleQuarantineLegacyRuns}
+              disabled={isQuarantining || !hasLegacyManualFutureRuns}
+            >
+              <Wrench size={14} aria-hidden="true" />
+              {isQuarantining ? "标记中" : "标记旧运行"}
+            </button>
+          </div>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>交易日</span>
+            <strong>{operations?.trading_day ?? "未同步"}</strong>
+          </div>
+          <div>
+            <span>今日状态</span>
+            <strong>{operations?.run_state ?? "not_started"}</strong>
+          </div>
+          <div>
+            <span>建议动作</span>
+            <strong>{operations?.recommended_action ?? "run_daily_paper_trading"}</strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>{operations?.event_ledger_ready ? "事件链可回放" : "事件链缺失"}</strong>
+          <p>
+            事件 {operations?.latest_run_event_count ?? 0} · 可重跑{" "}
+            {operations?.can_retry_today ? "是" : "否"} · 最新错误 {operations?.latest_error ?? "无"}
+          </p>
+          <p>阻断 {(operations?.blockers ?? []).map(operationBlockerLabel).join(" / ") || "无"}</p>
+          {(operations?.data_quality_warnings ?? []).length ? (
+            <p>
+              数据质量 {(operations?.data_quality_warnings ?? []).map(dataQualityWarningLabel).join(" / ")} ·{" "}
+              数量 {operations?.legacy_manual_future_run_count ?? 0} · 最新{" "}
+              {operations?.latest_legacy_manual_future_trading_day ?? "无"}
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="稳定趋势">
+        <div className="panel-heading">
+          <div>
+            <h3>稳定趋势</h3>
+            <p>{operationsHistory?.summary ?? "正在读取近几次模拟运行趋势。"}</p>
+          </div>
+          <div className="panel-heading-actions">
+            <span className={operationsHistory?.latest_health_status === "ready" ? "status-pill success" : "status-pill warning"}>
+              {operationsHistory?.latest_health_status ?? "blocked"}
+            </span>
+            <button
+              className="ghost-action"
+              type="button"
+              onClick={handleRepairLedger}
+              disabled={isRepairing || !hasRepairableLedger}
+            >
+              <Wrench size={14} aria-hidden="true" />
+              {isRepairing ? "修复中" : "修复事件链"}
+            </button>
+          </div>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>完成率</span>
+            <strong>{percentFormatter.format(operationsHistory?.completion_rate ?? 0)}</strong>
+          </div>
+          <div>
+            <span>回放率</span>
+            <strong>{percentFormatter.format(operationsHistory?.replay_rate ?? 0)}</strong>
+          </div>
+          <div>
+            <span>样本窗口</span>
+            <strong>{operationsHistory?.window_size ?? 0} 次</strong>
+          </div>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>阻断</span>
+            <strong>{operationsHistory?.blocked_days ?? 0}</strong>
+          </div>
+          <div>
+            <span>失败</span>
+            <strong>{operationsHistory?.failed_days ?? 0}</strong>
+          </div>
+          <div>
+            <span>已复盘</span>
+            <strong>{operationsHistory?.review_days ?? 0}</strong>
+          </div>
+        </div>
+        {repairResult ? (
+          <div className="import-result">
+            <strong>{repairResult.summary}</strong>
+            <p>
+              扫描 {repairResult.scanned_runs} · 修复 {repairResult.repaired_runs} · 跳过 {repairResult.skipped_runs}
+            </p>
+          </div>
+        ) : null}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">交易日</th>
+                <th scope="col">健康</th>
+                <th scope="col">状态</th>
+                <th className="numeric" scope="col">
+                  事件
+                </th>
+                <th scope="col">阻断</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(operationsHistory?.items ?? []).map((item) => (
+                <tr key={item.run_id}>
+                  <td>{item.trading_day}</td>
+                  <td>
+                    <span className={`state-token run-${item.health_status}`}>{item.health_status}</span>
+                  </td>
+                  <td>{item.status}</td>
+                  <td className="numeric">{item.event_count}</td>
+                  <td>{item.blockers.map(operationBlockerLabel).join(" / ") || "无"}</td>
+                </tr>
+              ))}
+              {!(operationsHistory?.items ?? []).length ? (
+                <tr>
+                  <td colSpan={5}>暂无稳定趋势样本。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="净期望趋势">
+        <div className="panel-heading">
+          <div>
+            <h3>净期望趋势</h3>
+            <p>{reviewTrend?.summary ?? "正在读取复盘趋势。"}</p>
+          </div>
+          <span className={reviewTrend?.latest_expectancy && reviewTrend.latest_expectancy > 0 ? "status-pill success" : "status-pill warning"}>
+            {readinessLabel(reviewTrend?.latest_readiness)}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>样本数</span>
+            <strong>{reviewTrend?.sample_size ?? 0}</strong>
+          </div>
+          <div>
+            <span>连续正期望</span>
+            <strong>{reviewTrend?.consecutive_positive_expectancy_days ?? 0} 天</strong>
+          </div>
+          <div>
+            <span>正期望天数</span>
+            <strong>{reviewTrend?.positive_expectancy_days ?? 0}</strong>
+          </div>
+          <div>
+            <span>最新期望</span>
+            <strong>{formatCurrency(reviewTrend?.latest_expectancy ?? 0)}</strong>
+          </div>
+          <div>
+            <span>平均期望</span>
+            <strong>{formatCurrency(reviewTrend?.average_expectancy ?? 0)}</strong>
+          </div>
+          <div>
+            <span>累计 PnL</span>
+            <strong>{formatCurrency((reviewTrend?.total_realized_pnl ?? 0) + (reviewTrend?.total_unrealized_pnl ?? 0))}</strong>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">交易日</th>
+                <th className="numeric" scope="col">
+                  权益
+                </th>
+                <th className="numeric" scope="col">
+                  期望
+                </th>
+                <th className="numeric" scope="col">
+                  胜率
+                </th>
+                <th scope="col">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(reviewTrend?.items ?? []).map((item) => (
+                <tr key={item.trading_day}>
+                  <td>{item.trading_day}</td>
+                  <td className="numeric">{formatCurrency(item.equity)}</td>
+                  <td className="numeric">{formatCurrency(item.expectancy)}</td>
+                  <td className="numeric">{percentFormatter.format(item.win_rate)}</td>
+                  <td>{readinessLabel(item.readiness)}</td>
+                </tr>
+              ))}
+              {!(reviewTrend?.items ?? []).length ? (
+                <tr>
+                  <td colSpan={5}>暂无复盘样本。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="执行诊断">
+        <div className="panel-heading">
+          <div>
+            <h3>执行诊断</h3>
+            <p>{executionDiagnostics?.summary ?? "正在读取执行诊断。"}</p>
+          </div>
+          <span className={executionDiagnostics?.rejected_order_count ? "status-pill warning" : "status-pill success"}>
+            {executionDiagnostics?.latest_rejection_code ?? "执行正常"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>订单</span>
+            <strong>{executionDiagnostics?.order_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>成交率</span>
+            <strong>{percentFormatter.format(executionDiagnostics?.fill_rate ?? 0)}</strong>
+          </div>
+          <div>
+            <span>拒单率</span>
+            <strong>{percentFormatter.format(executionDiagnostics?.rejection_rate ?? 0)}</strong>
+          </div>
+          <div>
+            <span>闭环交易</span>
+            <strong>{executionDiagnostics?.closed_trade_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>已实现 PnL</span>
+            <strong>{formatCurrency(executionDiagnostics?.realized_pnl ?? 0)}</strong>
+          </div>
+          <div>
+            <span>日限拒单</span>
+            <strong>
+              {executionDiagnostics?.max_daily_order_rejections ?? 0}
+              <small>
+                买 {executionDiagnostics?.max_daily_order_buy_rejections ?? 0} / 卖{" "}
+                {executionDiagnostics?.max_daily_order_sell_rejections ?? 0}
+              </small>
+            </strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>
+            filled {executionDiagnostics?.filled_order_count ?? 0} · rejected{" "}
+            {executionDiagnostics?.rejected_order_count ?? 0} · sell {executionDiagnostics?.sell_order_count ?? 0}
+          </strong>
+          <p>
+            拒单原因{" "}
+            {(executionDiagnostics?.rejection_reasons ?? [])
+              .map((item) => `${item.risk_code} ${item.count}`)
+              .join(" / ") || "无"}
+          </p>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="Alpha 门禁">
+        <div className="panel-heading">
+          <div>
+            <h3>Alpha 门禁</h3>
+            <p>{alphaGateProgress?.summary ?? "正在读取 Alpha 门禁进度。"}</p>
+          </div>
+          <span className={alphaGateProgress?.alpha_ready ? "status-pill success" : "status-pill warning"}>
+            {alphaGateProgress?.validation_level ?? "collecting"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>通过</span>
+            <strong>
+              {alphaGateProgress?.passed_gates ?? 0} / {alphaGateProgress?.total_gates ?? 0}
+            </strong>
+          </div>
+          {(alphaGateProgress?.items ?? []).slice(0, 5).map((item) => (
+            <div key={item.gate}>
+              <span>{item.label}</span>
+              <strong>
+                {formatNumber(item.current)} / {formatNumber(item.required)} {item.unit}
+              </strong>
+            </div>
+          ))}
+        </div>
+        <div className="import-result">
+          <strong>{alphaGateProgress?.alpha_ready ? "门禁已通过" : "继续收集样本"}</strong>
+          <p>
+            剩余{" "}
+            {(alphaGateProgress?.items ?? [])
+              .filter((item) => !item.passed)
+              .map((item) => `${item.label} ${formatNumber(item.remaining)} ${item.unit}`)
+              .join(" / ") || "无"}
+          </p>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="Alpha 预测">
+        <div className="panel-heading">
+          <div>
+            <h3>Alpha 预测</h3>
+            <p>{alphaForecast?.summary ?? "正在预测 Alpha 验证进度。"}</p>
+          </div>
+          <span className={alphaForecast?.alpha_ready ? "status-pill success" : "status-pill neutral"}>
+            {alphaForecast?.status ?? "loading"}
+          </span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>预计还需</span>
+            <strong>
+              {alphaForecast?.estimated_sessions_to_alpha_ready === null ||
+              alphaForecast?.estimated_sessions_to_alpha_ready === undefined
+                ? "未知"
+                : `${alphaForecast.estimated_sessions_to_alpha_ready} 次`}
+            </strong>
+          </div>
+          <div>
+            <span>限制门禁</span>
+            <strong>{alphaForecast?.limiting_gate ?? "无"}</strong>
+          </div>
+          {(alphaForecast?.items ?? [])
+            .filter((item) => !item.passed)
+            .slice(0, 4)
+            .map((item) => (
+              <div key={item.gate}>
+                <span>{item.label}</span>
+                <strong>
+                  {item.estimated_sessions === null ? "未知" : `${item.estimated_sessions} 次`} · 剩余{" "}
+                  {formatNumber(item.remaining)} {item.unit}
+                </strong>
+              </div>
+            ))}
+        </div>
+        <div className="import-result">
+          <strong>{alphaForecast?.alpha_ready ? "已满足模拟盘 Alpha 门禁" : "继续用模拟盘收集证据"}</strong>
+          <p>
+            {(alphaForecast?.items ?? [])
+              .filter((item) => !item.passed)
+              .map((item) => `${item.label}: ${item.reason}`)
+              .join(" / ") || "无阻断"}
+          </p>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="行动计划">
+        <div className="panel-heading">
+          <div>
+            <h3>行动计划</h3>
+            <p>{actionPlan?.summary ?? "正在生成行动计划。"}</p>
+          </div>
+          <span className="status-pill neutral">{actionPlan?.primary_action ?? "loading"}</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">优先级</th>
+                <th scope="col">动作</th>
+                <th scope="col">说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(actionPlan?.items ?? []).map((item) => (
+                <tr key={`${item.priority}-${item.action_code}`}>
+                  <td>{item.priority}</td>
+                  <td>
+                    <strong>{item.title}</strong>
+                    <p className="table-note">{item.action_code}</p>
+                  </td>
+                  <td>
+                    {item.detail}
+                    <p className="table-note">{item.evidence.join(" / ") || "无"}</p>
+                  </td>
+                </tr>
+              ))}
+              {!(actionPlan?.items ?? []).length ? (
+                <tr>
+                  <td colSpan={3}>暂无行动项。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="风险配置">
+        <div className="panel-heading">
+          <div>
+            <h3>风险配置</h3>
+            <p>{riskProfile?.summary ?? "正在读取纸面风控配置。"}</p>
+          </div>
+          <span className="status-pill neutral">{riskProfile?.risk_engine ?? "Trading Core RiskEngine"}</span>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>单笔上限</span>
+            <strong>{formatCurrency(riskProfile?.max_order_notional ?? 0)}</strong>
+          </div>
+          <div>
+            <span>仓位权重</span>
+            <strong>{percentFormatter.format(riskProfile?.max_position_weight ?? 0)}</strong>
+          </div>
+          <div>
+            <span>日订单</span>
+            <strong>{riskProfile?.max_daily_orders ?? 0} 笔</strong>
+          </div>
+          <div>
+            <span>止盈</span>
+            <strong>{percentFormatter.format(riskProfile?.exit_take_profit_pct ?? 0)}</strong>
+          </div>
+          <div>
+            <span>止损</span>
+            <strong>{percentFormatter.format(riskProfile?.exit_stop_loss_pct ?? 0)}</strong>
+          </div>
+          <div>
+            <span>模式</span>
+            <strong>paper-only</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="风险限额评审">
+        <div className="panel-heading">
+          <div>
+            <h3>风险限额评审</h3>
+            <p>{riskLimitReview?.summary ?? "正在生成风险限额评审。"}</p>
+          </div>
+          <div className="panel-heading-actions">
+            <span className={riskLimitReview?.status === "review_required" ? "status-pill warning" : "status-pill success"}>
+              {riskLimitReview?.status ?? "loading"}
+            </span>
+            <button
+              className="ghost-action"
+              type="button"
+              onClick={handleApplyRiskLimitRecommendation}
+              disabled={isApplyingRiskLimit || !canApplyRiskLimitRecommendation}
+            >
+              <Wrench size={14} aria-hidden="true" />
+              {isApplyingRiskLimit ? "应用中" : "应用 Paper 建议"}
+            </button>
+          </div>
+        </div>
+        <div className="scheduler-grid">
+          <div>
+            <span>Paper 建议</span>
+            <strong>
+              {riskLimitReview?.current_max_daily_orders ?? 0} →{" "}
+              {riskLimitReview?.recommended_paper_max_daily_orders ?? 0}
+            </strong>
+          </div>
+          <div>
+            <span>Live</span>
+            <strong>{riskLimitReview?.live_change_allowed ? "需审批" : "Live 不变"}</strong>
+          </div>
+          <div>
+            <span>日限拒单</span>
+            <strong>
+              {riskLimitReview?.max_daily_order_rejections ?? 0}
+              <small>
+                买 {riskLimitReview?.max_daily_order_buy_rejections ?? 0} / 卖{" "}
+                {riskLimitReview?.max_daily_order_sell_rejections ?? 0}
+              </small>
+            </strong>
+          </div>
+          <div>
+            <span>成交 / 闭环</span>
+            <strong>
+              {riskLimitReview?.filled_order_count ?? 0} / {riskLimitReview?.closed_trade_count ?? 0}
+            </strong>
+          </div>
+        </div>
+        <div className="import-result">
+          <strong>{riskLimitReview?.sample_collection_blocked ? "样本收集受限" : "维持当前限额"}</strong>
+          <p>阻断 {(riskLimitReview?.blockers ?? []).join(" / ") || "无"}</p>
+        </div>
+        {riskLimitApply ? (
+          <div className="import-result">
+            <strong>{riskLimitApply.summary}</strong>
+            <p>
+              Paper {riskLimitApply.previous_max_daily_orders} → {riskLimitApply.applied_max_daily_orders} ·{" "}
+              {riskLimitApply.live_change_allowed ? "Live 需审批" : "Live 不变"} ·{" "}
+              {riskLimitApply.audit_event_created ? "审计已记录" : "无审计事件"}
+            </p>
+          </div>
+        ) : null}
+      </section>
+
       <section className="data-panel workspace-panel" aria-label="每日调度">
         <div className="panel-heading">
           <div>
             <h3>每日调度</h3>
-            <p>Docker API 使用 APScheduler 触发同一条模拟盘链路</p>
+            <p>APScheduler 只在 NYSE 交易日收盘后触发同一条模拟盘链路。</p>
           </div>
-          <span className={scheduler?.running ? "status-pill success" : "status-pill neutral"}>{schedulerLabel}</span>
+          <div className="panel-heading-actions">
+            <span className={scheduler?.can_run_now ? "status-pill success" : "status-pill neutral"}>
+              {schedulerGate}
+            </span>
+            <span className={scheduler?.running ? "status-pill success" : "status-pill neutral"}>{schedulerLabel}</span>
+          </div>
         </div>
         <div className="scheduler-grid">
           <div>
@@ -204,6 +1136,26 @@ export function PaperTradingWorkspace() {
           <div>
             <span>任务数</span>
             <strong>{scheduler?.job_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>Job</span>
+            <strong>{scheduler?.job_id ?? "paper_trading_daily_run"}</strong>
+          </div>
+          <div>
+            <span>下次运行</span>
+            <strong>{formatTimestamp(scheduler?.next_run_at, "未计划")}</strong>
+          </div>
+          <div>
+            <span>检查时间</span>
+            <strong>{formatTimestamp(scheduler?.last_checked_at, "未同步")}</strong>
+          </div>
+          <div>
+            <span>调度交易日</span>
+            <strong>{scheduler?.trading_day ?? "未同步"}</strong>
+          </div>
+          <div>
+            <span>守门原因</span>
+            <strong>{scheduler?.gate_reason ?? "unknown"}</strong>
           </div>
         </div>
       </section>
@@ -268,8 +1220,8 @@ export function PaperTradingWorkspace() {
             <h3>事件账本</h3>
             <p>{eventLedger?.summary ?? "正在读取 CoreEventLog。"}</p>
           </div>
-          <span className={eventLedger?.replay_ready ? "status-pill success" : "status-pill warning"}>
-            {eventLedger?.replay_ready ? "可回放" : "不可回放"}
+          <span className={ledgerIntegrityReady ? "status-pill success" : "status-pill warning"}>
+            {ledgerIntegrityReady ? "完整" : "需修复"}
           </span>
         </div>
         <div className="scheduler-grid">
@@ -285,6 +1237,22 @@ export function PaperTradingWorkspace() {
             <span>Correlation</span>
             <strong>{eventLedger?.latest_correlation_count ?? 0}</strong>
           </div>
+          <div>
+            <span>完整链</span>
+            <strong>{eventLedger?.complete_order_chain_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>断链</span>
+            <strong>{eventLedger?.broken_chain_count ?? 0}</strong>
+          </div>
+          <div>
+            <span>链路率</span>
+            <strong>{Math.round((eventLedger?.traceability_ratio ?? 0) * 100)}%</strong>
+          </div>
+          <div>
+            <span>完整性</span>
+            <strong>{ledgerIntegrityReady ? "通过" : "阻断"}</strong>
+          </div>
         </div>
         <div className="import-result">
           <strong>{replayChain ? `${replayChain.ticker ?? "UNKNOWN"} · ${replayChain.terminal_state ?? "open"}` : "暂无可回放链路"}</strong>
@@ -292,7 +1260,8 @@ export function PaperTradingWorkspace() {
             {topicSummary} · 状态序列{" "}
             {replayChain?.order_states.length ? replayChain.order_states.join(" → ") : "未记录"}
           </p>
-          <p>警告 {(eventLedger?.warnings ?? []).join(" / ") || "无"}</p>
+          <p>账本警告 {ledgerWarnings.join(" / ") || "无"}</p>
+          <p>链路警告 {chainWarnings.join(" / ") || "无"}</p>
         </div>
       </section>
 

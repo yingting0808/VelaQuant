@@ -11,11 +11,14 @@ from app.services.strategy_catalog import (
 )
 
 
-def test_load_enabled_strategies_returns_checked_in_moving_average_strategy():
+def test_load_enabled_strategies_returns_checked_in_strategies():
     strategies = load_enabled_strategies()
 
-    assert len(strategies) == 1
-    strategy = strategies[0]
+    assert {strategy.id for strategy in strategies} == {
+        "moving_average_cross",
+        "deterministic_watchlist_v1",
+    }
+    strategy = get_strategy_by_id("moving_average_cross")
     assert strategy.id == "moving_average_cross"
     assert strategy.name == "MovingAverageCross"
     assert strategy.language == "Python"
@@ -32,6 +35,9 @@ def test_load_enabled_strategies_returns_checked_in_moving_average_strategy():
     ]
     assert strategy.parameters[0].kind == "ticker"
     assert strategy.parameters[0].default == "AAPL"
+    active_strategy = get_strategy_by_id("deterministic_watchlist_v1")
+    assert active_strategy.name == "Deterministic Watchlist Strategy"
+    assert active_strategy.project_path.name == "DeterministicWatchlist"
 
 
 def test_get_strategy_by_id_rejects_unknown_strategy():

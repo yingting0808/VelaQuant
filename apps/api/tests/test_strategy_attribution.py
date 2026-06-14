@@ -13,6 +13,9 @@ from app.domain.models import (
     PaperPosition,
     PaperReadiness,
     PaperReview,
+    PaperRun,
+    PaperRunStatus,
+    PaperRunTrigger,
 )
 from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.workspace import get_or_create_default_workspace
@@ -209,6 +212,71 @@ def test_strategy_attribution_counts_signal_quality_from_core_events():
         assert attribution.signal_quality.average_confidence == 0.7
 
 
+def test_strategy_attribution_ignores_future_events_orders_and_reviews_for_as_of_baseline():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(
+            session,
+            account,
+            "market_event",
+            1,
+            {"ticker": "NVDA", "confidence": 0.8},
+            published_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+        )
+        _core_event(
+            session,
+            account,
+            "market_event",
+            2,
+            {"ticker": "AMZN", "confidence": 0.95},
+            published_at=datetime(2026, 6, 30, 21, 0, tzinfo=timezone.utc),
+        )
+        today_order = _filled_sell(session, account, "NVDA", realized_pnl=10)
+        today_order.submitted_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
+        future_order = _filled_sell(session, account, "AMZN", realized_pnl=500)
+        future_order.submitted_at = datetime(2026, 6, 30, 21, 0, tzinfo=timezone.utc)
+        _review(session, account, "2026-06-13", 100000, datetime(2026, 6, 13, tzinfo=timezone.utc))
+        _review(session, account, "2026-06-30", 103000, datetime(2026, 6, 30, tzinfo=timezone.utc))
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session, as_of_trading_day="2026-06-13")
+
+        assert attribution.signal_quality.market_event_count == 1
+        assert attribution.expectancy_decomposition.realized_pnl == 10
+        assert attribution.regime.review_count == 1
+
+
+def test_strategy_attribution_warns_when_position_snapshot_may_include_future_runs():
+    with make_session() as session:
+        account = _account(session)
+        session.add(
+            PaperRun(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-30",
+                trigger=PaperRunTrigger.manual,
+                status=PaperRunStatus.completed,
+            )
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="AMZN",
+                quantity=1,
+                average_cost=100,
+                last_price=95,
+                market_value=95,
+                unrealized_pnl=-5,
+            )
+        )
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session, as_of_trading_day="2026-06-13")
+
+        assert "position_snapshot_may_include_future_run_state" in attribution.data_quality_warnings
+
+
 def test_strategy_attribution_reports_per_ticker_signal_diagnostics():
     with make_session() as session:
         account = _account(session)
@@ -316,6 +384,60 @@ def test_strategy_attribution_reports_signal_decay_for_stale_open_positions():
         assert attribution.signal_decay.threshold_days == 5
         assert attribution.signal_decay.open_position_count == 2
         assert attribution.signal_decay.stale_open_position_count == 1
+        assert attribution.signal_decay.stale_tickers == ["NVDA"]
+        assert attribution.signal_decay.average_holding_days == 5.0
+
+
+def test_strategy_attribution_excludes_scheduler_audit_events_from_signal_decay_as_of():
+    with make_session() as session:
+        account = _account(session)
+        stale_submitted_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        fresh_submitted_at = datetime(2026, 6, 9, tzinfo=timezone.utc)
+        signal_as_of = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        stale = _filled_buy(session, account, "NVDA")
+        stale.submitted_at = stale_submitted_at
+        fresh = _filled_buy(session, account, "MSFT")
+        fresh.submitted_at = fresh_submitted_at
+        _core_event(session, account, "market_event", 9, {"ticker": "NVDA", "confidence": 0.7}, published_at=signal_as_of)
+        _core_event(
+            session,
+            account,
+            "scheduler_decision",
+            10,
+            {"execution_gate": "market_closed"},
+            published_at=datetime(2026, 6, 30, tzinfo=timezone.utc),
+        )
+        _review(session, account, "2026-06-10", 100000, signal_as_of)
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="NVDA",
+                quantity=1,
+                average_cost=100,
+                last_price=101,
+                market_value=101,
+                unrealized_pnl=1,
+                updated_at=signal_as_of,
+            )
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                team_id=account.team_id,
+                ticker="MSFT",
+                quantity=1,
+                average_cost=100,
+                last_price=101,
+                market_value=101,
+                unrealized_pnl=1,
+                updated_at=signal_as_of,
+            )
+        )
+        session.commit()
+
+        attribution = attribute_current_paper_strategy(session, as_of_trading_day="2026-06-30")
+
         assert attribution.signal_decay.stale_tickers == ["NVDA"]
         assert attribution.signal_decay.average_holding_days == 5.0
 

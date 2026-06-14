@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 import pytest
+from uuid import uuid4
 
 from app.api.routes import mvp
 from app.data.providers.base import ProviderStatus
@@ -14,7 +15,41 @@ from app.services.event_ledger import (
     EventLedgerStatus,
     EventLedgerTopicCount,
 )
+from app.services.alpha_validation import AlphaValidationPayload
+from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload
+from app.services.alpha_validation_snapshot import AlphaValidationSnapshotHistoryPayload, AlphaValidationSnapshotPayload
+from app.services.alpha_validation_forecast import AlphaValidationForecastItem, AlphaValidationForecastPayload
+from app.services.live_small_review import LiveSmallReviewPayload
+from app.services.shadow_daily_report import ShadowDailyReportAction, ShadowDailyReportPayload
+from app.services.shadow_review import ShadowReviewChecklistItem, ShadowReviewPayload, ShadowReviewResidualRisk
+from app.services.shadow_observation import ShadowObservationPayload, ShadowObservationSummaryPayload
+from app.services.shadow_observation_health import ShadowObservationHealthPayload
+from app.services.shadow_validation import ShadowValidationPayload
+from app.services.strategy_lifecycle_approval import (
+    StrategyKillApprovalPayload,
+    StrategyLiveSmallApprovalPayload,
+    StrategyLifecycleReconcilePayload,
+    StrategyShadowApprovalPayload,
+)
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
+from app.services.paper_action_plan import PaperActionPlanItem, PaperActionPlanPayload
+from app.services.paper_operations import (
+    PaperOperationsHistoryItem,
+    PaperOperationsHistoryPayload,
+    PaperOperationsQuarantineItem,
+    PaperOperationsQuarantinePayload,
+    PaperOperationsRepairItem,
+    PaperOperationsRepairPayload,
+    PaperOperationsStatusPayload,
+)
+from app.services.paper_daily_report import PaperDailyReportPayload
+from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, PaperExecutionRejectionReason
+from app.services.paper_risk_profile import PaperRiskProfilePayload
+from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
+from app.services.paper_risk_settings import PaperRiskLimitApplyPayload
+from app.services.paper_review_trend import PaperReviewTrendItem, PaperReviewTrendPayload
+from app.services.paper_simulation import PaperSimulationPayload
+from app.services.market_calendar import MarketSessionStatus
 from app.services.paper_trading import (
     PaperAccountPayload,
     PaperCandidatePayload,
@@ -42,7 +77,22 @@ from app.services.strategy_attribution import (
 )
 from app.services.strategy_lab import StrategyLabStatus, StrategyToolStatus
 from app.services.strategy_lifecycle import StrategyLifecyclePayload, StrategyLifecycleRule
+from app.services.strategy_lifecycle_audit import StrategyLifecycleAuditItem, StrategyLifecycleAuditPayload
 from app.services.strategy_registry import StrategyRegistryEntry, StrategyRegistryPayload
+from app.services.strategy_competition import (
+    StrategyCompetitionEntryPayload,
+    StrategyCompetitionPayload,
+    StrategyCompetitionSnapshotPayload,
+    StrategyCompetitionSnapshotHistoryPayload,
+)
+from app.services.strategy_runtime import StrategyCompetitionResult, StrategyRuntimeEntry
+from app.services.strategy_versions import StrategyVersionControlPayload, StrategyVersionPayload
+from app.services.execution_accounts import StrategyExecutionAccountPayload
+from app.services.strategy_control import StrategyExecutionBinding, StrategyExecutionMode
+from app.services.strategy_alpha_isolation import StrategyAlphaIsolationPayload
+from app.services.trading_system_readiness import TradingSystemReadinessPayload
+from app.trading_core.strategy import DeterministicWatchlistStrategy
+from app.trading_core.strategy_engine import StrategyEngine
 from app.services.workspace import (
     NoteCreate,
     NotePayload,
@@ -404,6 +454,29 @@ def test_mvp_strategy_lab_registry_route_returns_strategy_control_plane(monkeypa
     assert captured["provider"] is not None
 
 
+def test_mvp_strategy_lab_alpha_isolation_route_returns_runtime_audit(monkeypatch):
+    isolation = StrategyAlphaIsolationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        isolated=True,
+        strategy_order_count=12,
+        manual_override_order_count=2,
+        manual_override_event_chain_count=2,
+        filtered_event_chain_count=12,
+        summary="Manual override activity is isolated from alpha validation.",
+    )
+    monkeypatch.setattr(mvp, "get_strategy_alpha_isolation", lambda session: isolation, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/alpha-isolation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["isolated"] is True
+    assert payload["manual_override_order_count"] == 2
+    assert payload["filtered_event_chain_count"] == 12
+
+
 def test_mvp_strategy_lab_lifecycle_route_returns_stage_gate(monkeypatch):
     lifecycle_payload = StrategyLifecyclePayload(
         strategy_id="deterministic_watchlist_v1",
@@ -443,6 +516,811 @@ def test_mvp_strategy_lab_lifecycle_route_returns_stage_gate(monkeypatch):
     assert payload["can_promote"] is True
     assert payload["auto_actions_enabled"] is False
     assert payload["rules"][0]["name"] == "event_ledger_populated"
+
+
+def test_mvp_strategy_lab_alpha_validation_route_returns_gate(monkeypatch):
+    alpha_payload = AlphaValidationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        alpha_ready=False,
+        validation_level="collecting",
+        blockers=["consecutive_positive_expectancy"],
+        has_real_market_backtest=True,
+        review_day_count=3,
+        consecutive_positive_expectancy_days=1,
+        filled_order_count=12,
+        closed_trade_count=4,
+        event_chain_count=120,
+        latest_expectancy=1.1,
+        average_expectancy=0.6,
+        max_drawdown=0.02,
+        summary="fixture alpha validation",
+    )
+
+    monkeypatch.setattr(mvp, "get_alpha_validation", lambda session: alpha_payload, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/alpha-validation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["alpha_ready"] is False
+    assert payload["blockers"] == ["consecutive_positive_expectancy"]
+    assert payload["consecutive_positive_expectancy_days"] == 1
+
+
+def test_mvp_strategy_lab_alpha_gates_route_returns_progress_payload(monkeypatch):
+    progress = AlphaGateProgressPayload(
+        alpha_ready=False,
+        validation_level="collecting",
+        passed_gates=2,
+        total_gates=8,
+        items=[
+            AlphaGateProgressItem(
+                gate="review_day_sample",
+                label="复盘天数",
+                current=3,
+                required=5,
+                remaining=2,
+                unit="天",
+                comparison="at_least",
+                passed=False,
+            )
+        ],
+        summary="Alpha gate progress: 2/8 gates passed.",
+    )
+    monkeypatch.setattr(mvp, "get_alpha_gate_progress", lambda session: progress, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/alpha-gates")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["passed_gates"] == 2
+    assert payload["items"][0]["remaining"] == 2
+
+
+def test_mvp_strategy_lab_alpha_snapshots_route_returns_persisted_history(monkeypatch):
+    snapshot = alpha_snapshot_payload(trading_day="2026-06-14")
+    history = AlphaValidationSnapshotHistoryPayload(
+        strategy_id="deterministic_watchlist_v1",
+        snapshot_count=1,
+        ready_snapshot_count=0,
+        positive_expectancy_snapshot_count=1,
+        positive_expectancy_streak=2,
+        ready_streak=0,
+        latest_blockers=["closed_trade_sample"],
+        blocker_counts=[{"blocker": "closed_trade_sample", "count": 2}],
+        latest=snapshot,
+        items=[snapshot],
+        summary="Alpha validation snapshots: 1 days recorded.",
+    )
+    monkeypatch.setattr(mvp, "get_alpha_validation_snapshots", lambda session: history, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/alpha-snapshots")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot_count"] == 1
+    assert payload["latest"]["trading_day"] == "2026-06-14"
+    assert payload["positive_expectancy_snapshot_count"] == 1
+    assert payload["positive_expectancy_streak"] == 2
+    assert payload["latest_blockers"] == ["closed_trade_sample"]
+    assert payload["blocker_counts"] == [{"blocker": "closed_trade_sample", "count": 2}]
+
+
+def test_mvp_strategy_lab_alpha_snapshots_record_route_persists_current_snapshot(monkeypatch):
+    snapshot = alpha_snapshot_payload(trading_day="2026-06-14")
+    monkeypatch.setattr(mvp, "record_alpha_validation_snapshot", lambda session: snapshot, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/strategy-lab/alpha-snapshots/record")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trading_day"] == "2026-06-14"
+    assert payload["latest_expectancy"] == 42.5
+
+
+def test_mvp_strategy_lab_competition_route_returns_ranking_and_allocation(monkeypatch):
+    competition = strategy_competition_payload()
+    monkeypatch.setattr(mvp, "get_strategy_competition", lambda session, provider=None: competition, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/competition")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy_count"] == 2
+    assert payload["allocatable_strategy_count"] == 1
+    assert payload["selected_strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["entries"][0]["allocation_weight"] == 1.0
+    assert payload["entries"][1]["recommended_action"] == "keep_in_lab"
+
+
+def test_mvp_strategy_lab_competition_snapshot_route_persists_daily_snapshot(monkeypatch):
+    snapshot = StrategyCompetitionSnapshotPayload(
+        **strategy_competition_payload().model_dump(),
+        id=uuid4(),
+        team_id=uuid4(),
+        created_at="2026-06-14T00:00:00+00:00",
+        updated_at="2026-06-14T00:00:00+00:00",
+    )
+    monkeypatch.setattr(mvp, "record_strategy_competition_snapshot", lambda session, provider=None: snapshot, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/strategy-lab/competition/snapshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trading_day"] == "2026-06-14"
+    assert payload["selected_strategy_id"] == "deterministic_watchlist_v1"
+    assert payload["entries"][0]["eligible_for_allocation"] is True
+
+
+def test_mvp_strategy_lab_competition_snapshots_route_returns_history(monkeypatch):
+    snapshot = StrategyCompetitionSnapshotPayload(
+        **strategy_competition_payload().model_dump(),
+        id=uuid4(),
+        team_id=uuid4(),
+        created_at="2026-06-14T00:00:00+00:00",
+        updated_at="2026-06-14T00:00:00+00:00",
+    )
+    history = StrategyCompetitionSnapshotHistoryPayload(
+        snapshot_count=1,
+        latest=snapshot,
+        items=[snapshot],
+        summary="Strategy competition snapshots: 1 days recorded, latest selected strategy deterministic_watchlist_v1.",
+    )
+    monkeypatch.setattr(mvp, "get_strategy_competition_snapshots", lambda session: history, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/competition/snapshots")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot_count"] == 1
+    assert payload["latest"]["selected_strategy_id"] == "deterministic_watchlist_v1"
+
+
+def test_mvp_strategy_lab_alpha_forecast_route_returns_sessions_payload(monkeypatch):
+    forecast = AlphaValidationForecastPayload(
+        alpha_ready=False,
+        status="forecastable",
+        estimated_sessions_to_alpha_ready=5,
+        limiting_gate="filled_order_sample",
+        items=[
+            AlphaValidationForecastItem(
+                gate="filled_order_sample",
+                label="成交订单",
+                current=20,
+                required=30,
+                remaining=10,
+                unit="笔",
+                passed=False,
+                estimated_per_session=2,
+                estimated_sessions=5,
+                reason="按当前样本速度估算。",
+            )
+        ],
+        summary="Alpha validation needs about 5 more paper sessions.",
+    )
+    monkeypatch.setattr(mvp, "get_alpha_validation_forecast", lambda session: forecast, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/alpha-forecast")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["estimated_sessions_to_alpha_ready"] == 5
+    assert payload["limiting_gate"] == "filled_order_sample"
+
+
+def test_mvp_strategy_lab_shadow_review_route_returns_review_packet(monkeypatch):
+    packet = ShadowReviewPayload(
+        status="ready_for_manual_review",
+        strategy_id="deterministic_watchlist_v1",
+        can_request_shadow_review=True,
+        recommended_stage="shadow",
+        auto_promotion_enabled=False,
+        checklist=[
+            ShadowReviewChecklistItem(
+                code="alpha_gates_passed",
+                label="Alpha 门禁通过",
+                passed=True,
+                evidence=["8/8"],
+            )
+        ],
+        residual_risks=[
+            ShadowReviewResidualRisk(
+                code="paper_to_shadow_gap",
+                severity="info",
+                detail="模拟盘门禁通过只允许进入 Shadow 人工评审。",
+                evidence=["auto_promotion_enabled=false"],
+            )
+        ],
+        summary="Shadow review packet is ready for manual review; auto promotion is disabled.",
+    )
+    monkeypatch.setattr(mvp, "get_shadow_review_packet", lambda session: packet, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/shadow-review")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready_for_manual_review"
+    assert payload["auto_promotion_enabled"] is False
+    assert payload["checklist"][0]["code"] == "alpha_gates_passed"
+
+
+def test_mvp_strategy_lab_shadow_observations_route_returns_records(monkeypatch):
+    observation = ShadowObservationPayload(
+        id="00000000-0000-0000-0000-000000000201",
+        team_id="00000000-0000-0000-0000-000000000202",
+        strategy_id="deterministic_watchlist_v1",
+        trading_day="2026-06-30",
+        status="observing",
+        can_request_shadow_review=True,
+        observed_intent_count=6,
+        would_route_order_count=6,
+        event_chain_count=6,
+        residual_risk_count=2,
+        blocked_reason=None,
+        created_at="2026-06-13T00:00:00Z",
+    )
+    summary = ShadowObservationSummaryPayload(
+        can_record_shadow_observation=True,
+        latest=observation,
+        items=[observation],
+        summary="Shadow observation latest observing on 2026-06-30.",
+    )
+    monkeypatch.setattr(mvp, "get_shadow_observations", lambda session: summary, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/shadow-observations")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["latest"]["status"] == "observing"
+    assert payload["latest"]["would_route_order_count"] == 6
+
+
+def test_mvp_strategy_lab_record_shadow_observation_route_records_once(monkeypatch):
+    observation = ShadowObservationPayload(
+        id="00000000-0000-0000-0000-000000000201",
+        team_id="00000000-0000-0000-0000-000000000202",
+        strategy_id="deterministic_watchlist_v1",
+        trading_day="2026-06-30",
+        status="observing",
+        can_request_shadow_review=True,
+        observed_intent_count=6,
+        would_route_order_count=6,
+        event_chain_count=6,
+        residual_risk_count=2,
+        blocked_reason=None,
+        created_at="2026-06-13T00:00:00Z",
+    )
+    monkeypatch.setattr(mvp, "record_shadow_observation", lambda session: observation, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/strategy-lab/shadow-observations/record")
+
+    assert response.status_code == 200
+    assert response.json()["trading_day"] == "2026-06-30"
+
+
+def test_mvp_strategy_lab_record_shadow_observation_route_rejects_lifecycle_bypass(monkeypatch):
+    def blocked_record(session):
+        raise ValueError("Shadow observation requires current lifecycle stage shadow.")
+
+    monkeypatch.setattr(mvp, "record_shadow_observation", blocked_record, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/strategy-lab/shadow-observations/record")
+
+    assert response.status_code == 400
+    assert "requires current lifecycle stage shadow" in response.json()["detail"]
+
+
+def test_mvp_strategy_lab_approve_shadow_route_requires_manual_payload(monkeypatch):
+    approval = StrategyShadowApprovalPayload(
+        strategy_id="deterministic_watchlist_v1",
+        previous_stage="paper",
+        current_stage="shadow",
+        approved_by="operator",
+        reason="Reviewed.",
+        auto_promotion_enabled=False,
+        summary="Strategy manually approved for shadow.",
+    )
+
+    def fake_approval(session, request):
+        assert request.approved_by == "operator"
+        assert request.reason == "Reviewed."
+        return approval
+
+    monkeypatch.setattr(mvp, "approve_shadow_promotion", fake_approval, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/lifecycle/approve-shadow",
+        json={"approved_by": "operator", "reason": "Reviewed."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_stage"] == "shadow"
+    assert payload["auto_promotion_enabled"] is False
+
+
+def test_mvp_strategy_lab_approve_live_small_route_requires_manual_payload(monkeypatch):
+    approval = StrategyLiveSmallApprovalPayload(
+        strategy_id="deterministic_watchlist_v1",
+        previous_stage="shadow",
+        current_stage="live_small",
+        approved_by="operator",
+        reason="Shadow sample reviewed.",
+        auto_promotion_enabled=False,
+        live_or_broker_execution_enabled=False,
+        summary="Strategy manually approved for live-small review mode; broker execution remains disabled.",
+    )
+
+    def fake_approval(session, request):
+        assert request.approved_by == "operator"
+        assert request.reason == "Shadow sample reviewed."
+        return approval
+
+    monkeypatch.setattr(mvp, "approve_live_small_promotion", fake_approval, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/lifecycle/approve-live-small",
+        json={"approved_by": "operator", "reason": "Shadow sample reviewed."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_stage"] == "live_small"
+    assert payload["auto_promotion_enabled"] is False
+    assert payload["live_or_broker_execution_enabled"] is False
+
+
+def test_mvp_strategy_lab_approve_live_small_route_rejects_blocked_gate(monkeypatch):
+    def blocked_approval(session, request):
+        raise ValueError("Strategy deterministic_watchlist_v1 is not ready for live-small approval.")
+
+    monkeypatch.setattr(mvp, "approve_live_small_promotion", blocked_approval, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/lifecycle/approve-live-small",
+        json={"approved_by": "operator", "reason": "Too early."},
+    )
+
+    assert response.status_code == 400
+    assert "not ready for live-small approval" in response.json()["detail"]
+
+
+def test_mvp_strategy_lab_approve_kill_route_requires_manual_payload(monkeypatch):
+    approval = StrategyKillApprovalPayload(
+        strategy_id="deterministic_watchlist_v1",
+        previous_stage="shadow",
+        current_stage="killed",
+        approved_by="operator",
+        reason="Negative expectancy reviewed.",
+        auto_promotion_enabled=False,
+        execution_enabled=False,
+        summary="Strategy manually killed; all execution remains disabled.",
+    )
+
+    def fake_approval(session, request):
+        assert request.approved_by == "operator"
+        assert request.reason == "Negative expectancy reviewed."
+        return approval
+
+    monkeypatch.setattr(mvp, "approve_strategy_kill", fake_approval, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/lifecycle/approve-kill",
+        json={"approved_by": "operator", "reason": "Negative expectancy reviewed."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_stage"] == "killed"
+    assert payload["execution_enabled"] is False
+
+
+def test_mvp_strategy_lab_approve_kill_route_rejects_when_gate_is_not_ready(monkeypatch):
+    def blocked_approval(session, request):
+        raise ValueError("Strategy deterministic_watchlist_v1 is not ready for kill approval.")
+
+    monkeypatch.setattr(mvp, "approve_strategy_kill", blocked_approval, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/lifecycle/approve-kill",
+        json={"approved_by": "operator", "reason": "Too early."},
+    )
+
+    assert response.status_code == 400
+    assert "not ready for kill approval" in response.json()["detail"]
+
+
+def test_mvp_strategy_lab_lifecycle_reconcile_route_demotes_ahead_stage(monkeypatch):
+    reconcile = StrategyLifecycleReconcilePayload(
+        strategy_id="deterministic_watchlist_v1",
+        previous_stage="shadow",
+        current_stage="paper",
+        reconciled=True,
+        reconciled_by="system_reconcile",
+        reason="Alpha validation is not ready.",
+        alpha_ready=False,
+        auto_promotion_enabled=False,
+        execution_enabled=False,
+        summary="Strategy deterministic_watchlist_v1 reconciled from shadow to paper.",
+    )
+
+    monkeypatch.setattr(mvp, "reconcile_lifecycle_with_alpha_validation", lambda session: reconcile, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/strategy-lab/lifecycle/reconcile")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reconciled"] is True
+    assert payload["previous_stage"] == "shadow"
+    assert payload["current_stage"] == "paper"
+    assert payload["alpha_ready"] is False
+    assert payload["execution_enabled"] is False
+
+
+def test_mvp_strategy_lab_shadow_validation_route_returns_gate_state(monkeypatch):
+    validation = ShadowValidationPayload(
+        strategy_id="deterministic_watchlist_v1",
+        shadow_ready=False,
+        status="collecting",
+        observation_count=1,
+        observing_count=1,
+        blocked_count=0,
+        latest_trading_day="2026-06-30",
+        min_observations_required=5,
+        remaining_observations=4,
+        residual_risk_count=2,
+        blockers=["shadow_observation_sample"],
+        summary="Shadow validation is collecting observations; 4 more observing samples required.",
+    )
+    monkeypatch.setattr(mvp, "get_shadow_validation", lambda session: validation, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/shadow-validation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "collecting"
+    assert payload["remaining_observations"] == 4
+
+
+def test_mvp_strategy_lab_shadow_observation_health_route_returns_quality_state(monkeypatch):
+    health = ShadowObservationHealthPayload(
+        strategy_id="deterministic_watchlist_v1",
+        status="collecting",
+        sample_ready=False,
+        observation_count=1,
+        observing_count=1,
+        blocked_count=0,
+        consecutive_observing_count=1,
+        latest_trading_day="2026-06-30",
+        average_would_route_order_count=2,
+        average_event_chain_count=6,
+        average_residual_risk_count=2,
+        warnings=["sample_not_ready"],
+        summary="Shadow observation health is collecting samples; 1/5 observations recorded.",
+    )
+    monkeypatch.setattr(mvp, "get_shadow_observation_health", lambda session: health, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/shadow-observation-health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "collecting"
+    assert payload["warnings"] == ["sample_not_ready"]
+
+
+def test_mvp_strategy_lab_shadow_daily_report_route_returns_next_action(monkeypatch):
+    report = ShadowDailyReportPayload(
+        strategy_id="deterministic_watchlist_v1",
+        trading_day="2026-06-30",
+        status="collecting",
+        observation_status="observing",
+        health_status="collecting",
+        validation_status="collecting",
+        live_small_status="blocked",
+        observed_intent_count=6,
+        would_route_order_count=2,
+        event_chain_count=6,
+        residual_risk_count=2,
+        remaining_observations=4,
+        warnings=["sample_not_ready"],
+        blockers=["shadow_observation_sample"],
+        next_actions=[
+            ShadowDailyReportAction(
+                priority=1,
+                action_code="continue_shadow_observation",
+                title="继续记录 Shadow 观察",
+                detail="还需要 4 条 observing 样本，保持 broker 执行关闭。",
+                evidence=["Shadow validation is collecting observations."],
+            )
+        ],
+        live_or_broker_execution_enabled=False,
+        summary="Shadow daily report is collecting observations; 4 more samples required.",
+    )
+    monkeypatch.setattr(mvp, "get_shadow_daily_report", lambda session: report, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/shadow-daily-report")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "collecting"
+    assert payload["next_actions"][0]["action_code"] == "continue_shadow_observation"
+    assert payload["live_or_broker_execution_enabled"] is False
+
+
+def test_mvp_strategy_lab_live_small_review_route_returns_manual_gate(monkeypatch):
+    review = LiveSmallReviewPayload(
+        status="blocked",
+        strategy_id="deterministic_watchlist_v1",
+        can_request_live_small_review=False,
+        recommended_stage="shadow",
+        auto_promotion_enabled=False,
+        checklist=[],
+        residual_risks=[],
+        summary="Live-small review packet is blocked; remain in Shadow or paper workflow until all gates pass.",
+    )
+    monkeypatch.setattr(mvp, "get_live_small_review_packet", lambda session: review, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/live-small-review")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "blocked"
+    assert payload["auto_promotion_enabled"] is False
+
+
+def test_mvp_strategy_lab_lifecycle_audit_route_returns_entries(monkeypatch):
+    audit = StrategyLifecycleAuditPayload(
+        strategy_id="deterministic_watchlist_v1",
+        items=[
+            StrategyLifecycleAuditItem(
+                id="00000000-0000-0000-0000-000000000301",
+                action="strategy_shadow_approved",
+                entity_type="strategy",
+                entity_id="deterministic_watchlist_v1",
+                approved_by="operator",
+                reason="Paper gates reviewed.",
+                previous_stage="paper",
+                current_stage="shadow",
+                auto_promotion_enabled=False,
+                created_at="2026-06-13T00:00:00Z",
+            )
+        ],
+        summary="1 lifecycle audit entries recorded for this strategy.",
+    )
+    monkeypatch.setattr(mvp, "get_strategy_lifecycle_audit", lambda session: audit, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/lifecycle/audit")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["action"] == "strategy_shadow_approved"
+    assert payload["items"][0]["current_stage"] == "shadow"
+
+
+def test_mvp_strategy_lab_system_readiness_route_returns_operational_state(monkeypatch):
+    readiness = TradingSystemReadinessPayload(
+        status="operational",
+        scheduler_running=True,
+        scheduler_next_run_at="2026-06-14T06:30:00+08:00",
+        lifecycle_stage="shadow",
+        alpha_ready=True,
+        event_bus_mode="redis",
+        event_bus_ready=True,
+        event_bus_stream_length=42,
+        event_ledger_replay_ready=True,
+        event_ledger_traceable_chain_count=8,
+        event_ledger_complete_order_chain_count=8,
+        event_ledger_broken_chain_count=0,
+        event_ledger_traceability_ratio=1.0,
+        shadow_can_record=True,
+        shadow_remaining_observations=4,
+        live_small_review_ready=False,
+        live_or_broker_execution_enabled=False,
+        manual_override_isolated=True,
+        manual_override_order_count=2,
+        manual_override_event_chain_count=2,
+        alpha_filtered_event_chain_count=80,
+        blockers=[],
+        pending_gates=["shadow_validation_sample"],
+        summary="Trading system is operational for controlled daily runs; pending gates: shadow_validation_sample.",
+    )
+    monkeypatch.setattr(mvp, "get_trading_system_readiness", lambda session: readiness, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/system-readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "operational"
+    assert payload["live_or_broker_execution_enabled"] is False
+
+
+def test_mvp_strategy_lab_version_control_route_returns_active_binding(monkeypatch):
+    version_payload = StrategyVersionControlPayload(
+        active_strategy_id="deterministic_watchlist_v1",
+        active_version="v2",
+        previous_version="v1",
+        versions=[
+            StrategyVersionPayload(
+                strategy_id="deterministic_watchlist_v1",
+                version="v2",
+                parameters_json='{"notional": 750}',
+                status="registered",
+                is_active=True,
+            )
+        ],
+    )
+
+    monkeypatch.setattr(mvp, "get_strategy_version_control", lambda session: version_payload, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/version-control")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_version"] == "v2"
+    assert payload["versions"][0]["is_active"] is True
+
+
+def test_mvp_strategy_lab_version_control_routes_mutate_binding(monkeypatch):
+    calls = []
+    payload = StrategyVersionControlPayload(
+        active_strategy_id="deterministic_watchlist_v1",
+        active_version="v2",
+        previous_version="v1",
+        versions=[],
+    )
+
+    def fake_register(session, *, strategy_id, version, parameters_json):
+        calls.append(("register", strategy_id, version, parameters_json))
+        return StrategyVersionPayload(
+            strategy_id=strategy_id,
+            version=version,
+            parameters_json=parameters_json,
+            status="registered",
+            is_active=False,
+        )
+
+    def fake_activate(session, *, strategy_id, version, reason):
+        calls.append(("activate", strategy_id, version, reason))
+        return payload
+
+    def fake_rollback(session, *, strategy_id):
+        calls.append(("rollback", strategy_id))
+        return payload
+
+    monkeypatch.setattr(mvp, "register_strategy_version", fake_register, raising=False)
+    monkeypatch.setattr(mvp, "activate_strategy_version", fake_activate, raising=False)
+    monkeypatch.setattr(mvp, "rollback_strategy_version", fake_rollback, raising=False)
+    client = TestClient(create_app())
+
+    register_response = client.post(
+        "/api/mvp/strategy-lab/version-control/versions",
+        json={
+            "strategy_id": "deterministic_watchlist_v1",
+            "version": "v2",
+            "parameters_json": '{"notional": 750}',
+        },
+    )
+    activate_response = client.post(
+        "/api/mvp/strategy-lab/version-control/activate",
+        json={"strategy_id": "deterministic_watchlist_v1", "version": "v2", "reason": "test"},
+    )
+    rollback_response = client.post(
+        "/api/mvp/strategy-lab/version-control/rollback",
+        json={"strategy_id": "deterministic_watchlist_v1"},
+    )
+
+    assert register_response.status_code == 200
+    assert activate_response.status_code == 200
+    assert rollback_response.status_code == 200
+    assert calls == [
+        ("register", "deterministic_watchlist_v1", "v2", '{"notional": 750}'),
+        ("activate", "deterministic_watchlist_v1", "v2", "test"),
+        ("rollback", "deterministic_watchlist_v1"),
+    ]
+
+
+def test_mvp_strategy_lab_runtime_route_returns_competition(monkeypatch):
+    runtime_payload = StrategyCompetitionResult(
+        winner=StrategyRuntimeEntry(
+            strategy_id="deterministic_watchlist_v1",
+            version="v2",
+            ranking_score=72,
+            eligible=True,
+            rank=1,
+        ),
+        entries=[
+            StrategyRuntimeEntry(
+                strategy_id="deterministic_watchlist_v1",
+                version="v2",
+                ranking_score=72,
+                eligible=True,
+                rank=1,
+            )
+        ],
+        summary="fixture",
+    )
+
+    monkeypatch.setattr(mvp, "get_strategy_runtime_status", lambda session: runtime_payload, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/runtime")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["winner"]["version"] == "v2"
+    assert payload["entries"][0]["rank"] == 1
+
+
+def test_mvp_strategy_lab_execution_accounts_route_returns_modes(monkeypatch):
+    account_payload = [
+        StrategyExecutionAccountPayload(
+            id="00000000-0000-0000-0000-000000000001",
+            team_id="00000000-0000-0000-0000-000000000002",
+            strategy_id="deterministic_watchlist_v1",
+            name="paper",
+            mode="paper",
+            starting_cash=100000,
+            cash=100000,
+            realized_pnl=0,
+        ),
+        StrategyExecutionAccountPayload(
+            id="00000000-0000-0000-0000-000000000003",
+            team_id="00000000-0000-0000-0000-000000000002",
+            strategy_id="deterministic_watchlist_v1",
+            name="live-small",
+            mode="live_small",
+            starting_cash=5000,
+            cash=5000,
+            realized_pnl=0,
+        ),
+    ]
+
+    monkeypatch.setattr(
+        mvp,
+        "get_workspace_summary",
+        lambda session: WorkspaceSummary(
+            team_id="00000000-0000-0000-0000-000000000002",
+            team_name="fixture",
+            portfolio_id="00000000-0000-0000-0000-000000000004",
+            portfolio_name="fixture",
+            position_count=0,
+            watchlist_count=0,
+            note_count=0,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(mvp, "get_or_create_strategy_execution_accounts", lambda session, *, team_id, strategy_id: account_payload, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/strategy-lab/execution-accounts")
+
+    assert response.status_code == 200
+    assert [item["mode"] for item in response.json()["accounts"]] == ["paper", "live_small"]
 
 
 def test_mvp_dashboard_route_closes_market_data_provider(monkeypatch):
@@ -568,9 +1446,81 @@ def test_trading_core_dry_run_returns_state_machine():
         "market_event",
         "strategy_input",
         "trade_intent",
+        "risk_decision",
         "order_state",
     ]
     assert payload["events"][-1]["payload"]["current_state"] == "filled"
+
+
+def test_trading_core_dry_run_uses_active_version_notional_when_request_omits_override(monkeypatch):
+    captured = {}
+
+    def fake_binding(session, team_id, strategy_id, *, notional=None):
+        captured["notional"] = notional
+        strategy = DeterministicWatchlistStrategy(watchlist=["NVDA"], notional=750)
+        return StrategyExecutionBinding(
+            strategy_id="deterministic_watchlist_v1",
+            name="Deterministic Watchlist Strategy",
+            version="v2",
+            execution_mode=StrategyExecutionMode.paper,
+            strategy_engine=StrategyEngine(strategy_id="deterministic_watchlist_v1", strategy=strategy),
+            supports_live=False,
+            supports_hot_swap=True,
+        )
+
+    monkeypatch.setattr(mvp, "get_strategy_execution_binding", fake_binding, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/trading-core/dry-run",
+        json={
+            "event": {
+                "source": "ai_structured",
+                "event_type": "earnings",
+                "ticker": "NVDA",
+                "occurred_at": "2026-06-13T00:00:00Z",
+                "summary": "NVDA reported stronger than expected data center revenue.",
+                "sentiment": "positive",
+                "confidence": 0.86,
+                "impact_score": 0.74,
+            },
+            "portfolio": {"cash": 100000, "equity": 100000, "positions": []},
+            "risk_limits": {"max_order_notional": 5000},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["notional"] is None
+    assert response.json()["intents"][0]["notional"] == 750
+
+
+def test_trading_core_dry_run_returns_400_when_strategy_control_blocks(monkeypatch):
+    def blocked_execution(session, strategy_id, *, requested_mode):
+        raise ValueError("Lifecycle marks strategy deterministic_watchlist_v1 for kill review; execution is blocked.")
+
+    monkeypatch.setattr(mvp, "assert_strategy_execution_allowed", blocked_execution, raising=False)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/trading-core/dry-run",
+        json={
+            "event": {
+                "source": "ai_structured",
+                "event_type": "earnings",
+                "ticker": "NVDA",
+                "occurred_at": "2026-06-13T00:00:00Z",
+                "summary": "NVDA reported stronger than expected data center revenue.",
+                "sentiment": "positive",
+                "confidence": 0.86,
+                "impact_score": 0.74,
+            },
+            "portfolio": {"cash": 100000, "equity": 100000, "positions": []},
+            "risk_limits": {"max_order_notional": 5000},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "kill review" in response.json()["detail"]
 
 
 def test_mvp_market_snapshot_route_returns_quote_fundamentals_and_sources():
@@ -689,6 +1639,57 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
     assert payload["status"] == "success"
     assert payload["parameters"]["symbol"] == "MSFT"
     assert payload["statistics"]["total_net_profit"] == "12.34%"
+
+
+def test_mvp_strategy_lab_candidate_backtest_route_returns_ranked_candidates(monkeypatch):
+    class CandidateBacktestPayload:
+        def model_dump(self):
+            return {
+                "strategy_id": "deterministic_watchlist_v1",
+                "candidate_count": 2,
+                "real_market_candidate_count": 2,
+                "best_ticker": "NVDA",
+                "items": [
+                    {
+                        "rank": 1,
+                        "ticker": "NVDA",
+                        "recommendation": "candidate",
+                        "score": 1.42,
+                        "reason": "真实历史数据；收益为正。",
+                    }
+                ],
+                "summary": "Ranked 2 candidates.",
+            }
+
+    def fake_candidate_run(
+        *,
+        strategy_id: str,
+        tickers: list[str],
+        parameter_overrides: dict[str, str] | None = None,
+        market_data_provider=None,
+    ) -> CandidateBacktestPayload:
+        assert strategy_id == "deterministic_watchlist_v1"
+        assert tickers == ["aapl", "nvda"]
+        assert parameter_overrides == {"start_date": "2020-01-01", "end_date": "2021-01-01"}
+        assert market_data_provider is not None
+        return CandidateBacktestPayload()
+
+    monkeypatch.setattr(mvp, "run_strategy_candidate_backtests", fake_candidate_run, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/strategy-lab/candidate-backtests",
+        json={
+            "strategy_id": "deterministic_watchlist_v1",
+            "tickers": ["aapl", "nvda"],
+            "parameters": {"start_date": "2020-01-01", "end_date": "2021-01-01"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["best_ticker"] == "NVDA"
+    assert payload["items"][0]["recommendation"] == "candidate"
 
 
 def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
@@ -1078,6 +2079,19 @@ def test_mvp_paper_trading_daily_run_route_generates_candidates(monkeypatch):
     assert "证据" in payload["candidates"][0]["thesis"]
 
 
+def test_mvp_paper_trading_daily_run_route_returns_400_when_run_lock_is_active(monkeypatch):
+    def locked_daily_run(session, provider):
+        raise ValueError("Paper trading run is already running for 2026-06-13.")
+
+    monkeypatch.setattr(mvp, "run_daily_paper_trading_loop", locked_daily_run, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/daily-run")
+
+    assert response.status_code == 400
+    assert "already running for 2026-06-13" in response.json()["detail"]
+
+
 def test_mvp_paper_trading_order_route_fills_or_rejects(monkeypatch):
     order = PaperOrderPayload(
         id="00000000-0000-0000-0000-000000000013",
@@ -1118,6 +2132,28 @@ def test_mvp_paper_trading_order_route_fills_or_rejects(monkeypatch):
     assert "Insufficient paper cash" in reject_response.json()["detail"]
 
 
+def test_mvp_paper_trading_order_route_rejects_unknown_strategy(monkeypatch):
+    def fake_submit(session, provider, data: PaperOrderCreate) -> PaperOrderPayload:
+        raise AssertionError("route should reject the strategy before submitting the paper order")
+
+    monkeypatch.setattr(mvp, "submit_paper_order", fake_submit, raising=False)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/mvp/paper-trading/orders",
+        json={
+            "ticker": "nvda",
+            "side": "buy",
+            "quantity": 10,
+            "order_type": "market",
+            "strategy_id": "missing_strategy",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Strategy is not registered for execution" in response.json()["detail"]
+
+
 def test_mvp_paper_trading_scheduler_status_route_returns_configuration():
     client = TestClient(create_app())
 
@@ -1129,6 +2165,434 @@ def test_mvp_paper_trading_scheduler_status_route_returns_configuration():
     assert payload["running"] is False
     assert payload["cron"] == "30 6 * * *"
     assert payload["timezone"] == "Asia/Shanghai"
+    assert payload["job_id"] == "paper_trading_daily_run"
+    assert payload["next_run_at"] is None
+    assert payload["last_checked_at"] is not None
+
+
+def test_mvp_paper_trading_operations_route_returns_health(monkeypatch):
+    status = PaperOperationsStatusPayload(
+        trading_day="2026-06-13",
+        run_state="completed",
+        health_status="ready",
+        latest_run_id="00000000-0000-0000-0000-000000000014",
+        latest_run_trading_day="2026-06-13",
+        latest_run_status="completed",
+        today_run_id="00000000-0000-0000-0000-000000000014",
+        review_id="00000000-0000-0000-0000-000000000012",
+        latest_error=None,
+        can_retry_today=False,
+        event_ledger_ready=True,
+        latest_run_event_count=8,
+        legacy_manual_future_run_count=0,
+        latest_legacy_manual_future_trading_day=None,
+        data_quality_warnings=[],
+        blockers=[],
+        recommended_action="hold_until_next_session",
+        summary="Daily paper pipeline is complete.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_operations_status", lambda session: status, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/operations")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_state"] == "completed"
+    assert payload["health_status"] == "ready"
+    assert payload["event_ledger_ready"] is True
+    assert payload["recommended_action"] == "hold_until_next_session"
+
+
+def test_mvp_paper_trading_operations_history_route_returns_trend(monkeypatch):
+    history = PaperOperationsHistoryPayload(
+        window_size=2,
+        completed_days=1,
+        failed_days=1,
+        blocked_days=1,
+        replayable_days=1,
+        review_days=1,
+        completion_rate=0.5,
+        replay_rate=0.5,
+        latest_health_status="blocked",
+        items=[
+            PaperOperationsHistoryItem(
+                trading_day="2026-06-13",
+                run_id="00000000-0000-0000-0000-000000000014",
+                status="failed",
+                health_status="blocked",
+                event_count=0,
+                has_review=False,
+                candidates_count=0,
+                orders_count=0,
+                positions_count=0,
+                blockers=["latest_run_failed"],
+                error_message="provider timeout",
+                started_at="2026-06-13T00:00:00Z",
+                finished_at="2026-06-13T00:01:00Z",
+            ),
+            PaperOperationsHistoryItem(
+                trading_day="2026-06-12",
+                run_id="00000000-0000-0000-0000-000000000015",
+                status="completed",
+                health_status="ready",
+                event_count=8,
+                has_review=True,
+                candidates_count=3,
+                orders_count=1,
+                positions_count=1,
+                blockers=[],
+                error_message=None,
+                started_at="2026-06-12T00:00:00Z",
+                finished_at="2026-06-12T00:01:00Z",
+            ),
+        ],
+        summary="Last 2 paper runs include 1 blocked and 1 failed runs.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_operations_history", lambda session: history, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/operations/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window_size"] == 2
+    assert payload["completion_rate"] == 0.5
+    assert payload["replay_rate"] == 0.5
+    assert payload["latest_health_status"] == "blocked"
+    assert payload["items"][0]["blockers"] == ["latest_run_failed"]
+
+
+def test_mvp_paper_trading_repair_event_ledger_route_returns_repair_summary(monkeypatch):
+    repair = PaperOperationsRepairPayload(
+        scanned_runs=2,
+        repaired_runs=1,
+        skipped_runs=1,
+        items=[
+            PaperOperationsRepairItem(
+                run_id="00000000-0000-0000-0000-000000000014",
+                trading_day="2026-06-13",
+                status="skipped",
+                event_created=True,
+                topic="run_audit",
+                reason="audit_event_created",
+            ),
+            PaperOperationsRepairItem(
+                run_id="00000000-0000-0000-0000-000000000015",
+                trading_day="2026-06-12",
+                status="failed",
+                event_created=False,
+                topic=None,
+                reason="status_not_repairable",
+            ),
+        ],
+        summary="Scanned 2 paper runs; repaired 1 missing event ledgers and skipped 1.",
+    )
+    monkeypatch.setattr(mvp, "repair_paper_operations_event_ledger", lambda session: repair, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/operations/repair-ledger")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scanned_runs"] == 2
+    assert payload["repaired_runs"] == 1
+    assert payload["items"][0]["topic"] == "run_audit"
+
+
+def test_mvp_paper_trading_quarantine_legacy_runs_route_returns_summary(monkeypatch):
+    quarantine = PaperOperationsQuarantinePayload(
+        scanned_runs=1,
+        quarantined_runs=1,
+        skipped_runs=0,
+        items=[
+            PaperOperationsQuarantineItem(
+                run_id="00000000-0000-0000-0000-000000000015",
+                trading_day="2026-06-30",
+                status="completed",
+                previous_trigger="manual",
+                new_trigger="simulation",
+                audit_event_created=True,
+                reason="manual_future_dated_run_reclassified_as_simulation",
+            )
+        ],
+        summary="Scanned 1 legacy manual future-dated runs; quarantined 1 as simulation and skipped 0.",
+    )
+    monkeypatch.setattr(mvp, "quarantine_legacy_manual_future_runs", lambda session: quarantine, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/operations/quarantine-legacy-runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scanned_runs"] == 1
+    assert payload["quarantined_runs"] == 1
+    assert payload["items"][0]["new_trigger"] == "simulation"
+
+
+def test_mvp_paper_trading_review_trend_route_returns_expectancy_window(monkeypatch):
+    trend = PaperReviewTrendPayload(
+        sample_size=2,
+        positive_expectancy_days=2,
+        consecutive_positive_expectancy_days=2,
+        average_expectancy=1.1,
+        latest_expectancy=1.2,
+        total_realized_pnl=20,
+        total_unrealized_pnl=40,
+        latest_readiness="watch",
+        items=[
+            PaperReviewTrendItem(
+                trading_day="2026-06-13",
+                equity=100300,
+                cash=95000,
+                realized_pnl=10,
+                unrealized_pnl=20,
+                trade_count=1,
+                win_rate=0.5,
+                expectancy=1.2,
+                readiness="watch",
+            )
+        ],
+        summary="Paper review trend is positive.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_review_trend", lambda session: trend, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/review-trend")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample_size"] == 2
+    assert payload["latest_expectancy"] == 1.2
+    assert payload["items"][0]["trading_day"] == "2026-06-13"
+
+
+def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkeypatch):
+    report = PaperDailyReportPayload(
+        trading_day="2026-06-13",
+        run_state="completed",
+        health_status="ready",
+        recommended_action="hold_until_next_session",
+        scheduler_running=True,
+        scheduler_next_run_at="2026-06-14T06:30:00+08:00",
+        account_equity=100000,
+        cash=98000,
+        realized_pnl=0,
+        unrealized_pnl=0,
+        candidate_count=3,
+        order_count=1,
+        open_position_count=1,
+        latest_expectancy=0,
+        average_expectancy=0,
+        consecutive_positive_expectancy_days=0,
+        event_ledger_ready=True,
+        alpha_ready=False,
+        alpha_blockers=["review_day_sample"],
+        data_quality_warnings=[],
+        summary="Daily paper report.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_daily_report", lambda session, provider: report, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/daily-report")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["health_status"] == "ready"
+    assert payload["candidate_count"] == 3
+    assert payload["event_ledger_ready"] is True
+    assert payload["alpha_blockers"] == ["review_day_sample"]
+
+
+def test_mvp_paper_simulation_route_runs_lab_window(monkeypatch):
+    simulation = PaperSimulationPayload(
+        scenario="bullish",
+        start_date="2026-06-14",
+        days_requested=2,
+        days_completed=2,
+        days_skipped=0,
+        review_day_count=2,
+        consecutive_positive_expectancy_days=0,
+        latest_expectancy=0,
+        average_expectancy=0,
+        event_chain_count=2,
+        alpha_ready=False,
+        blockers=["closed_trade_sample"],
+        items=[],
+        summary="Paper simulation fixture.",
+    )
+    monkeypatch.setattr(mvp, "run_paper_simulation_lab", lambda session, provider, request: simulation, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/simulation/run", json={"days": 2, "scenario": "bullish"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["days_completed"] == 2
+    assert payload["blockers"] == ["closed_trade_sample"]
+
+
+def test_mvp_paper_execution_diagnostics_route_returns_order_quality(monkeypatch):
+    diagnostics = PaperExecutionDiagnosticsPayload(
+        order_count=4,
+        filled_order_count=2,
+        rejected_order_count=2,
+        buy_order_count=2,
+        sell_order_count=2,
+        closed_trade_count=1,
+        fill_rate=0.5,
+        rejection_rate=0.5,
+        realized_pnl=120,
+        average_realized_pnl=120,
+        latest_rejection_code="max_daily_orders",
+        max_daily_order_rejections=1,
+        max_daily_order_buy_rejections=1,
+        max_daily_order_sell_rejections=0,
+        rejection_reasons=[
+            PaperExecutionRejectionReason(
+                risk_code="max_daily_orders",
+                count=1,
+                latest_reason="Orders today 5 reached limit 5.",
+            )
+        ],
+        summary="Paper execution diagnostics.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_execution_diagnostics", lambda session: diagnostics, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/execution-diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filled_order_count"] == 2
+    assert payload["max_daily_order_buy_rejections"] == 1
+    assert payload["max_daily_order_sell_rejections"] == 0
+    assert payload["rejection_reasons"][0]["risk_code"] == "max_daily_orders"
+
+
+def test_mvp_paper_risk_profile_route_returns_limits(monkeypatch):
+    profile = PaperRiskProfilePayload(
+        risk_engine="Trading Core RiskEngine",
+        max_order_notional=2000,
+        max_position_weight=0.1,
+        max_daily_orders=5,
+        exit_take_profit_pct=0.1,
+        exit_stop_loss_pct=-0.05,
+        summary="Paper risk profile.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_risk_profile", lambda session: profile, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/risk-profile")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["max_daily_orders"] == 5
+    assert payload["exit_take_profit_pct"] == 0.1
+
+
+def test_mvp_paper_risk_limit_review_route_returns_paper_only_recommendation(monkeypatch):
+    review = PaperRiskLimitReviewPayload(
+        status="review_required",
+        current_max_daily_orders=5,
+        recommended_paper_max_daily_orders=6,
+        live_change_allowed=False,
+        max_daily_order_rejections=26,
+        max_daily_order_buy_rejections=6,
+        max_daily_order_sell_rejections=20,
+        filled_order_count=42,
+        closed_trade_count=20,
+        sample_collection_blocked=True,
+        blockers=["filled_order_sample", "closed_trade_sample", "max_daily_orders"],
+        summary="Paper risk limit review: paper-only review required.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_risk_limit_review", lambda session: review, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/risk-limit-review")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "review_required"
+    assert payload["recommended_paper_max_daily_orders"] == 6
+    assert payload["max_daily_order_buy_rejections"] == 6
+    assert payload["max_daily_order_sell_rejections"] == 20
+    assert payload["live_change_allowed"] is False
+
+
+def test_mvp_apply_paper_risk_limit_recommendation_route_returns_paper_only_result(monkeypatch):
+    result = PaperRiskLimitApplyPayload(
+        applied=True,
+        previous_max_daily_orders=5,
+        applied_max_daily_orders=6,
+        live_change_allowed=False,
+        audit_event_created=True,
+        summary="Paper risk limit recommendation applied: max_daily_orders 5 -> 6; live limits unchanged.",
+    )
+    monkeypatch.setattr(mvp, "apply_paper_risk_limit_recommendation", lambda session: result, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/risk-limit-review/apply-paper-recommendation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["applied"] is True
+    assert payload["previous_max_daily_orders"] == 5
+    assert payload["applied_max_daily_orders"] == 6
+    assert payload["live_change_allowed"] is False
+    assert payload["audit_event_created"] is True
+
+
+def test_mvp_paper_action_plan_route_returns_prioritized_actions(monkeypatch):
+    plan = PaperActionPlanPayload(
+        readiness="ready",
+        primary_action="review_daily_order_limit",
+        items=[
+            PaperActionPlanItem(
+                priority=2,
+                action_code="review_daily_order_limit",
+                title="复核日订单上限",
+                detail="max_daily_orders=5",
+                evidence=["rejected=26"],
+            )
+        ],
+        summary="Paper action plan primary action: review_daily_order_limit.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_action_plan", lambda session: plan, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/action-plan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["primary_action"] == "review_daily_order_limit"
+    assert payload["items"][0]["action_code"] == "review_daily_order_limit"
+
+
+def test_mvp_paper_market_session_route_explains_effective_trading_day(monkeypatch):
+    status = MarketSessionStatus(
+        market_date="2026-06-13",
+        trading_day="2026-06-12",
+        is_market_session=False,
+        session_closed=False,
+        calendar_provider="pandas_market_calendars",
+        reason="market_closed",
+    )
+    monkeypatch.setattr(mvp, "get_market_session_status", lambda: status, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/market-session")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "market_date": "2026-06-13",
+        "trading_day": "2026-06-12",
+        "is_market_session": False,
+        "session_closed": False,
+        "calendar_provider": "pandas_market_calendars",
+        "reason": "market_closed",
+    }
 
 
 def test_mvp_paper_trading_runs_route_returns_recent_runs(monkeypatch):
@@ -1223,3 +2687,86 @@ def test_mvp_paper_trading_event_ledger_route_returns_replay_status(monkeypatch)
     assert payload["total_event_count"] == 8
     assert payload["latest_run_status"] == "completed"
     assert payload["latest_replay"]["chains"][0]["terminal_state"] == "filled"
+
+
+def alpha_snapshot_payload(*, trading_day: str) -> AlphaValidationSnapshotPayload:
+    return AlphaValidationSnapshotPayload(
+        id="00000000-0000-0000-0000-000000000061",
+        team_id="00000000-0000-0000-0000-000000000062",
+        strategy_id="deterministic_watchlist_v1",
+        trading_day=trading_day,
+        alpha_ready=False,
+        validation_level="collecting",
+        blockers=["closed_trade_sample"],
+        review_day_count=5,
+        consecutive_positive_expectancy_days=4,
+        filled_order_count=20,
+        closed_trade_count=6,
+        event_chain_count=3,
+        latest_expectancy=42.5,
+        average_expectancy=25.0,
+        max_drawdown=0.03,
+        created_at="2026-06-14T00:00:00+00:00",
+        updated_at="2026-06-14T00:00:00+00:00",
+    )
+
+
+def strategy_competition_payload() -> StrategyCompetitionPayload:
+    return StrategyCompetitionPayload(
+        trading_day="2026-06-14",
+        status="allocation_ready",
+        active_strategy_id="deterministic_watchlist_v1",
+        selected_strategy_id="deterministic_watchlist_v1",
+        strategy_count=2,
+        allocatable_strategy_count=1,
+        competition_ready=False,
+        entries=[
+            StrategyCompetitionEntryPayload(
+                strategy_id="deterministic_watchlist_v1",
+                name="Deterministic Watchlist Strategy",
+                version="v1",
+                source="paper_core",
+                execution_mode="paper",
+                status="active",
+                rank=1,
+                ranking_score=80.0,
+                allocation_weight=1.0,
+                eligible_for_allocation=True,
+                recommended_action="allocate_paper_capital",
+                blockers=[],
+                readiness="paper_ready",
+                promotion_gate="eligible_for_shadow",
+                sample_size=42,
+                filled_order_count=40,
+                observed_pnl=125.0,
+                primary_regime="range_market",
+                signal_quality_score=0.7,
+                supports_live=False,
+                supports_hot_swap=True,
+            ),
+            StrategyCompetitionEntryPayload(
+                strategy_id="moving_average_cross",
+                name="MovingAverageCross",
+                version="catalog",
+                source="lean_catalog",
+                execution_mode="backtest",
+                status="available",
+                rank=2,
+                ranking_score=0.0,
+                allocation_weight=0.0,
+                eligible_for_allocation=False,
+                recommended_action="keep_in_lab",
+                blockers=["not_connected_to_paper_runtime"],
+                readiness="backtest_only",
+                promotion_gate="not_connected_to_paper_runtime",
+                sample_size=0,
+                filled_order_count=0,
+                observed_pnl=0.0,
+                primary_regime="backtest_only",
+                signal_quality_score=0.0,
+                supports_live=False,
+                supports_hot_swap=False,
+            ),
+        ],
+        summary="Strategy competition fixture.",
+    )

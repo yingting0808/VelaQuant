@@ -1,0 +1,12 @@
+{
+  "algorithm-language": "Python",
+  "parameters": {
+    "symbol": "AAPL",
+    "start_date": "2020-01-01",
+    "end_date": "2021-01-01",
+    "cash": "100000",
+    "momentum_window": "20",
+    "min_return": "0.03",
+    "exit_window": "10"
+  }
+}

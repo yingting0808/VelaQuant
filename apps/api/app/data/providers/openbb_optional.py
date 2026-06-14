@@ -29,6 +29,15 @@ def _integer(value: Any) -> int | None:
     return int(number) if number is not None else None
 
 
+def _date_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "date"):
+        return value.date().isoformat()
+    text = str(value)
+    return text.split(" ")[0] if " " in text else text
+
+
 def _records_from_result(result: Any) -> list[dict[str, Any]]:
     data = result
     if hasattr(data, "to_df"):
@@ -37,6 +46,8 @@ def _records_from_result(result: Any) -> list[dict[str, Any]]:
         data = data.to_dataframe()
 
     if hasattr(data, "to_dict"):
+        if hasattr(data, "reset_index"):
+            data = data.reset_index()
         try:
             records = data.to_dict("records")
         except TypeError:
@@ -123,7 +134,7 @@ class OpenBBOptionalProvider:
             bars.append(
                 PriceHistoryBar(
                     ticker=normalized,
-                    date=str(record.get("date") or record.get("datetime") or ""),
+                    date=_date_text(record.get("date") or record.get("datetime")),
                     open=_number(record.get("open")),
                     high=_number(record.get("high")),
                     low=_number(record.get("low")),

@@ -1,7 +1,9 @@
 import json
+from datetime import date, timedelta
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 
+from app.data.providers.base import PriceHistoryBar
 from app.services.lean_backtest import (
     BacktestResult,
     read_backtest_history,
@@ -17,6 +19,8 @@ def ready_status() -> StrategyLabStatus:
         summary="ready",
         tools=[
             StrategyToolStatus(name="Docker CLI", available=True, version="Docker version test", message="ready"),
+            StrategyToolStatus(name="Docker Compose", available=True, version="Docker Compose test", message="ready"),
+            StrategyToolStatus(name="Docker engine", available=True, version="Docker engine test", message="ready"),
             StrategyToolStatus(name="LEAN CLI", available=True, version="lean test", message="ready"),
         ],
     )
@@ -33,9 +37,58 @@ def unready_status() -> StrategyLabStatus:
     )
 
 
+def vectorbt_only_status() -> StrategyLabStatus:
+    return StrategyLabStatus(
+        can_run_backtests=True,
+        summary="vectorbt ready",
+        tools=[
+            StrategyToolStatus(name="Docker CLI", available=False, version=None, message="Docker missing"),
+            StrategyToolStatus(name="LEAN CLI", available=False, version=None, message="LEAN missing"),
+            StrategyToolStatus(name="vectorbt", available=True, version="0.28.1", message="vectorbt is available."),
+        ],
+    )
+
+
+class RealHistoryProvider:
+    def get_price_history(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        interval: str = "1d",
+    ) -> list[PriceHistoryBar]:
+        first_day = date(2020, 1, 1)
+        return [
+            PriceHistoryBar(
+                ticker=ticker.upper(),
+                date=(first_day + timedelta(days=index)).isoformat(),
+                open=100.0 + index,
+                high=101.0 + index,
+                low=99.0 + index,
+                close=100.0 + index,
+                volume=1_000_000 + index,
+                source="openbb_yfinance",
+            )
+            for index in range(80)
+        ]
+
+
+class EmptyHistoryProvider:
+    def get_price_history(
+        self,
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        interval: str = "1d",
+    ) -> list[PriceHistoryBar]:
+        return []
+
+
 def write_catalog(tmp_path: Path) -> Path:
     project = tmp_path / "lean-workspace" / "MovingAverageCross"
     project.mkdir(parents=True)
+    watchlist_project = tmp_path / "lean-workspace" / "DeterministicWatchlist"
+    watchlist_project.mkdir(parents=True)
     (project / "config.json").write_text(
         json.dumps(
             {
@@ -108,6 +161,77 @@ def write_catalog(tmp_path: Path) -> Path:
                                 "default": "50",
                                 "min": 3,
                                 "max": 600,
+                                "required": True,
+                            },
+                        ],
+                    }
+                    ,
+                    {
+                        "id": "deterministic_watchlist_v1",
+                        "name": "Deterministic Watchlist Strategy",
+                        "description": "fixture",
+                        "language": "Python",
+                        "asset_class": "US Equity",
+                        "default_symbol": "AAPL",
+                        "resolution": "Daily",
+                        "project_path": "DeterministicWatchlist",
+                        "enabled": True,
+                        "parameters": [
+                            {
+                                "name": "symbol",
+                                "label": "Watchlist",
+                                "kind": "ticker",
+                                "default": "AAPL",
+                                "required": True,
+                            },
+                            {
+                                "name": "start_date",
+                                "label": "Start Date",
+                                "kind": "date",
+                                "default": "2020-01-01",
+                                "required": True,
+                            },
+                            {
+                                "name": "end_date",
+                                "label": "End Date",
+                                "kind": "date",
+                                "default": "2021-01-01",
+                                "required": True,
+                            },
+                            {
+                                "name": "cash",
+                                "label": "Initial Cash",
+                                "kind": "number",
+                                "default": "100000",
+                                "min": 1000,
+                                "max": 1000000000,
+                                "required": True,
+                            },
+                            {
+                                "name": "momentum_window",
+                                "label": "Momentum Window",
+                                "kind": "integer",
+                                "default": "20",
+                                "min": 2,
+                                "max": 252,
+                                "required": True,
+                            },
+                            {
+                                "name": "min_return",
+                                "label": "Minimum Return",
+                                "kind": "number",
+                                "default": "0.03",
+                                "min": 0,
+                                "max": 1,
+                                "required": True,
+                            },
+                            {
+                                "name": "exit_window",
+                                "label": "Exit Window",
+                                "kind": "integer",
+                                "default": "10",
+                                "min": 2,
+                                "max": 252,
                                 "required": True,
                             },
                         ],
@@ -324,7 +448,126 @@ def test_run_lean_backtest_success_preserves_zero_statistics_and_equity(tmp_path
     assert result.equity[0].value == 0.0
 
 
-def test_run_lean_backtest_returns_unavailable_without_calling_runner(tmp_path: Path):
+def test_run_lean_backtest_uses_vectorbt_fallback_when_lean_is_unavailable(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+    runtime_root = tmp_path / "runtime"
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise AssertionError("LEAN runner should not be called")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=runtime_root,
+        command_runner=runner,
+        status_provider=unready_status,
+        market_data_provider=EmptyHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.message == "Backtest completed with vectorbt research fallback."
+    assert result.engine == "vectorbt"
+    assert result.data_source == "deterministic_research_series"
+    assert result.data_quality == "deterministic_research_series"
+    assert result.uses_real_market_data is False
+    assert result.statistics.total_net_profit is not None
+    assert result.statistics.total_trades is not None
+    assert result.equity
+    assert "vectorbt" in " ".join(result.logs).lower()
+    assert "Docker missing" in result.logs
+    assert not (runtime_root / "workspaces").exists()
+    assert (runtime_root / "latest-backtest.json").exists()
+    assert (runtime_root / "history.json").exists()
+    assert read_backtest_history(runtime_root=runtime_root)[0].status == "success"
+
+
+def test_run_lean_backtest_uses_vectorbt_fallback_when_status_is_vectorbt_ready(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise AssertionError("LEAN runner should not be called when only vectorbt is ready")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=vectorbt_only_status,
+    )
+
+    assert result.status == "success"
+    assert result.engine == "vectorbt"
+    assert "Docker missing" in result.logs
+    assert "LEAN missing" in result.logs
+
+
+def test_run_lean_backtest_marks_vectorbt_provider_history_as_real_market_data(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+    runtime_root = tmp_path / "runtime"
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=runtime_root,
+        command_runner=lambda command, cwd, timeout: CompletedProcess(command, 0),
+        status_provider=unready_status,
+        market_data_provider=RealHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.engine == "vectorbt"
+    assert result.data_source == "openbb_yfinance"
+    assert result.data_quality == "real_market_data"
+    assert result.uses_real_market_data is True
+    assert "deterministic research data" not in " ".join(result.logs)
+
+
+def test_run_lean_backtest_replays_active_watchlist_strategy_with_real_history(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+    runtime_root = tmp_path / "runtime"
+
+    result = run_lean_backtest(
+        "deterministic_watchlist_v1",
+        catalog_path=catalog,
+        runtime_root=runtime_root,
+        command_runner=lambda command, cwd, timeout: CompletedProcess(command, 0),
+        status_provider=unready_status,
+        market_data_provider=RealHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.engine == "vectorbt"
+    assert result.strategy_id == "deterministic_watchlist_v1"
+    assert result.data_source == "openbb_yfinance"
+    assert result.data_quality == "real_market_data"
+    assert result.uses_real_market_data is True
+    assert result.statistics.total_trades is not None
+    assert result.equity
+    assert "deterministic_watchlist_v1" in " ".join(result.logs)
+    assert read_latest_backtest(runtime_root=runtime_root) == result
+
+
+def test_run_lean_backtest_routes_active_watchlist_strategy_to_vectorbt_even_when_lean_is_ready(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise AssertionError("active paper strategy should use vectorbt historical replay, not an empty LEAN project")
+
+    result = run_lean_backtest(
+        "deterministic_watchlist_v1",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+        market_data_provider=RealHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.engine == "vectorbt"
+    assert result.uses_real_market_data is True
+
+
+def test_run_lean_backtest_can_disable_vectorbt_fallback_for_readiness_diagnostics(tmp_path: Path):
     catalog = write_catalog(tmp_path)
     runtime_root = tmp_path / "runtime"
 
@@ -337,6 +580,7 @@ def test_run_lean_backtest_returns_unavailable_without_calling_runner(tmp_path: 
         runtime_root=runtime_root,
         command_runner=runner,
         status_provider=unready_status,
+        enable_vectorbt_fallback=False,
     )
 
     assert result.status == "unavailable"

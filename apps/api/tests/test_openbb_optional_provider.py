@@ -1,4 +1,5 @@
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
+import pandas as pd
 
 
 class FakeTable:
@@ -16,6 +17,19 @@ class FakeOpenBBResult:
 
     def to_df(self):
         return FakeTable(self.records)
+
+
+class FakeDataFrameOpenBBResult:
+    def to_df(self):
+        frame = pd.DataFrame(
+            [
+                {"open": 74.0, "high": 75.0, "low": 73.5, "close": 74.8, "volume": 1000},
+                {"open": 75.0, "high": 76.0, "low": 74.5, "close": 75.8, "volume": 1200},
+            ],
+            index=pd.to_datetime(["2020-01-02", "2020-01-03"]),
+        )
+        frame.index.name = "date"
+        return frame
 
 
 class FakePriceApi:
@@ -45,6 +59,12 @@ class FakePriceApi:
         )
 
 
+class FakeDataFramePriceApi(FakePriceApi):
+    def historical(self, symbol: str, provider: str, interval: str, start_date=None, end_date=None):
+        assert provider == "yfinance"
+        return FakeDataFrameOpenBBResult()
+
+
 class FakeFundamentalApi:
     def metrics(self, symbol: str, provider: str):
         assert provider == "yfinance"
@@ -72,8 +92,17 @@ class FakeEquityApi:
     fundamental = FakeFundamentalApi()
 
 
+class FakeDataFrameEquityApi:
+    price = FakeDataFramePriceApi()
+    fundamental = FakeFundamentalApi()
+
+
 class FakeOpenBBClient:
     equity = FakeEquityApi()
+
+
+class FakeDataFrameOpenBBClient:
+    equity = FakeDataFrameEquityApi()
 
 
 class RaisingPriceApi:
@@ -125,6 +154,17 @@ def test_openbb_provider_parses_quote_history_and_fundamentals():
     assert history[0].close == 211.0
     assert fundamentals.market_cap == 3100000000000
     assert fundamentals.pe_ratio == 30.2
+
+
+def test_openbb_provider_preserves_dataframe_date_index_for_history():
+    provider = OpenBBOptionalProvider(openbb_client=FakeDataFrameOpenBBClient())
+
+    history = provider.get_price_history("aapl", interval="1d")
+
+    assert len(history) == 2
+    assert history[0].date == "2020-01-02"
+    assert history[0].close == 74.8
+    assert history[0].source == "openbb_yfinance"
 
 
 def test_openbb_provider_returns_unavailable_payloads_when_client_raises():

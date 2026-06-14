@@ -1,22 +1,47 @@
+import json
+from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.data.providers.base import MarketDataProvider
+from app.domain.models import Portfolio, Position, WatchlistItem
 from app.services.lean_backtest import BacktestResult, read_latest_backtest
 from app.services.strategy_attribution import StrategyAttributionPayload, attribute_current_paper_strategy
 from app.services.strategy_catalog import StrategyDefinition, load_enabled_strategies
 from app.services.strategy_evaluation import StrategyEvaluationPayload, evaluate_current_paper_strategy
+from app.services.strategy_versions import DEFAULT_STRATEGY_VERSION, get_active_strategy_version
+from app.trading_core.strategy import DeterministicWatchlistStrategy
+from app.trading_core.strategy_engine import StrategyEngine
 
 
+DEFAULT_PAPER_STRATEGY_ID = "deterministic_watchlist_v1"
+DEFAULT_PAPER_STRATEGY_NAME = "Deterministic Watchlist Strategy"
+DEFAULT_PAPER_STRATEGY_VERSION = "v1"
+DEFAULT_PAPER_STRATEGY_NOTIONAL = 2000.0
 STRATEGY_REGISTRY_MISSING_CAPABILITIES = [
-    "strategy_versioning_persistence",
-    "multi_strategy_parallel_runtime",
-    "strategy_competition_runtime",
-    "hot_swap_execution_binding",
-    "automatic_lifecycle_actions",
 ]
+
+
+class StrategyExecutionMode(str, Enum):
+    paper = "paper"
+    shadow = "shadow"
+    live_small = "live_small"
+    live = "live"
+
+
+@dataclass(frozen=True)
+class StrategyExecutionBinding:
+    strategy_id: str
+    name: str
+    version: str
+    execution_mode: StrategyExecutionMode
+    strategy_engine: StrategyEngine
+    supports_live: bool
+    supports_hot_swap: bool
 
 
 class StrategyRegistryEntry(BaseModel):
@@ -66,6 +91,36 @@ def get_strategy_registry(
     )
 
 
+def get_registered_strategy_execution_binding(
+    session: Session,
+    team_id: UUID,
+    strategy_id: str,
+    *,
+    notional: float | None = None,
+) -> StrategyExecutionBinding:
+    normalized = _normalize_strategy_id(strategy_id)
+    if normalized != DEFAULT_PAPER_STRATEGY_ID:
+        raise ValueError(f"Strategy is not registered for execution: {normalized}")
+
+    watchlist = _execution_universe(session, team_id)
+    active_version = get_active_strategy_version(session, DEFAULT_PAPER_STRATEGY_ID)
+    version_parameters = _strategy_version_parameters(active_version.parameters_json)
+    version_notional = _active_strategy_notional(version_parameters)
+    effective_notional = notional if notional is not None else version_notional
+    if effective_notional < 0:
+        raise ValueError("Strategy execution notional override must not be negative")
+    strategy = DeterministicWatchlistStrategy(watchlist=watchlist, notional=effective_notional)
+    return StrategyExecutionBinding(
+        strategy_id=DEFAULT_PAPER_STRATEGY_ID,
+        name=DEFAULT_PAPER_STRATEGY_NAME,
+        version=active_version.version or DEFAULT_STRATEGY_VERSION,
+        execution_mode=StrategyExecutionMode.paper,
+        strategy_engine=StrategyEngine(strategy_id=DEFAULT_PAPER_STRATEGY_ID, strategy=strategy),
+        supports_live=False,
+        supports_hot_swap=True,
+    )
+
+
 def build_strategy_registry(
     *,
     evaluation: StrategyEvaluationPayload,
@@ -83,10 +138,10 @@ def build_strategy_registry(
         entries=ranked_entries,
         missing_capabilities=STRATEGY_REGISTRY_MISSING_CAPABILITIES.copy(),
         summary=(
-            "Registry is read-only: "
+            "Registry controls execution binding: "
             "1 active paper strategy, "
             f"{backtest_catalog_count} backtest catalog {catalog_noun}, "
-            "no lifecycle automation."
+            "manual lifecycle review required with no automatic promotion."
         ),
     )
 
@@ -110,7 +165,7 @@ def _paper_entry(evaluation: StrategyEvaluationPayload, attribution: StrategyAtt
         signal_quality_score=attribution.signal_quality.actionable_signal_rate,
         backtest_status=None,
         supports_live=False,
-        supports_hot_swap=False,
+        supports_hot_swap=True,
         notes=evaluation.notes,
     )
 
@@ -156,3 +211,44 @@ def _rank(entries: list[StrategyRegistryEntry]) -> list[StrategyRegistryEntry]:
     source_order = {"paper_core": 0, "lean_catalog": 1}
     sorted_entries = sorted(entries, key=lambda item: (-item.ranking_score, source_order[item.source], item.strategy_id))
     return [entry.model_copy(update={"rank": index + 1}) for index, entry in enumerate(sorted_entries)]
+
+
+def _execution_universe(session: Session, team_id: UUID) -> list[str]:
+    tickers = {
+        item.ticker
+        for item in session.exec(select(WatchlistItem).where(WatchlistItem.team_id == team_id)).all()
+    }
+    portfolios = session.exec(select(Portfolio).where(Portfolio.team_id == team_id)).all()
+    for portfolio in portfolios:
+        tickers.update(
+            position.ticker
+            for position in session.exec(select(Position).where(Position.portfolio_id == portfolio.id)).all()
+        )
+    return sorted(ticker for ticker in tickers if ticker)
+
+
+def _normalize_strategy_id(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("strategy_id must not be empty")
+    return normalized
+
+
+def _strategy_version_parameters(parameters_json: str) -> dict[str, float | int | str | bool | None]:
+    try:
+        parsed = json.loads(parameters_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("Active strategy version parameters_json is invalid") from error
+    if not isinstance(parsed, dict):
+        raise ValueError("Active strategy version parameters_json must encode an object")
+    return parsed
+
+
+def _active_strategy_notional(parameters: dict[str, float | int | str | bool | None]) -> float:
+    raw_notional = parameters.get("notional", DEFAULT_PAPER_STRATEGY_NOTIONAL)
+    if not isinstance(raw_notional, int | float) or isinstance(raw_notional, bool):
+        raise ValueError("Active strategy notional must be numeric")
+    notional = float(raw_notional)
+    if notional <= 0:
+        raise ValueError("Active strategy notional must be positive")
+    return notional

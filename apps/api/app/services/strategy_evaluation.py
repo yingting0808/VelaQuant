@@ -1,9 +1,12 @@
 from enum import Enum
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
-from app.domain.models import CoreEventLog, PaperCandidate, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperPosition, PaperReview
+from app.domain.models import CoreEventLog, PaperCandidate, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperPosition, PaperReview, PaperRun
+from app.services.market_calendar import current_market_trading_day
+from app.services.strategy_event_filters import filter_strategy_trade_events
 from app.services.workspace import get_or_create_default_workspace
 
 
@@ -37,16 +40,31 @@ class StrategyEvaluationPayload(BaseModel):
     notes: str
 
 
-def evaluate_current_paper_strategy(session: Session) -> StrategyEvaluationPayload:
+def evaluate_current_paper_strategy(
+    session: Session,
+    *,
+    as_of_trading_day: str | None = None,
+) -> StrategyEvaluationPayload:
     workspace = get_or_create_default_workspace(session)
     team_id = workspace.team.id
+    as_of_trading_day = as_of_trading_day or _current_trading_day()
     candidates = list(session.exec(select(PaperCandidate).where(PaperCandidate.team_id == team_id)).all())
-    orders = list(session.exec(select(PaperOrder).where(PaperOrder.team_id == team_id)).all())
+    orders = [
+        order
+        for order in session.exec(select(PaperOrder).where(PaperOrder.team_id == team_id)).all()
+        if order.strategy_id == DEFAULT_STRATEGY_ID
+        and order.submitted_at.date().isoformat() <= as_of_trading_day
+    ]
     positions = list(session.exec(select(PaperPosition).where(PaperPosition.team_id == team_id)).all())
     reviews = list(
-        session.exec(select(PaperReview).where(PaperReview.team_id == team_id).order_by(PaperReview.created_at)).all()
+        session.exec(
+            select(PaperReview)
+            .where(PaperReview.team_id == team_id)
+            .where(PaperReview.trading_day <= as_of_trading_day)
+            .order_by(PaperReview.created_at)
+        ).all()
     )
-    event_chain_count = len(session.exec(select(CoreEventLog).where(CoreEventLog.team_id == team_id)).all())
+    event_chain_count = _event_chain_count_as_of(session, team_id, as_of_trading_day)
 
     filled_orders = [order for order in orders if order.status == PaperOrderStatus.filled]
     rejected_orders = [order for order in orders if order.status == PaperOrderStatus.rejected]
@@ -162,3 +180,31 @@ def _notes(
     if readiness == StrategyEvaluationReadiness.negative_expectancy:
         return "样本数已进入评估区间，但净期望不达标，禁止晋级。"
     return f"样本不足：已成交 {filled_order_count} 笔，当前期望值 {expectancy:.2f}，最大回撤 {max_drawdown:.2%}。"
+
+
+def _event_chain_count_as_of(session: Session, team_id, as_of_trading_day: str) -> int:
+    eligible_run_ids = {
+        run.id
+        for run in session.exec(
+            select(PaperRun)
+            .where(PaperRun.team_id == team_id)
+            .where(PaperRun.trading_day <= as_of_trading_day)
+        ).all()
+    }
+    events = session.exec(select(CoreEventLog).where(CoreEventLog.team_id == team_id)).all()
+    eligible_events = [
+        event
+        for event in events
+        if (event.run_id in eligible_run_ids)
+        or (event.run_id is None and event.published_at.date().isoformat() <= as_of_trading_day)
+    ]
+    return len(
+        {
+            event.correlation_id
+            for event in filter_strategy_trade_events(eligible_events)
+        }
+    )
+
+
+def _current_trading_day() -> str:
+    return current_market_trading_day()

@@ -76,11 +76,12 @@ class RiskEngine:
 
     def evaluate(self, intent: TradeIntent, portfolio: PortfolioState) -> RiskDecision:
         checks = [
-            self.can_trade_today(portfolio),
             self.can_trade(intent, portfolio),
             self.can_open_position(intent, portfolio),
             self.can_increase_position(intent, portfolio),
         ]
+        if intent.side == TradeIntentSide.buy:
+            checks.insert(0, self.can_trade_today(portfolio))
         for decision in checks:
             if decision.status == RiskDecisionStatus.rejected:
                 return decision

@@ -1,10 +1,12 @@
 import json
+from datetime import datetime, timezone
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.domain.models import CoreEventLog, PaperRun
+from app.services.market_calendar import current_market_trading_day
 from app.services.workspace import get_or_create_default_workspace
 
 
@@ -24,6 +26,7 @@ class EventLedgerReplayChain(BaseModel):
     order_states: list[str]
     terminal_state: str | None
     event_count: int
+    integrity_warnings: list[str] = Field(default_factory=list)
 
 
 class EventLedgerReplay(BaseModel):
@@ -40,25 +43,33 @@ class EventLedgerStatus(BaseModel):
 
     total_event_count: int
     latest_run_id: UUID | None
+    latest_run_trading_day: str | None = None
     latest_run_status: str | None
     latest_run_event_count: int
     latest_topic_counts: list[EventLedgerTopicCount]
     latest_correlation_count: int
+    integrity_ready: bool = False
+    integrity_warnings: list[str] = Field(default_factory=list)
+    traceable_chain_count: int = 0
+    complete_order_chain_count: int = 0
+    broken_chain_count: int = 0
+    traceability_ratio: float = 0.0
     replay_ready: bool
     warnings: list[str]
     summary: str
     latest_replay: EventLedgerReplay | None
 
 
-def get_event_ledger_status(session: Session) -> EventLedgerStatus:
+def get_event_ledger_status(
+    session: Session,
+    *,
+    as_of_trading_day: str | None = None,
+) -> EventLedgerStatus:
     workspace = get_or_create_default_workspace(session)
     team_id = workspace.team.id
+    as_of_trading_day = as_of_trading_day or _current_trading_day()
     total_event_count = len(session.exec(select(CoreEventLog).where(CoreEventLog.team_id == team_id)).all())
-    latest_run = session.exec(
-        select(PaperRun)
-        .where(PaperRun.team_id == team_id)
-        .order_by(PaperRun.started_at.desc())
-    ).first()
+    latest_run, latest_events = _latest_event_ledger_run(session, team_id=team_id, as_of_trading_day=as_of_trading_day)
     if latest_run is None:
         warnings = ["no_paper_runs"]
         if total_event_count == 0:
@@ -66,31 +77,44 @@ def get_event_ledger_status(session: Session) -> EventLedgerStatus:
         return EventLedgerStatus(
             total_event_count=total_event_count,
             latest_run_id=None,
+            latest_run_trading_day=None,
             latest_run_status=None,
             latest_run_event_count=0,
             latest_topic_counts=[],
             latest_correlation_count=0,
+            integrity_ready=False,
+            integrity_warnings=["missing_core_events"],
             replay_ready=False,
             warnings=warnings,
             summary="No paper runs found; event replay is not available.",
             latest_replay=None,
         )
 
-    latest_events = _run_events(session, latest_run.id)
     latest_replay = _replay_from_events(latest_run.id, latest_events) if latest_events else None
+    integrity_warnings = _replay_integrity_warnings(latest_replay)
+    traceability = _traceability_metrics(latest_replay)
+    integrity_ready = latest_replay is not None and not integrity_warnings
     warnings: list[str] = []
     if total_event_count == 0:
         warnings.append("missing_core_events")
     if not latest_events:
         warnings.append("latest_run_has_no_events")
+    warnings.extend(warning for warning in integrity_warnings if warning not in warnings)
     return EventLedgerStatus(
         total_event_count=total_event_count,
         latest_run_id=latest_run.id,
+        latest_run_trading_day=latest_run.trading_day,
         latest_run_status=latest_run.status.value,
         latest_run_event_count=len(latest_events),
         latest_topic_counts=_topic_counts(latest_events),
         latest_correlation_count=len({event.correlation_id for event in latest_events}),
-        replay_ready=latest_replay is not None,
+        integrity_ready=integrity_ready,
+        integrity_warnings=integrity_warnings,
+        traceable_chain_count=traceability["traceable_chain_count"],
+        complete_order_chain_count=traceability["complete_order_chain_count"],
+        broken_chain_count=traceability["broken_chain_count"],
+        traceability_ratio=traceability["traceability_ratio"],
+        replay_ready=integrity_ready,
         warnings=warnings,
         summary=_summary(latest_run, latest_replay),
         latest_replay=latest_replay,
@@ -113,6 +137,8 @@ def _run_events(session: Session, run_id: UUID) -> list[CoreEventLog]:
 
 def _replay_from_events(run_id: UUID, events: list[CoreEventLog]) -> EventLedgerReplay:
     grouped: dict[str, list[CoreEventLog]] = {}
+    event_ids = {event.event_id for event in events}
+    event_correlation_by_id = {event.event_id: event.correlation_id for event in events}
     for event in events:
         grouped.setdefault(event.correlation_id, []).append(event)
 
@@ -129,6 +155,11 @@ def _replay_from_events(run_id: UUID, events: list[CoreEventLog]) -> EventLedger
                 order_states=order_states,
                 terminal_state=order_states[-1] if order_states else None,
                 event_count=len(ordered_events),
+                integrity_warnings=_chain_integrity_warnings(
+                    ordered_events,
+                    event_ids=event_ids,
+                    event_correlation_by_id=event_correlation_by_id,
+                ),
             )
         )
     chains.sort(key=lambda chain: (not bool(chain.order_states), chain.ticker or "", chain.correlation_id))
@@ -138,6 +169,119 @@ def _replay_from_events(run_id: UUID, events: list[CoreEventLog]) -> EventLedger
         chain_count=len(chains),
         chains=chains,
     )
+
+
+def _latest_event_ledger_run(
+    session: Session,
+    *,
+    team_id: UUID,
+    as_of_trading_day: str,
+) -> tuple[PaperRun | None, list[CoreEventLog]]:
+    runs = list(
+        session.exec(
+            select(PaperRun)
+            .where(PaperRun.team_id == team_id)
+            .where(PaperRun.trading_day <= as_of_trading_day)
+            .order_by(PaperRun.started_at.desc())
+        ).all()
+    )
+    fallback: tuple[PaperRun | None, list[CoreEventLog]] = (None, [])
+    for index, run in enumerate(runs):
+        events = _run_events(session, run.id)
+        if index == 0:
+            fallback = (run, events)
+        if _has_trade_replay_events(events):
+            return run, events
+    return fallback
+
+
+def _has_trade_replay_events(events: list[CoreEventLog]) -> bool:
+    topics = {event.topic for event in events}
+    return bool(topics & {"market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"})
+
+
+def _replay_integrity_warnings(replay: EventLedgerReplay | None) -> list[str]:
+    if replay is None:
+        return []
+    warnings: list[str] = []
+    for chain in replay.chains:
+        for warning in chain.integrity_warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings
+
+
+def _traceability_metrics(replay: EventLedgerReplay | None) -> dict[str, int | float]:
+    if replay is None:
+        return {
+            "traceable_chain_count": 0,
+            "complete_order_chain_count": 0,
+            "broken_chain_count": 0,
+            "traceability_ratio": 0.0,
+        }
+    complete_order_chains = [chain for chain in replay.chains if _is_complete_order_chain(chain)]
+    broken_order_chains = [chain for chain in replay.chains if _is_broken_order_chain(chain)]
+    broken_chain_count = len(broken_order_chains)
+    traceable_chain_count = len(complete_order_chains) + broken_chain_count
+    traceability_ratio = (
+        round(len(complete_order_chains) / traceable_chain_count, 4)
+        if traceable_chain_count
+        else 0.0
+    )
+    return {
+        "traceable_chain_count": traceable_chain_count,
+        "complete_order_chain_count": len(complete_order_chains),
+        "broken_chain_count": broken_chain_count,
+        "traceability_ratio": traceability_ratio,
+    }
+
+
+def _is_broken_order_chain(chain: EventLedgerReplayChain) -> bool:
+    topics = set(chain.topics)
+    return bool(topics & {"risk_decision", "order_state"}) and not _is_complete_order_chain(chain)
+
+
+def _is_complete_order_chain(chain: EventLedgerReplayChain) -> bool:
+    return (
+        {"market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"}.issubset(set(chain.topics))
+        and not chain.integrity_warnings
+    )
+
+
+def _chain_integrity_warnings(
+    events: list[CoreEventLog],
+    *,
+    event_ids: set[str],
+    event_correlation_by_id: dict[str, str],
+) -> list[str]:
+    topics = {event.topic for event in events}
+    warnings: list[str] = []
+    required_topics: set[str] = set()
+
+    if "order_state" in topics:
+        required_topics = {"market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"}
+    elif "risk_decision" in topics:
+        required_topics = {"market_event", "strategy_input", "trade_intent", "risk_decision"}
+    elif "trade_intent" in topics:
+        required_topics = {"market_event", "strategy_input", "trade_intent"}
+
+    for topic in sorted(required_topics - topics):
+        warnings.append(f"chain_missing_{topic}")
+
+    for event in events:
+        if event.causation_id is None:
+            continue
+        if event.causation_id not in event_ids:
+            _append_unique(warnings, "broken_causation_reference")
+            continue
+        if event_correlation_by_id.get(event.causation_id) != event.correlation_id:
+            _append_unique(warnings, "broken_causation_reference")
+    return warnings
+
+
+def _append_unique(values: list[str], item: str) -> None:
+    if item not in values:
+        values.append(item)
 
 
 def _topic_counts(events: list[CoreEventLog]) -> list[EventLedgerTopicCount]:
@@ -187,3 +331,7 @@ def _summary(run: PaperRun, replay: EventLedgerReplay | None) -> str:
         f"Latest paper run is {run.status.value} with "
         f"{replay.event_count} replayable core events across {replay.chain_count} chains."
     )
+
+
+def _current_trading_day() -> str:
+    return current_market_trading_day()
