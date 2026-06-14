@@ -181,21 +181,15 @@ def test_paper_scheduler_status_finds_next_actionable_sample_after_skipped_cron(
 
 def test_scheduled_job_runs_paper_loop_with_scheduled_trigger(monkeypatch):
     captured = {}
+    db_engine = _isolated_db_engine()
 
     class Provider:
         def close(self):
             captured["closed"] = True
 
-    class SessionContext:
-        def __enter__(self):
-            return "session"
-
-        def __exit__(self, exc_type, exc, traceback):
-            return False
-
+    monkeypatch.setattr(paper_scheduler, "engine", db_engine)
     monkeypatch.setattr(paper_scheduler, "build_market_data_provider", lambda settings: Provider())
     monkeypatch.setattr(paper_scheduler, "get_market_session_status", _closed_session_status)
-    monkeypatch.setattr(paper_scheduler, "Session", lambda engine: SessionContext())
     monkeypatch.setattr(
         paper_scheduler,
         "run_daily_paper_trading_loop",
@@ -214,29 +208,22 @@ def test_scheduled_job_runs_paper_loop_with_scheduled_trigger(monkeypatch):
     assert result.executed is True
     assert result.reason == "current_session_closed"
     assert result.trading_day == "2026-06-15"
-    assert captured["session"] == "session"
     assert captured["trigger"] == PaperRunTrigger.scheduled
-    assert captured["shadow_session"] == "session"
+    assert captured["session"] is captured["shadow_session"]
     assert captured["closed"] is True
 
 
 def test_scheduled_job_skips_shadow_observation_when_lifecycle_gate_blocks(monkeypatch):
     captured = {}
+    db_engine = _isolated_db_engine()
 
     class Provider:
         def close(self):
             captured["closed"] = True
 
-    class SessionContext:
-        def __enter__(self):
-            return "session"
-
-        def __exit__(self, exc_type, exc, traceback):
-            return False
-
+    monkeypatch.setattr(paper_scheduler, "engine", db_engine)
     monkeypatch.setattr(paper_scheduler, "build_market_data_provider", lambda settings: Provider())
     monkeypatch.setattr(paper_scheduler, "get_market_session_status", _closed_session_status)
-    monkeypatch.setattr(paper_scheduler, "Session", lambda engine: SessionContext())
     monkeypatch.setattr(
         paper_scheduler,
         "run_daily_paper_trading_loop",
@@ -255,9 +242,8 @@ def test_scheduled_job_skips_shadow_observation_when_lifecycle_gate_blocks(monke
 
     assert result.executed is True
     assert result.reason == "current_session_closed"
-    assert captured["session"] == "session"
     assert captured["trigger"] == PaperRunTrigger.scheduled
-    assert captured["shadow_session"] == "session"
+    assert captured["session"] is captured["shadow_session"]
     assert captured["closed"] is True
 
 
@@ -379,6 +365,48 @@ def test_scheduled_job_persists_market_guard_decision_without_paper_run(monkeypa
     assert payload["execution_gate"] == "market_closed"
     assert payload["reason"] == "market_closed"
     assert payload["trading_day"] == "2026-06-12"
+
+
+def test_scheduled_job_persists_executed_scheduler_decision(monkeypatch):
+    captured = {}
+    db_engine = _isolated_db_engine()
+
+    class Provider:
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(paper_scheduler, "engine", db_engine)
+    monkeypatch.setattr(paper_scheduler, "build_market_data_provider", lambda settings: Provider())
+    monkeypatch.setattr(paper_scheduler, "get_market_session_status", _closed_session_status)
+    monkeypatch.setattr(
+        paper_scheduler,
+        "run_daily_paper_trading_loop",
+        lambda session, provider, trigger=PaperRunTrigger.manual: captured.update({"trigger": trigger}),
+    )
+    monkeypatch.setattr(
+        paper_scheduler,
+        "record_shadow_observation",
+        lambda session: captured.update({"shadow_recorded": True}),
+    )
+
+    result = run_scheduled_paper_trading_once()
+
+    with Session(db_engine) as session:
+        events = session.exec(select(CoreEventLog)).all()
+
+    assert result.executed is True
+    assert captured["trigger"] == PaperRunTrigger.scheduled
+    assert captured["shadow_recorded"] is True
+    assert captured["closed"] is True
+    assert len(events) == 1
+    assert events[0].run_id is None
+    assert events[0].topic == "scheduler_decision"
+    assert events[0].correlation_id == "paper_scheduler:2026-06-15"
+    payload = json.loads(events[0].payload_json)
+    assert payload["executed"] is True
+    assert payload["execution_gate"] == "ready_to_run"
+    assert payload["reason"] == "current_session_closed"
+    assert payload["trading_day"] == "2026-06-15"
 
 
 def _closed_session_status() -> MarketSessionStatus:

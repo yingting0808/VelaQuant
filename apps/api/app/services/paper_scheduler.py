@@ -179,11 +179,14 @@ def run_scheduled_paper_trading_once() -> PaperScheduledRunResult:
                 record_shadow_observation(session)
             except ValueError:
                 pass
-        return _scheduled_result(
-            market_status,
-            executed=True,
-            summary="Scheduled paper trading completed for the closed market session.",
-        )
+            result = _scheduled_result(
+                market_status,
+                executed=True,
+                summary="Scheduled paper trading completed for the closed market session.",
+            )
+            _persist_scheduler_decision(session, market_status, result)
+            session.commit()
+        return result
     finally:
         close = getattr(provider, "close", None)
         if callable(close):
