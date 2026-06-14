@@ -33,6 +33,7 @@ from app.services.paper_trading import (
 from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.market_calendar import get_market_session_status
 from app.services.paper_action_plan import get_paper_action_plan
+from app.services.paper_action_executor import execute_paper_primary_action
 from app.services.paper_operations import (
     get_paper_operations_history,
     get_paper_operations_status,
@@ -421,6 +422,17 @@ def paper_trading_apply_risk_limit_recommendation(session: Session = Depends(get
 @router.get("/paper-trading/action-plan")
 def paper_trading_action_plan(session: Session = Depends(get_session)) -> dict:
     return get_paper_action_plan(session).model_dump()
+
+
+@router.post("/paper-trading/action-plan/execute-primary")
+def paper_trading_execute_primary_action(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        return execute_paper_primary_action(session, provider).model_dump()
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/paper-trading/runs")

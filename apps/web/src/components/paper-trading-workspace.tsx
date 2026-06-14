@@ -18,6 +18,7 @@ import {
   getAlphaGateProgress,
   getAlphaValidationForecast,
   getPaperActionPlan,
+  executePaperPrimaryAction,
   applyPaperRiskLimitRecommendation,
   quarantineLegacyPaperRuns,
   repairPaperEventLedger,
@@ -149,6 +150,7 @@ export function PaperTradingWorkspace() {
   const [repairResult, setRepairResult] = useState<PaperOperationsRepairPayload | null>(null);
   const [simulationResult, setSimulationResult] = useState<PaperSimulationPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
+  const [isExecutingPrimaryAction, setIsExecutingPrimaryAction] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
   const [isQuarantining, setIsQuarantining] = useState(false);
@@ -393,6 +395,17 @@ export function PaperTradingWorkspace() {
     }
   }
 
+  async function handleExecutePrimaryAction() {
+    setIsExecutingPrimaryAction(true);
+    setMessage("正在执行首要行动。");
+    try {
+      const result = await executePaperPrimaryAction();
+      await refreshSummary(result.summary);
+    } finally {
+      setIsExecutingPrimaryAction(false);
+    }
+  }
+
   const account = summary?.account;
   const review = summary?.latest_review;
   const candidates = summary?.candidates ?? [];
@@ -403,6 +416,7 @@ export function PaperTradingWorkspace() {
   const canRunDaily = operations?.can_retry_today ?? true;
   const dailyRunLabel = isRunning ? "运行中" : canRunDaily ? "运行今日模拟" : "今日已完成";
   const simulationRunLabel = isSimulating ? "模拟中" : "运行 5 日模拟";
+  const primaryActionLabel = isExecutingPrimaryAction ? "执行中" : "执行首要动作";
   const canApplyRiskLimitRecommendation =
     riskLimitReview?.status === "review_required" &&
     (riskLimitReview?.recommended_paper_max_daily_orders ?? 0) > (riskLimitReview?.current_max_daily_orders ?? 0) &&
@@ -988,7 +1002,18 @@ export function PaperTradingWorkspace() {
             <h3>行动计划</h3>
             <p>{actionPlan?.summary ?? "正在生成行动计划。"}</p>
           </div>
-          <span className="status-pill neutral">{actionPlan?.primary_action ?? "loading"}</span>
+          <div className="panel-heading-actions">
+            <span className="status-pill neutral">{actionPlan?.primary_action ?? "loading"}</span>
+            <button
+              className="ghost-action"
+              type="button"
+              onClick={handleExecutePrimaryAction}
+              disabled={isExecutingPrimaryAction || !actionPlan}
+            >
+              <Play size={14} aria-hidden="true" />
+              {primaryActionLabel}
+            </button>
+          </div>
         </div>
         <div className="table-wrap">
           <table>

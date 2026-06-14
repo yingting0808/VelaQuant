@@ -20,6 +20,27 @@ def test_paper_action_plan_prioritizes_event_ledger_repair():
     assert plan.items[0].priority == 1
 
 
+def test_paper_action_plan_runs_daily_pipeline_before_repair_when_no_run_exists():
+    plan = build_paper_action_plan(
+        operations=_operations(
+            blockers=["daily_run_missing"],
+            health_status="blocked",
+            run_state="not_started",
+            recommended_action="run_daily_paper_trading",
+            latest_run_id=None,
+            today_run_id=None,
+            latest_run_event_count=0,
+            event_ledger_ready=False,
+        ),
+        alpha_gates=_alpha_gates([]),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(),
+    )
+
+    assert plan.primary_action == "run_daily_paper_trading"
+    assert all(item.action_code != "repair_event_ledger" for item in plan.items)
+
+
 def test_paper_action_plan_recommends_risk_review_when_daily_order_limit_blocks_closed_trades():
     plan = build_paper_action_plan(
         operations=_operations(blockers=[], health_status="ready"),
@@ -145,28 +166,36 @@ def _operations(
     *,
     blockers: list[str],
     health_status: str,
+    run_state: str = "completed",
+    recommended_action: str = "hold_until_next_session",
+    latest_run_id: str | None = "00000000-0000-0000-0000-000000000101",
+    today_run_id: str | None = "00000000-0000-0000-0000-000000000101",
+    latest_run_event_count: int = 10,
+    event_ledger_ready: bool | None = None,
     legacy_manual_future_run_count: int = 0,
     latest_legacy_manual_future_trading_day: str | None = None,
     data_quality_warnings: list[str] | None = None,
 ) -> PaperOperationsStatusPayload:
     return PaperOperationsStatusPayload(
         trading_day="2026-06-13",
-        run_state="completed",
+        run_state=run_state,
         health_status=health_status,
-        latest_run_id="00000000-0000-0000-0000-000000000101",
+        latest_run_id=latest_run_id,
         latest_run_trading_day="2026-06-13",
         latest_run_status="completed",
-        today_run_id="00000000-0000-0000-0000-000000000101",
+        today_run_id=today_run_id,
         review_id="00000000-0000-0000-0000-000000000102",
         latest_error=None,
-        can_retry_today=False,
-        event_ledger_ready="event_ledger_not_replayable" not in blockers,
-        latest_run_event_count=10,
+        can_retry_today=run_state in {"not_started", "failed"},
+        event_ledger_ready=event_ledger_ready
+        if event_ledger_ready is not None
+        else "event_ledger_not_replayable" not in blockers,
+        latest_run_event_count=latest_run_event_count,
         legacy_manual_future_run_count=legacy_manual_future_run_count,
         latest_legacy_manual_future_trading_day=latest_legacy_manual_future_trading_day,
         data_quality_warnings=data_quality_warnings or [],
         blockers=blockers,
-        recommended_action="hold_until_next_session",
+        recommended_action=recommended_action,
         summary="fixture operations",
     )
 

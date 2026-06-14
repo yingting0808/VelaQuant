@@ -70,7 +70,7 @@ def build_paper_action_plan(
             )
         )
 
-    if not operations.event_ledger_ready or "event_ledger_not_replayable" in operations.blockers:
+    if "event_ledger_not_replayable" in operations.blockers:
         items.append(
             PaperActionPlanItem(
                 priority=1,

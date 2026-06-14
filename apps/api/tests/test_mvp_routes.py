@@ -2575,6 +2575,28 @@ def test_mvp_paper_action_plan_route_returns_prioritized_actions(monkeypatch):
     assert payload["items"][0]["action_code"] == "review_daily_order_limit"
 
 
+def test_mvp_paper_action_plan_execute_primary_route_runs_safe_default_action(monkeypatch):
+    class ExecutePayload:
+        def model_dump(self):
+            return {
+                "executed": True,
+                "action_code": "apply_paper_risk_limit_recommendation",
+                "next_primary_action": "collect_post_limit_sample",
+                "summary": "Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample.",
+            }
+
+    monkeypatch.setattr(mvp, "execute_paper_primary_action", lambda session, provider: ExecutePayload(), raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/action-plan/execute-primary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["executed"] is True
+    assert payload["action_code"] == "apply_paper_risk_limit_recommendation"
+    assert payload["next_primary_action"] == "collect_post_limit_sample"
+
+
 def test_mvp_paper_market_session_route_explains_effective_trading_day(monkeypatch):
     status = MarketSessionStatus(
         market_date="2026-06-13",

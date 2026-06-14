@@ -1015,6 +1015,14 @@ export type PaperActionPlanPayload = {
   summary: string;
 };
 
+export type PaperActionExecutionPayload = {
+  executed: boolean;
+  action_code: string;
+  next_primary_action: string;
+  result: Record<string, unknown> | null;
+  summary: string;
+};
+
 export type PaperRunPayload = {
   id: string;
   trading_day: string;
@@ -1852,6 +1860,14 @@ const fallbackPaperActionPlan: PaperActionPlanPayload = {
     }
   ],
   summary: "后端 API 暂不可用，无法生成行动计划。"
+};
+
+const fallbackPaperActionExecution: PaperActionExecutionPayload = {
+  executed: false,
+  action_code: "api_unavailable",
+  next_primary_action: "api_unavailable",
+  result: null,
+  summary: "后端 API 暂不可用，无法执行行动计划。"
 };
 
 const fallbackPaperRuns: PaperRunsPayload = {
@@ -4452,6 +4468,17 @@ function isPaperActionPlanPayload(value: unknown): value is PaperActionPlanPaylo
   );
 }
 
+function isPaperActionExecutionPayload(value: unknown): value is PaperActionExecutionPayload {
+  return (
+    isRecord(value) &&
+    typeof value.executed === "boolean" &&
+    typeof value.action_code === "string" &&
+    typeof value.next_primary_action === "string" &&
+    (value.result === null || isRecord(value.result)) &&
+    typeof value.summary === "string"
+  );
+}
+
 function isPaperRunPayload(value: unknown): value is PaperRunPayload {
   return (
     isRecord(value) &&
@@ -4973,6 +5000,21 @@ export async function getPaperActionPlan(): Promise<PaperActionPlanPayload> {
     return isPaperActionPlanPayload(payload) ? payload : fallbackPaperActionPlan;
   } catch {
     return fallbackPaperActionPlan;
+  }
+}
+
+export async function executePaperPrimaryAction(): Promise<PaperActionExecutionPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/action-plan/execute-primary`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      return fallbackPaperActionExecution;
+    }
+    const payload: unknown = await response.json();
+    return isPaperActionExecutionPayload(payload) ? payload : fallbackPaperActionExecution;
+  } catch {
+    return fallbackPaperActionExecution;
   }
 }
 

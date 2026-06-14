@@ -562,19 +562,33 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     ],
     summary: "Alpha validation needs about 5 more paper sessions if current sample rates continue."
   };
-  const actionPlan: PaperActionPlanPayload = {
+  const riskApplyActionPlan: PaperActionPlanPayload = {
     readiness: "ready",
-    primary_action: "review_daily_order_limit",
+    primary_action: "apply_paper_risk_limit_recommendation",
     items: [
       {
         priority: 2,
-        action_code: "review_daily_order_limit",
-        title: "复核日订单上限",
-        detail: "执行诊断显示 26 笔 max_daily_orders 拒单；当前 max_daily_orders=5。",
+        action_code: "apply_paper_risk_limit_recommendation",
+        title: "应用 Paper 限额建议",
+        detail: "按默认推荐提高模拟盘样本采集容量：max_daily_orders 5 -> 6；Live 不变。",
         evidence: ["rejected=26"]
       }
     ],
-    summary: "Paper action plan primary action: review_daily_order_limit; 1 actions available."
+    summary: "Paper action plan primary action: apply_paper_risk_limit_recommendation; 1 actions available."
+  };
+  const collectSampleActionPlan: PaperActionPlanPayload = {
+    readiness: "ready",
+    primary_action: "collect_post_limit_sample",
+    items: [
+      {
+        priority: 2,
+        action_code: "collect_post_limit_sample",
+        title: "收集新限额样本",
+        detail: "Paper 风险限额已更新到 max_daily_orders=6；等待下一次真实 paper 运行后再判断是否需要继续调整。",
+        evidence: ["filled=42", "closed=20", "rejected=26"]
+      }
+    ],
+    summary: "Paper action plan primary action: collect_post_limit_sample; 1 actions available."
   };
   const simulationResult: PaperSimulationPayload = {
     scenario: "bullish",
@@ -608,6 +622,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   let operationsHistory = blockedOperationsHistory;
   let reviewTrend = emptyReviewTrend;
   let executionDiagnostics = emptyExecutionDiagnostics;
+  let actionPlan = riskApplyActionPlan;
 
   await page.route("**/api/mvp/paper-trading/summary", async (route) => {
     await route.fulfill({ contentType: "application/json", json: summary });
@@ -696,6 +711,23 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     activeRiskLimitReview = appliedRiskLimitReview;
     await route.fulfill({ contentType: "application/json", json: riskLimitApply });
   });
+  await page.route("**/api/mvp/paper-trading/action-plan/execute-primary", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    riskProfile = appliedRiskProfile;
+    activeRiskLimitReview = appliedRiskLimitReview;
+    actionPlan = collectSampleActionPlan;
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        executed: true,
+        action_code: "apply_paper_risk_limit_recommendation",
+        next_primary_action: "collect_post_limit_sample",
+        result: riskLimitApply,
+        summary:
+          "Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample."
+      }
+    });
+  });
   await page.route("**/api/mvp/strategy-lab/alpha-gates", async (route) => {
     await route.fulfill({ contentType: "application/json", json: alphaGates });
   });
@@ -740,8 +772,17 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(riskLimitReviewPanel.getByText("Paper risk limit review: paper-only review required")).toBeVisible();
   await expect(riskLimitReviewPanel.getByText("5 → 6")).toBeVisible();
   await expect(riskLimitReviewPanel.getByText("Live 不变")).toBeVisible();
-  await riskLimitReviewPanel.getByRole("button", { name: "应用 Paper 建议" }).click();
-  await expect(riskLimitReviewPanel.getByText("Paper risk limit recommendation applied")).toBeVisible();
+  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
+  await expect(
+    actionPlanPanel.getByText("Paper action plan primary action: apply_paper_risk_limit_recommendation")
+  ).toBeVisible();
+  await expect(actionPlanPanel.getByText("应用 Paper 限额建议")).toBeVisible();
+  await actionPlanPanel.getByRole("button", { name: "执行首要动作" }).click();
+  await expect(
+    page.getByText("Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample.")
+  ).toBeVisible();
+  await expect(actionPlanPanel.getByText("Paper action plan primary action: collect_post_limit_sample")).toBeVisible();
+  await expect(actionPlanPanel.getByText("收集新限额样本")).toBeVisible();
   await expect(riskLimitReviewPanel.getByText("6 → 6")).toBeVisible();
   await expect(riskPanel.getByText("6 笔")).toBeVisible();
   const alphaGatePanel = page.getByRole("region", { name: "Alpha 门禁" });
@@ -753,9 +794,6 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(alphaForecastPanel.getByText("Alpha validation needs about 5 more paper sessions")).toBeVisible();
   await expect(alphaForecastPanel.getByText("5 次", { exact: true })).toBeVisible();
   await expect(alphaForecastPanel.getByText("filled_order_sample")).toBeVisible();
-  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
-  await expect(actionPlanPanel.getByText("Paper action plan primary action: review_daily_order_limit")).toBeVisible();
-  await expect(actionPlanPanel.getByText("复核日订单上限")).toBeVisible();
   const simulationPanel = page.getByRole("region", { name: "多日模拟" });
   await expect(simulationPanel.getByText("多日模拟")).toBeVisible();
   await page.getByRole("button", { name: "运行 5 日模拟" }).click();
