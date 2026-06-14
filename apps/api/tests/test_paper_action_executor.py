@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.data.providers.mock import MockMarketDataProvider
 from app.domain.models import PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus
 from app.services import paper_action_executor
-from app.services.paper_action_executor import execute_paper_primary_action
+from app.services.paper_action_executor import execute_paper_primary_action, queue_paper_primary_action
 from app.services.paper_risk_profile import get_paper_risk_profile
 from app.services.workspace import get_or_create_default_workspace
 
@@ -52,8 +52,8 @@ def test_execute_primary_action_collects_post_limit_sample_by_running_daily_loop
     def action_plan(session):
         return SimpleNamespace(primary_action="collect_post_limit_sample")
 
-    def daily_run(session, provider):
-        calls.append((session, provider))
+    def daily_run(session, provider, **kwargs):
+        calls.append((session, provider, kwargs))
         return SimpleNamespace(model_dump=lambda mode="json": {"daily_run": "executed"})
 
     monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", action_plan)
@@ -67,7 +67,38 @@ def test_execute_primary_action_collects_post_limit_sample_by_running_daily_loop
         assert result.executed is True
         assert result.action_code == "collect_post_limit_sample"
         assert result.result == {"daily_run": "executed"}
-        assert calls == [(session, provider)]
+        assert calls == [(session, provider, {"force_new_sample": True})]
+
+
+def test_queue_primary_action_collects_post_limit_sample_without_blocking(monkeypatch):
+    class CapturingTasks:
+        def __init__(self):
+            self.tasks = []
+
+        def add_task(self, fn, *args, **kwargs):
+            self.tasks.append((fn, args, kwargs))
+
+    def action_plan(session):
+        return SimpleNamespace(primary_action="collect_post_limit_sample")
+
+    def daily_run(session, provider):
+        raise AssertionError("daily run should be deferred to a background task")
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", action_plan)
+    monkeypatch.setattr(paper_action_executor, "run_daily_paper_trading_loop", daily_run)
+
+    with make_session() as session:
+        tasks = CapturingTasks()
+
+        result = queue_paper_primary_action(session, tasks)
+
+        assert result.executed is False
+        assert result.queued is True
+        assert result.status == "queued"
+        assert result.action_code == "collect_post_limit_sample"
+        assert result.next_primary_action == "collect_post_limit_sample"
+        assert result.result == {"status_url": "/api/mvp/paper-trading/runs"}
+        assert len(tasks.tasks) == 1
 
 
 def make_session() -> Session:

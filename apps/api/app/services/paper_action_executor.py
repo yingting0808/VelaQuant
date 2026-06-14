@@ -1,9 +1,12 @@
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session
 
+from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
+from app.data.providers.registry import build_market_data_provider
+from app.db.session import engine
 from app.services.paper_action_plan import get_paper_action_plan
 from app.services.paper_operations import (
     quarantine_legacy_manual_future_runs,
@@ -12,11 +15,19 @@ from app.services.paper_operations import (
 from app.services.paper_risk_settings import apply_paper_risk_limit_recommendation
 from app.services.paper_trading import run_daily_paper_trading_loop
 
+BACKGROUND_PAPER_ACTIONS = {"run_daily_paper_trading", "retry_daily_paper_trading", "collect_post_limit_sample"}
+
+
+class BackgroundTaskQueue(Protocol):
+    def add_task(self, func, *args, **kwargs) -> None: ...
+
 
 class PaperActionExecutionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     executed: bool
+    queued: bool = False
+    status: str = "completed"
     action_code: str
     next_primary_action: str
     result: dict[str, Any] | None
@@ -31,6 +42,7 @@ def execute_paper_primary_action(
     action = plan.primary_action
     result: dict[str, Any] | None = None
     executed = True
+    status = "completed"
 
     if action == "apply_paper_risk_limit_recommendation":
         result = apply_paper_risk_limit_recommendation(session).model_dump(mode="json")
@@ -38,17 +50,75 @@ def execute_paper_primary_action(
         result = repair_paper_operations_event_ledger(session).model_dump(mode="json")
     elif action == "quarantine_legacy_manual_future_runs":
         result = quarantine_legacy_manual_future_runs(session).model_dump(mode="json")
-    elif action in {"run_daily_paper_trading", "retry_daily_paper_trading", "collect_post_limit_sample"}:
-        result = run_daily_paper_trading_loop(session, provider).model_dump(mode="json")
+    elif action in BACKGROUND_PAPER_ACTIONS:
+        result = run_daily_paper_trading_loop(
+            session,
+            provider,
+            force_new_sample=action == "collect_post_limit_sample",
+        ).model_dump(mode="json")
     else:
         executed = False
+        status = "skipped"
 
     next_plan = get_paper_action_plan(session)
     verb = "Executed" if executed else "No executable default for"
     return PaperActionExecutionPayload(
         executed=executed,
+        status=status,
         action_code=action,
         next_primary_action=next_plan.primary_action,
         result=result,
         summary=f"{verb} primary action {action}; next action {next_plan.primary_action}.",
     )
+
+
+def should_queue_paper_primary_action(action_code: str) -> bool:
+    return action_code in BACKGROUND_PAPER_ACTIONS
+
+
+def queue_paper_primary_action(
+    session: Session,
+    background_tasks: BackgroundTaskQueue,
+) -> PaperActionExecutionPayload:
+    plan = get_paper_action_plan(session)
+    action = plan.primary_action
+    if not should_queue_paper_primary_action(action):
+        return PaperActionExecutionPayload(
+            executed=False,
+            queued=False,
+            status="skipped",
+            action_code=action,
+            next_primary_action=action,
+            result=None,
+            summary=f"Primary action {action} is not a background paper run action.",
+        )
+
+    background_tasks.add_task(_execute_queued_paper_primary_action, action)
+    return PaperActionExecutionPayload(
+        executed=False,
+        queued=True,
+        status="queued",
+        action_code=action,
+        next_primary_action=action,
+        result={"status_url": "/api/mvp/paper-trading/runs"},
+        summary=f"Queued primary action {action}; check paper runs for completion status.",
+    )
+
+
+def _execute_queued_paper_primary_action(action_code: str) -> None:
+    if action_code not in BACKGROUND_PAPER_ACTIONS:
+        return
+
+    settings = get_settings()
+    provider = build_market_data_provider(settings)
+    try:
+        with Session(engine) as session:
+            run_daily_paper_trading_loop(
+                session,
+                provider,
+                force_new_sample=action_code == "collect_post_limit_sample",
+            )
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()

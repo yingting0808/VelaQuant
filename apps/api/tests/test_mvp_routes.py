@@ -2576,15 +2576,34 @@ def test_mvp_paper_action_plan_route_returns_prioritized_actions(monkeypatch):
 
 
 def test_mvp_paper_action_plan_execute_primary_route_runs_safe_default_action(monkeypatch):
+    plan = PaperActionPlanPayload(
+        readiness="ready",
+        primary_action="apply_paper_risk_limit_recommendation",
+        items=[
+            PaperActionPlanItem(
+                priority=2,
+                action_code="apply_paper_risk_limit_recommendation",
+                title="应用 Paper 限额建议",
+                detail="按默认推荐提高模拟盘样本采集容量。",
+                evidence=["rejected=26"],
+            )
+        ],
+        summary="Paper action plan primary action: apply_paper_risk_limit_recommendation.",
+    )
+
     class ExecutePayload:
         def model_dump(self):
             return {
                 "executed": True,
+                "queued": False,
+                "status": "completed",
                 "action_code": "apply_paper_risk_limit_recommendation",
                 "next_primary_action": "collect_post_limit_sample",
+                "result": None,
                 "summary": "Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample.",
             }
 
+    monkeypatch.setattr(mvp, "get_paper_action_plan", lambda session: plan, raising=False)
     monkeypatch.setattr(mvp, "execute_paper_primary_action", lambda session, provider: ExecutePayload(), raising=False)
     client = TestClient(create_app())
 
@@ -2595,6 +2614,57 @@ def test_mvp_paper_action_plan_execute_primary_route_runs_safe_default_action(mo
     assert payload["executed"] is True
     assert payload["action_code"] == "apply_paper_risk_limit_recommendation"
     assert payload["next_primary_action"] == "collect_post_limit_sample"
+
+
+def test_mvp_paper_action_plan_execute_primary_route_queues_long_paper_action(monkeypatch):
+    plan = PaperActionPlanPayload(
+        readiness="ready",
+        primary_action="collect_post_limit_sample",
+        items=[
+            PaperActionPlanItem(
+                priority=2,
+                action_code="collect_post_limit_sample",
+                title="收集新限额样本",
+                detail="等待下一次真实 paper 运行后判断新限额。",
+                evidence=["filled=42"],
+            )
+        ],
+        summary="Paper action plan primary action: collect_post_limit_sample.",
+    )
+    calls = []
+
+    class QueuePayload:
+        def model_dump(self):
+            return {
+                "executed": False,
+                "queued": True,
+                "status": "queued",
+                "action_code": "collect_post_limit_sample",
+                "next_primary_action": "collect_post_limit_sample",
+                "result": {"status_url": "/api/mvp/paper-trading/runs"},
+                "summary": "Queued primary action collect_post_limit_sample.",
+            }
+
+    def queue_action(session, background_tasks):
+        calls.append(background_tasks)
+        return QueuePayload()
+
+    def execute_action(session, provider):
+        raise AssertionError("long paper action should be queued")
+
+    monkeypatch.setattr(mvp, "get_paper_action_plan", lambda session: plan, raising=False)
+    monkeypatch.setattr(mvp, "queue_paper_primary_action", queue_action, raising=False)
+    monkeypatch.setattr(mvp, "execute_paper_primary_action", execute_action, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post("/api/mvp/paper-trading/action-plan/execute-primary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queued"] is True
+    assert payload["status"] == "queued"
+    assert payload["action_code"] == "collect_post_limit_sample"
+    assert len(calls) == 1
 
 
 def test_mvp_paper_market_session_route_explains_effective_trading_day(monkeypatch):

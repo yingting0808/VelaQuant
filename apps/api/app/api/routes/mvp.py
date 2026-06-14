@@ -3,7 +3,7 @@ from dataclasses import asdict
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 
@@ -33,7 +33,11 @@ from app.services.paper_trading import (
 from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.market_calendar import get_market_session_status
 from app.services.paper_action_plan import get_paper_action_plan
-from app.services.paper_action_executor import execute_paper_primary_action
+from app.services.paper_action_executor import (
+    execute_paper_primary_action,
+    queue_paper_primary_action,
+    should_queue_paper_primary_action,
+)
 from app.services.paper_operations import (
     get_paper_operations_history,
     get_paper_operations_status,
@@ -426,10 +430,14 @@ def paper_trading_action_plan(session: Session = Depends(get_session)) -> dict:
 
 @router.post("/paper-trading/action-plan/execute-primary")
 def paper_trading_execute_primary_action(
+    background_tasks: BackgroundTasks,
     provider: MarketDataProvider = Depends(get_market_data_provider),
     session: Session = Depends(get_session),
 ) -> dict:
     try:
+        plan = get_paper_action_plan(session)
+        if should_queue_paper_primary_action(plan.primary_action):
+            return queue_paper_primary_action(session, background_tasks).model_dump()
         return execute_paper_primary_action(session, provider).model_dump()
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

@@ -1017,6 +1017,8 @@ export type PaperActionPlanPayload = {
 
 export type PaperActionExecutionPayload = {
   executed: boolean;
+  queued?: boolean;
+  status?: string;
   action_code: string;
   next_primary_action: string;
   result: Record<string, unknown> | null;
@@ -1864,6 +1866,8 @@ const fallbackPaperActionPlan: PaperActionPlanPayload = {
 
 const fallbackPaperActionExecution: PaperActionExecutionPayload = {
   executed: false,
+  queued: false,
+  status: "skipped",
   action_code: "api_unavailable",
   next_primary_action: "api_unavailable",
   result: null,
@@ -4472,6 +4476,8 @@ function isPaperActionExecutionPayload(value: unknown): value is PaperActionExec
   return (
     isRecord(value) &&
     typeof value.executed === "boolean" &&
+    (value.queued === undefined || typeof value.queued === "boolean") &&
+    (value.status === undefined || typeof value.status === "string") &&
     typeof value.action_code === "string" &&
     typeof value.next_primary_action === "string" &&
     (value.result === null || isRecord(value.result)) &&

@@ -469,6 +469,13 @@ def _event_ledger_ready(session: Session, run_id: UUID, event_count: int) -> boo
     if run is not None and run.status == PaperRunStatus.skipped:
         return all(not chain.integrity_warnings for chain in replay.chains)
     complete_order_chains = [chain for chain in replay.chains if _is_complete_order_chain(chain.topics) and not chain.integrity_warnings]
+    candidate_only_chains = [
+        chain
+        for chain in replay.chains
+        if bool(set(chain.topics) & {"market_event", "strategy_input", "trade_intent"})
+        and not bool(set(chain.topics) & {"risk_decision", "order_state"})
+        and not chain.integrity_warnings
+    ]
     broken_order_chains = [
         chain
         for chain in replay.chains
@@ -477,7 +484,7 @@ def _event_ledger_ready(session: Session, run_id: UUID, event_count: int) -> boo
     ]
     if broken_order_chains:
         return False
-    return bool(complete_order_chains)
+    return bool(complete_order_chains or candidate_only_chains)
 
 
 def _is_complete_order_chain(topics: list[str]) -> bool:

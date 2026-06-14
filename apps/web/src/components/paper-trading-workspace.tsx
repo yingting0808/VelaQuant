@@ -400,7 +400,8 @@ export function PaperTradingWorkspace() {
     setMessage("正在执行首要行动。");
     try {
       const result = await executePaperPrimaryAction();
-      await refreshSummary(result.summary);
+      const nextMessage = result.queued ? `${result.summary} 后台运行中，可在运行记录查看状态。` : result.summary;
+      await refreshSummary(nextMessage);
     } finally {
       setIsExecutingPrimaryAction(false);
     }

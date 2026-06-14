@@ -526,6 +526,29 @@ def test_daily_run_is_idempotent_for_current_trading_day():
         assert {order.id for order in second.orders} == {order.id for order in first.orders}
 
 
+def test_daily_run_can_force_post_limit_sample_after_completed_same_day_run():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        first = run_daily_paper_trading_loop(session, provider, trading_day="2026-06-12")
+        second = run_daily_paper_trading_loop(
+            session,
+            provider,
+            trading_day="2026-06-12",
+            force_new_sample=True,
+        )
+
+        reviews = session.exec(select(PaperReview)).all()
+        runs = session.exec(select(PaperRun).where(PaperRun.trading_day == "2026-06-12")).all()
+        completed_runs = [run for run in runs if run.status == PaperRunStatus.completed]
+        assert len(completed_runs) == 2
+        assert len(reviews) == 2
+        assert first.latest_review is not None
+        assert second.latest_review is not None
+        assert second.latest_review.id != first.latest_review.id
+        assert len(second.orders) >= len(first.orders)
+
+
 def test_daily_run_reruns_when_existing_review_has_no_completed_core_run():
     with make_session() as session:
         workspace = get_or_create_default_workspace(session)

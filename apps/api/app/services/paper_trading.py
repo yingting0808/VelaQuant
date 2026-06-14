@@ -223,6 +223,7 @@ def run_daily_paper_trading_loop(
     trigger: PaperRunTrigger = PaperRunTrigger.manual,
     trading_day: str | None = None,
     account_mode: PaperTradingMode = PaperTradingMode.paper,
+    force_new_sample: bool = False,
 ) -> PaperTradingSummary:
     workspace = get_or_create_default_workspace(session)
     account = _get_or_create_account(session, workspace.team.id, mode=account_mode)
@@ -232,8 +233,12 @@ def run_daily_paper_trading_loop(
     if running_run is not None:
         raise ValueError(f"Paper trading run is already running for {resolved_trading_day}.")
     existing_review = _review_for_trading_day(session, account, resolved_trading_day)
-    if existing_review is not None and _has_completed_core_run_for_trading_day(
-        session, account, resolved_trading_day
+    if (
+        not force_new_sample
+        and existing_review is not None
+        and _has_completed_core_run_for_trading_day(
+            session, account, resolved_trading_day
+        )
     ):
         _mark_positions_to_market(session, account, provider)
         session.commit()

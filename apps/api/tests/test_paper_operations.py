@@ -113,7 +113,7 @@ def test_operations_status_blocks_completed_review_with_broken_event_chain():
         assert status.recommended_action == "repair_event_ledger"
 
 
-def test_operations_status_blocks_trade_intent_chain_without_order_state():
+def test_operations_status_treats_trade_intent_only_chain_as_replayable():
     with make_session() as session:
         team, account = _team_and_account(session)
         review = _review(account, TRADING_DAY)
@@ -126,11 +126,11 @@ def test_operations_status_blocks_trade_intent_chain_without_order_state():
         status = get_paper_operations_status(session, team_id=team.id, trading_day=TRADING_DAY)
 
         assert status.run_state == "completed"
-        assert status.health_status == "blocked"
-        assert status.event_ledger_ready is False
+        assert status.health_status == "ready"
+        assert status.event_ledger_ready is True
         assert status.latest_run_event_count == 3
-        assert status.blockers == ["event_ledger_not_replayable"]
-        assert status.recommended_action == "repair_event_ledger"
+        assert status.blockers == []
+        assert status.recommended_action == "hold_until_next_session"
 
 
 def test_operations_status_ignores_future_trading_day_runs_for_latest_baseline():

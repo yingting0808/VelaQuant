@@ -36,6 +36,32 @@ The system is designed to prove paper-trading expectancy and execution disciplin
 
 系统设计目标是在进入 live-small 前，先证明模拟盘净期望、执行纪律和风控链路稳定。
 
+## Current Verified Progress / 当前已验证进度
+
+Runtime-verified on Docker Compose as of 2026-06-14:
+
+截至 2026-06-14，已在 Docker Compose 运行态验证：
+
+- API, web, PostgreSQL, and Redis run together through Docker Compose.
+- `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
+- `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
+- Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
+- Latest verified paper run: `56ecff01-3896-4fe8-a608-5e7a84096339`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
+- Latest operations status: `ready`, no runtime blockers, event ledger ready.
+- Latest Alpha gate state: 5/9 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
+- Current recommended action after the verified run: apply the next paper-only risk-limit recommendation (`max_daily_orders 9 -> 10`); live limits remain unchanged.
+
+中文对应事实：
+
+- API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
+- `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
+- `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
+- 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
+- 最新已验证 paper run：`56ecff01-3896-4fe8-a608-5e7a84096339`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
+- 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
+- 最新 Alpha 门禁：5/9 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
+- 当前推荐动作：应用下一次仅限 Paper 的风险限额建议（`max_daily_orders 9 -> 10`）；live 限额不变。
+
 ## Architecture / 系统架构
 
 ```text
@@ -252,6 +278,10 @@ Run a focused paper action:
 ```powershell
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/mvp/paper-trading/action-plan/execute-primary
 ```
+
+Quick actions return `status: completed`. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
+
+快速动作返回 `status: completed`。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
 
 Run a Strategy Lab backtest:
 
