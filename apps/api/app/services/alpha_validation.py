@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
 from app.domain.models import CoreEventLog, PaperOrder, PaperOrderSide, PaperOrderStatus, PaperReview, PaperRun
-from app.services.lean_backtest import read_latest_backtest
+from app.services.lean_backtest import read_backtest_history, read_latest_backtest
 from app.services.market_calendar import current_market_trading_day
 from app.services.strategy_event_filters import filter_strategy_trade_events
 from app.services.workspace import get_or_create_default_workspace
@@ -177,7 +177,19 @@ def _blockers(
 
 def _has_real_market_backtest(strategy_id: str) -> bool:
     latest = read_latest_backtest()
-    return latest is not None and latest.strategy_id == strategy_id and latest.uses_real_market_data
+    if (
+        latest is not None
+        and latest.strategy_id == strategy_id
+        and latest.status == "success"
+        and latest.uses_real_market_data
+    ):
+        return True
+    return any(
+        item.strategy_id == strategy_id
+        and item.status == "success"
+        and item.uses_real_market_data
+        for item in read_backtest_history()
+    )
 
 
 def _consecutive_positive_expectancy_days(reviews: list[PaperReview]) -> int:

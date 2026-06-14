@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlmodel import Session, SQLModel, create_engine
@@ -16,6 +17,52 @@ from app.domain.models import (
     Team,
 )
 from app.services.alpha_validation import build_alpha_validation, get_alpha_validation
+
+
+def test_alpha_validation_real_market_backtest_gate_reads_strategy_history(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.alpha_validation.read_latest_backtest",
+        lambda: _backtest_result(
+            strategy_id="moving_average_cross",
+            status="success",
+            uses_real_market_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.alpha_validation.read_backtest_history",
+        lambda: [
+            _backtest_result(
+                strategy_id="moving_average_cross",
+                status="success",
+                uses_real_market_data=True,
+            ),
+            _backtest_result(
+                strategy_id="deterministic_watchlist_v1",
+                status="success",
+                uses_real_market_data=True,
+            ),
+        ],
+        raising=False,
+    )
+
+    payload = build_alpha_validation(
+        reviews=[
+            _review("2026-06-08", expectancy=0.8, equity=100100),
+            _review("2026-06-09", expectancy=1.1, equity=100250),
+            _review("2026-06-10", expectancy=1.3, equity=100460),
+            _review("2026-06-11", expectancy=1.0, equity=100620),
+            _review("2026-06-12", expectancy=1.4, equity=100900),
+        ],
+        orders=_orders(filled=34, closed=12),
+        event_chain_count=50,
+        has_real_market_backtest=__import__(
+            "app.services.alpha_validation",
+            fromlist=["_has_real_market_backtest"],
+        )._has_real_market_backtest("deterministic_watchlist_v1"),
+    )
+
+    assert payload.has_real_market_backtest is True
+    assert "real_market_backtest" not in payload.blockers
 
 
 def test_alpha_validation_blocks_without_consecutive_positive_reviews():
@@ -513,6 +560,15 @@ def _orders(*, filled: int, closed: int) -> list[PaperOrder]:
             )
         )
     return orders
+
+
+def _backtest_result(*, strategy_id: str, status: str, uses_real_market_data: bool):
+    return SimpleNamespace(
+        run_id=f"run-{strategy_id}-{status}",
+        strategy_id=strategy_id,
+        status=status,
+        uses_real_market_data=uses_real_market_data,
+    )
 
 
 def make_session() -> Session:
