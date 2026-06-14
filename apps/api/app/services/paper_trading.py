@@ -680,7 +680,8 @@ def _generate_candidates(
         evidence = provider.get_research_evidence(ticker)
         evidence_count = len(evidence)
         diversification_bonus = 0.15 if ticker not in portfolio_tickers else 0.0
-        score = _candidate_score(evidence_count, diversification_bonus)
+        base_score = _candidate_score(evidence_count, diversification_bonus)
+        score = base_score
         event = _market_event_from_evidence(
             ticker=ticker,
             quote_price=float(quote.price),
@@ -732,6 +733,8 @@ def _generate_candidates(
                 evidence_count=evidence_count,
                 quote_source=quote.source,
                 diversification_bonus=diversification_bonus,
+                base_score=base_score,
+                final_score=score,
             ),
             causation_id=trade_intent_envelope.event_id,
             correlation_id=trade_intent_envelope.correlation_id,
@@ -1066,12 +1069,16 @@ def _trade_explanation_event(
     evidence_count: int | None = None,
     quote_source: str | None = None,
     diversification_bonus: float | None = None,
+    base_score: float | None = None,
+    final_score: float | None = None,
 ) -> TradeExplanationEvent:
     evidence = _trade_explanation_evidence(
         item,
         evidence_count=evidence_count,
         quote_source=quote_source,
         diversification_bonus=diversification_bonus,
+        base_score=base_score,
+        final_score=final_score,
     )
     return TradeExplanationEvent(
         ticker=candidate.ticker,
@@ -1093,11 +1100,18 @@ def _trade_explanation_evidence(
     evidence_count: int | None,
     quote_source: str | None,
     diversification_bonus: float | None,
+    base_score: float | None,
+    final_score: float | None,
 ) -> list[str]:
+    normalized_base_score = base_score or 0.0
+    normalized_final_score = final_score if final_score is not None else normalized_base_score
     evidence = [
         f"evidence_count={evidence_count if evidence_count is not None else 0}",
         f"quote_source={quote_source or 'unknown'}",
         f"diversification_bonus={diversification_bonus or 0:.2f}",
+        f"base_score={normalized_base_score:.2f}",
+        f"backtest_score={normalized_final_score - normalized_base_score:.2f}",
+        f"final_score={normalized_final_score:.2f}",
     ]
     if item is not None:
         evidence.extend([item.reason, _backtest_metric_summary(item), f"source={item.data_source or 'unknown'}"])

@@ -395,6 +395,9 @@ def test_daily_run_records_trade_explanations_for_candidates_without_backtests(m
         assert "3 条证据支持继续跟踪 NVDA" in nvda_payload["explanation"]
         assert "evidence_count=3" in nvda_payload["evidence"]
         assert "quote_source=fixture" in nvda_payload["evidence"]
+        assert "base_score=0.85" in nvda_payload["evidence"]
+        assert "backtest_score=0.00" in nvda_payload["evidence"]
+        assert "final_score=0.85" in nvda_payload["evidence"]
         assert nvda_payload["backtest"] == {}
         nvda_event = next(event for event in explanation_events if json.loads(event.payload_json)["ticker"] == "NVDA")
         trade_intent_event = session.exec(
