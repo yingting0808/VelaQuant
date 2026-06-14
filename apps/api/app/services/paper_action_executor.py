@@ -60,6 +60,15 @@ def execute_paper_primary_action(
         scheduler = get_paper_scheduler_status().model_dump(mode="json")
         hold_detail = plan.items[0].detail if plan.items else "Waiting for the next scheduled paper run."
         result = {"reason": hold_detail, "scheduler": scheduler}
+    elif action == "review_score_pnl_inversion":
+        executed = False
+        status = "review_required"
+        review_item = next((item for item in plan.items if item.action_code == action), None)
+        result = {
+            "title": review_item.title if review_item is not None else "复盘评分背离",
+            "detail": review_item.detail if review_item is not None else "评分方向与观测盈亏存在反向，需要人工复盘。",
+            "evidence": review_item.evidence if review_item is not None else [],
+        }
     elif action in BACKGROUND_PAPER_ACTIONS:
         result = run_daily_paper_trading_loop(
             session,
@@ -73,9 +82,13 @@ def execute_paper_primary_action(
     next_plan = get_paper_action_plan(session)
     if status == "waiting":
         verb = "Holding"
+    elif status == "review_required":
+        verb = "Marked"
     else:
         verb = "Executed" if executed else "No executable default for"
     suffix = " waiting for the next scheduled paper run" if status == "waiting" else ""
+    if status == "review_required":
+        suffix = " manual review required"
     return PaperActionExecutionPayload(
         executed=executed,
         status=status,

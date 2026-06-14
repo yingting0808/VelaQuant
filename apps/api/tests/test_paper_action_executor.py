@@ -136,6 +136,36 @@ def test_execute_primary_action_hold_until_next_session_returns_waiting_schedule
         assert "waiting for the next scheduled paper run" in result.summary
 
 
+def test_execute_primary_action_score_pnl_inversion_returns_review_required(monkeypatch):
+    plan = SimpleNamespace(
+        primary_action="review_score_pnl_inversion",
+        items=[
+            SimpleNamespace(
+                action_code="review_score_pnl_inversion",
+                title="复盘评分背离",
+                detail="检测到 AMZN 的候选评分方向与观测盈亏相反。",
+                evidence=["inverted_tickers=AMZN"],
+            )
+        ],
+    )
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", lambda session: plan)
+
+    with make_session() as session:
+        result = execute_paper_primary_action(session, MockMarketDataProvider())
+
+        assert result.executed is False
+        assert result.status == "review_required"
+        assert result.action_code == "review_score_pnl_inversion"
+        assert result.next_primary_action == "review_score_pnl_inversion"
+        assert result.result == {
+            "title": "复盘评分背离",
+            "detail": "检测到 AMZN 的候选评分方向与观测盈亏相反。",
+            "evidence": ["inverted_tickers=AMZN"],
+        }
+        assert "manual review required" in result.summary
+
+
 def test_queue_primary_action_collects_post_limit_sample_without_blocking(monkeypatch):
     class CapturingTasks:
         def __init__(self):

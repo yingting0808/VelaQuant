@@ -164,6 +164,28 @@ def test_paper_action_plan_does_not_reopen_daily_limit_review_after_clear_post_l
     assert all(item.action_code != "collect_post_limit_sample" for item in plan.items)
 
 
+def test_paper_action_plan_prioritizes_score_pnl_inversion_review():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("score_pnl_inversion_review", "评分盈亏反向", 1, 0, 1, "项", comparison="at_most"),
+                _gate("review_day_sample", "复盘天数", 1, 5, 4, "天"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        inverted_score_pnl_tickers=["AMZN"],
+    )
+
+    assert plan.primary_action == "review_score_pnl_inversion"
+    assert plan.items[0].action_code == "review_score_pnl_inversion"
+    assert plan.items[0].title == "复盘评分背离"
+    assert "AMZN" in plan.items[0].detail
+    assert "inverted_tickers=AMZN" in plan.items[0].evidence
+    assert any(item.action_code == "continue_paper_validation" for item in plan.items)
+
+
 def test_paper_action_plan_holds_after_current_alpha_snapshot_is_recorded():
     plan = build_paper_action_plan(
         operations=_operations(blockers=[], health_status="ready"),
@@ -372,7 +394,16 @@ def _scheduler_status() -> PaperSchedulerStatus:
     )
 
 
-def _gate(gate: str, label: str, current: float, required: float, remaining: float, unit: str) -> AlphaGateProgressItem:
+def _gate(
+    gate: str,
+    label: str,
+    current: float,
+    required: float,
+    remaining: float,
+    unit: str,
+    *,
+    comparison: str = "at_least",
+) -> AlphaGateProgressItem:
     return AlphaGateProgressItem(
         gate=gate,
         label=label,
@@ -380,7 +411,7 @@ def _gate(gate: str, label: str, current: float, required: float, remaining: flo
         required=required,
         remaining=remaining,
         unit=unit,
-        comparison="at_least",
+        comparison=comparison,
         passed=False,
     )
 

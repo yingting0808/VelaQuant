@@ -13,6 +13,7 @@ from app.services.paper_operations import PaperOperationsStatusPayload, get_pape
 from app.services.paper_review_trend import PaperReviewTrendPayload, get_paper_review_trend
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload, get_paper_risk_limit_review
 from app.services.paper_risk_profile import PaperRiskProfilePayload, get_paper_risk_profile
+from app.services.strategy_attribution import attribute_current_paper_strategy
 from app.services.workspace import get_or_create_default_workspace
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
 
     team_id = get_or_create_default_workspace(session).team.id
     snapshots = get_alpha_validation_snapshots(session, team_id=team_id, limit=1)
+    attribution = attribute_current_paper_strategy(session, team_id=team_id)
     return build_paper_action_plan(
         operations=get_paper_operations_status(session, team_id=team_id),
         alpha_gates=get_alpha_gate_progress(session, team_id=team_id),
@@ -53,6 +55,9 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
         alpha_forecast=get_alpha_validation_forecast(session, team_id=team_id),
         scheduler=get_paper_scheduler_status(),
         latest_alpha_snapshot_trading_day=snapshots.latest.trading_day if snapshots.latest is not None else None,
+        inverted_score_pnl_tickers=[
+            item.ticker for item in attribution.ticker_diagnostics if item.score_pnl_alignment == "inverted"
+        ],
     )
 
 
@@ -67,6 +72,7 @@ def build_paper_action_plan(
     alpha_forecast: AlphaValidationForecastPayload | None = None,
     scheduler: PaperSchedulerStatus | None = None,
     latest_alpha_snapshot_trading_day: str | None = None,
+    inverted_score_pnl_tickers: list[str] | None = None,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
     if "legacy_manual_future_runs_detected" in operations.data_quality_warnings:
@@ -99,6 +105,28 @@ def build_paper_action_plan(
             )
         )
 
+    open_gates = [item for item in alpha_gates.items if not item.passed]
+    score_pnl_gate = _gate(open_gates, "score_pnl_inversion_review")
+    if score_pnl_gate is not None:
+        tickers = sorted(inverted_score_pnl_tickers or [])
+        ticker_text = ", ".join(tickers) if tickers else f"{score_pnl_gate.remaining:g} 项"
+        items.append(
+            PaperActionPlanItem(
+                priority=2,
+                action_code="review_score_pnl_inversion",
+                title="复盘评分背离",
+                detail=(
+                    f"检测到 {ticker_text} 的候选评分方向与观测盈亏相反；"
+                    "先复盘候选评分权重、证据方向和退出规则，暂不把该信号视为可验证 Alpha。"
+                ),
+                evidence=[
+                    alpha_gates.summary,
+                    f"score_pnl_inversion_remaining={score_pnl_gate.remaining:g}",
+                    f"inverted_tickers={','.join(tickers) if tickers else 'unknown'}",
+                ],
+            )
+        )
+
     latest_review = review_trend.items[0] if review_trend is not None and review_trend.items else None
     if latest_review is not None and latest_review.daily_pnl < 0:
         items.append(
@@ -119,7 +147,6 @@ def build_paper_action_plan(
             )
         )
 
-    open_gates = [item for item in alpha_gates.items if not item.passed]
     closed_trade_gate = _gate(open_gates, "closed_trade_sample")
     filled_order_gate = _gate(open_gates, "filled_order_sample")
     awaiting_post_limit_sample = (
