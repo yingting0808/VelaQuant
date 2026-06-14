@@ -53,7 +53,6 @@ from app.trading_core.strategy import TradeIntent, TradeIntentSide
 DEFAULT_ACCOUNT_NAME = "默认模拟盘"
 DEFAULT_STARTING_CASH = 100000.0
 DEFAULT_CANDIDATE_NOTIONAL = 2000.0
-DEFAULT_DAILY_AUTO_ORDER_LIMIT = 1
 DEFAULT_EXIT_TAKE_PROFIT_PCT = 0.10
 DEFAULT_EXIT_STOP_LOSS_PCT = -0.05
 MANUAL_OVERRIDE_STRATEGY_SUFFIX = ":manual_override"
@@ -757,7 +756,9 @@ def _auto_submit_candidate_orders(
             .order_by(PaperCandidate.rank)
         ).all()
     )
-    for candidate in candidates[:DEFAULT_DAILY_AUTO_ORDER_LIMIT]:
+    risk_limits = _paper_risk_limits(session, team_id=account.team_id, mode=account.mode)
+    remaining_order_capacity = max(0, risk_limits.max_daily_orders - _orders_today(session, account, trading_day=trading_day))
+    for candidate in candidates[:remaining_order_capacity]:
         if candidate.action != PaperOrderSide.buy or candidate.proposed_quantity <= 0:
             continue
         context = (core_contexts or {}).get(candidate.id)
@@ -939,7 +940,7 @@ def _paper_portfolio_state(
 
 
 def _orders_today(session: Session, account: PaperAccount, trading_day: str | None = None) -> int:
-    day = trading_day or _current_trading_day()
+    day = trading_day or utc_now().date().isoformat()
     return len(
         [
             order
@@ -1352,7 +1353,7 @@ def _summary_payload(
     *,
     as_of_trading_day: str | None = None,
 ) -> PaperTradingSummary:
-    as_of_trading_day = as_of_trading_day or _current_trading_day()
+    as_of_trading_day = as_of_trading_day or utc_now().date().isoformat()
     candidates = list(
         session.exec(
             select(PaperCandidate).where(PaperCandidate.team_id == account.team_id).order_by(PaperCandidate.rank)

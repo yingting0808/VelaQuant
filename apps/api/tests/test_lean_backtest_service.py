@@ -501,6 +501,32 @@ def test_run_lean_backtest_uses_vectorbt_fallback_when_status_is_vectorbt_ready(
     assert "LEAN missing" in result.logs
 
 
+def test_run_lean_backtest_uses_vectorbt_fallback_when_lean_command_fails(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        return CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="Error: This command requires a Lean configuration file",
+        )
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+        market_data_provider=EmptyHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.engine == "vectorbt"
+    assert "LEAN backtest returned exit code 1; vectorbt fallback executed." in result.logs
+    assert "This command requires a Lean configuration file" in " ".join(result.logs)
+
+
 def test_run_lean_backtest_marks_vectorbt_provider_history_as_real_market_data(tmp_path: Path):
     catalog = write_catalog(tmp_path)
     runtime_root = tmp_path / "runtime"

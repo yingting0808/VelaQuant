@@ -401,6 +401,21 @@ def run_lean_backtest(
 
     logs = _tail_lines(completed.stdout, completed.stderr)
     if completed.returncode != 0:
+        if enable_vectorbt_fallback and _lean_failure_allows_vectorbt_fallback(logs):
+            return _run_vectorbt_fallback(
+                strategy=strategy,
+                run_id=run_id,
+                started_at=started_at,
+                parameters=parameters,
+                output_dir=output_dir,
+                readiness=readiness,
+                runtime_root=runtime_root,
+                market_data_provider=market_data_provider,
+                extra_logs=[
+                    f"LEAN backtest returned exit code {completed.returncode}; vectorbt fallback executed.",
+                    *logs,
+                ],
+            )
         result = _empty_result(
             run_id=run_id,
             strategy_id=strategy.id,
@@ -420,6 +435,15 @@ def run_lean_backtest(
     return parsed
 
 
+def _lean_failure_allows_vectorbt_fallback(logs: list[str]) -> bool:
+    joined = "\n".join(logs).lower()
+    return (
+        "requires a lean configuration file" in joined
+        or "--lean-config" in joined
+        or "lean init" in joined
+    )
+
+
 def _run_vectorbt_fallback(
     *,
     strategy: StrategyDefinition,
@@ -430,6 +454,7 @@ def _run_vectorbt_fallback(
     readiness: StrategyLabStatus,
     runtime_root: Path,
     market_data_provider: object | None,
+    extra_logs: list[str] | None = None,
 ) -> BacktestResult:
     from app.services.vectorbt_backtest import run_vectorbt_backtest
 
@@ -439,7 +464,7 @@ def _run_vectorbt_fallback(
         started_at=started_at,
         parameters=parameters,
         output_dir=output_dir,
-        readiness_logs=[tool.message for tool in readiness.tools if not tool.available],
+        readiness_logs=[tool.message for tool in readiness.tools if not tool.available] + (extra_logs or []),
         market_data_provider=market_data_provider,
     )
     _save_result(result, runtime_root)

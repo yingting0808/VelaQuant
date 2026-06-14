@@ -231,6 +231,28 @@ def test_daily_run_creates_account_candidates_and_review():
         assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
 
 
+def test_daily_run_uses_active_paper_risk_order_capacity_for_candidate_collection():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        session.add(
+            PaperRiskSetting(
+                team_id=workspace.team.id,
+                max_daily_orders=3,
+                source="sample_collection_test",
+            )
+        )
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
+
+        ordered_candidates = [candidate for candidate in summary.candidates if candidate.status == "ordered"]
+        filled_buy_orders = [order for order in summary.orders if order.side == "buy" and order.status == "filled"]
+
+        assert len(ordered_candidates) == 3
+        assert len(filled_buy_orders) == 3
+        assert [candidate.rank for candidate in ordered_candidates] == [1, 2, 3]
+
+
 def test_daily_run_prioritizes_real_backtest_candidate(monkeypatch):
     calls: list[dict[str, object]] = []
 
@@ -341,7 +363,7 @@ def test_daily_run_auto_exits_profitable_open_position_before_review():
 
 def test_daily_run_persists_core_order_state_events_for_run():
     with make_session() as session:
-        run_daily_paper_trading_loop(session, FixtureProvider())
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
 
         run = session.exec(select(PaperRun)).one()
         events = list(
@@ -351,16 +373,16 @@ def test_daily_run_persists_core_order_state_events_for_run():
                 .order_by(CoreEventLog.sequence)
             ).all()
         )
+        states_by_correlation: dict[str, list[str]] = {}
+        for event in events:
+            states_by_correlation.setdefault(event.correlation_id, []).append(json.loads(event.payload_json)["state"])
 
-        assert [json.loads(event.payload_json)["state"] for event in events] == [
-            "new",
-            "validated",
-            "risk_approved",
-            "sent",
-            "filled",
-        ]
+        assert len(states_by_correlation) == len(summary.orders)
+        assert all(
+            states == ["new", "validated", "risk_approved", "sent", "filled"]
+            for states in states_by_correlation.values()
+        )
         assert all(event.team_id == run.team_id for event in events)
-        assert len({event.correlation_id for event in events}) == 1
 
 
 def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
@@ -374,11 +396,17 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
             for event in events
             if event.topic == "order_state"
         }
-        selected_chain = [
-            event
-            for event in events
-            if event.correlation_id in order_correlations
-        ]
+        selected_correlation = next(
+            correlation_id
+            for correlation_id in order_correlations
+            if any(
+                event.correlation_id == correlation_id
+                and event.topic == "trade_intent"
+                and json.loads(event.payload_json)["ticker"] == summary.orders[0].ticker
+                for event in events
+            )
+        )
+        selected_chain = [event for event in events if event.correlation_id == selected_correlation]
 
         assert [event.topic for event in selected_chain] == [
             "market_event",
@@ -408,20 +436,21 @@ def test_daily_run_persists_full_core_pipeline_events_for_selected_order():
 
 def test_list_paper_run_events_returns_persisted_core_events():
     with make_session() as session:
-        run_daily_paper_trading_loop(session, FixtureProvider())
+        summary = run_daily_paper_trading_loop(session, FixtureProvider())
         run = session.exec(select(PaperRun)).one()
 
         events = list_paper_run_events(session, run.id)
         order_events = [event for event in events if event.topic == "order_state"]
+        states_by_correlation: dict[str, list[str]] = {}
+        for event in order_events:
+            states_by_correlation.setdefault(event.correlation_id, []).append(json.loads(event.payload_json)["state"])
 
-        assert [event.topic for event in order_events] == ["order_state"] * 5
-        assert [json.loads(event.payload_json)["state"] for event in order_events] == [
-            "new",
-            "validated",
-            "risk_approved",
-            "sent",
-            "filled",
-        ]
+        assert len(order_events) == len(summary.orders) * 5
+        assert all(event.topic == "order_state" for event in order_events)
+        assert all(
+            states == ["new", "validated", "risk_approved", "sent", "filled"]
+            for states in states_by_correlation.values()
+        )
 
 
 def test_event_ledger_status_replays_latest_completed_run_chain():
@@ -446,7 +475,7 @@ def test_event_ledger_status_replays_latest_completed_run_chain():
             "risk_decision",
             "order_state",
         }
-        assert selected_chain.ticker == summary.orders[0].ticker
+        assert selected_chain.ticker in {order.ticker for order in summary.orders}
         assert selected_chain.topics == [
             "market_event",
             "strategy_input",
@@ -490,11 +519,11 @@ def test_daily_run_is_idempotent_for_current_trading_day():
         orders = session.exec(select(PaperOrder)).all()
         reviews = session.exec(select(PaperReview)).all()
         runs = session.exec(select(PaperRun).order_by(PaperRun.started_at)).all()
-        assert len(orders) == 1
+        assert len(orders) == len(first.orders)
         assert len(reviews) == 1
         assert [run.status for run in runs] == [PaperRunStatus.completed]
         assert second.account.cash == first.account.cash
-        assert second.orders[0].id == first.orders[0].id
+        assert {order.id for order in second.orders} == {order.id for order in first.orders}
 
 
 def test_daily_run_reruns_when_existing_review_has_no_completed_core_run():
@@ -702,6 +731,25 @@ def test_buy_order_fills_and_updates_cash_and_position():
         assert summary.positions[0].quantity == 2
         assert summary.positions[0].average_cost == 100.0
         assert summary.positions[0].unrealized_pnl == 0.0
+
+
+def test_summary_without_as_of_includes_manual_orders_after_latest_market_session(monkeypatch):
+    monkeypatch.setattr(paper_trading, "_current_trading_day", lambda: "2026-06-12")
+    monkeypatch.setattr(
+        paper_trading,
+        "utc_now",
+        lambda: datetime(2026, 6, 14, 11, 0, tzinfo=timezone.utc),
+    )
+
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        summary = get_paper_trading_summary(session, provider)
+
+        assert summary.account.cash == 99800.0
+        assert [order.ticker for order in summary.orders] == ["AAPL"]
+        assert [position.ticker for position in summary.positions] == ["AAPL"]
 
 
 def test_manual_order_rejects_unregistered_strategy():
@@ -924,6 +972,34 @@ def test_submit_paper_order_uses_paper_risk_setting_daily_order_limit():
         assert [order.status for order in filled_orders] == ["filled"] * 6
         assert rejected.status == "rejected"
         assert rejected.risk_code == "max_daily_orders"
+
+
+def test_manual_daily_order_limit_counts_orders_after_latest_market_session(monkeypatch):
+    monkeypatch.setattr(paper_trading, "_current_trading_day", lambda: "2026-06-12")
+    monkeypatch.setattr(
+        paper_trading,
+        "utc_now",
+        lambda: datetime(2026, 6, 14, 11, 0, tzinfo=timezone.utc),
+    )
+
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        session.add(
+            PaperRiskSetting(
+                team_id=workspace.team.id,
+                max_daily_orders=1,
+                source="manual_order_limit_test",
+            )
+        )
+        session.commit()
+        provider = FixtureProvider()
+
+        first = submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=1))
+        second = submit_paper_order(session, provider, PaperOrderCreate(ticker="MSFT", side="buy", quantity=1))
+
+        assert first.status == "filled"
+        assert second.status == "rejected"
+        assert second.risk_code == "max_daily_orders"
 
 
 def test_paper_trading_summary_filters_future_orders_for_as_of_trading_day():

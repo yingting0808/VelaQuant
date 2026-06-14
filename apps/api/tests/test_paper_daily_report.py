@@ -21,8 +21,8 @@ def test_paper_daily_report_summarizes_runtime_facts_after_daily_run():
         assert report.health_status == "ready"
         assert report.recommended_action == "hold_until_next_session"
         assert report.candidate_count > 0
-        assert report.order_count == 1
-        assert report.open_position_count == 1
+        assert report.order_count > 1
+        assert report.open_position_count == report.order_count
         assert report.account_equity == 100000
         assert report.event_ledger_ready is True
         assert report.alpha_ready is False
