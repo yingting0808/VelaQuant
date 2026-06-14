@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
-from app.domain.models import PaperRun
+from app.domain.models import PaperRun, PaperRunTrigger
 from app.data.providers.base import MarketDataProvider
 from app.services.alpha_validation import get_alpha_validation
 from app.services.event_ledger import get_event_ledger_status
@@ -84,7 +84,11 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
 
 
 def _data_quality_warnings(session: Session, trading_day: str) -> list[str]:
-    future_run = session.exec(select(PaperRun).where(PaperRun.trading_day > trading_day)).first()
+    future_run = session.exec(
+        select(PaperRun)
+        .where(PaperRun.trading_day > trading_day)
+        .where(PaperRun.trigger != PaperRunTrigger.simulation)
+    ).first()
     if future_run is None:
         return []
     return ["future_runs_excluded_from_as_of_report"]

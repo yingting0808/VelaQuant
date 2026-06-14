@@ -73,6 +73,30 @@ def test_paper_daily_report_ignores_future_simulation_reviews(monkeypatch):
         assert "49.80" not in report.summary
 
 
+def test_paper_daily_report_does_not_warn_for_quarantined_future_simulation_runs(monkeypatch):
+    monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-13")
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        run_daily_paper_trading_loop(session, provider, trading_day="2026-06-13")
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperRun(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-30",
+                trigger=PaperRunTrigger.simulation,
+                status=PaperRunStatus.completed,
+            )
+        )
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.trading_day == "2026-06-13"
+        assert "future_runs_excluded_from_as_of_report" not in report.data_quality_warnings
+
+
 def test_paper_daily_report_includes_latest_daily_pnl(monkeypatch):
     monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-13")
 
