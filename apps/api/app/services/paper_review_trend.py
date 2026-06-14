@@ -66,8 +66,8 @@ def get_paper_review_trend(
     latest = reviews[0] if reviews else None
     latest_expectancy = round(latest.expectancy, 2) if latest is not None else 0
     latest_readiness = latest.readiness.value if latest is not None else PaperReadiness.collecting.value
-    total_realized_pnl = round(sum(review.realized_pnl for review in reviews), 2)
-    total_unrealized_pnl = round(sum(review.unrealized_pnl for review in reviews), 2)
+    total_realized_pnl = round(latest.realized_pnl, 2) if latest is not None else 0.0
+    total_unrealized_pnl = round(latest.unrealized_pnl, 2) if latest is not None else 0.0
     return PaperReviewTrendPayload(
         sample_size=sample_size,
         positive_expectancy_days=positive_days,

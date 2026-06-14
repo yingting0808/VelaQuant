@@ -84,6 +84,46 @@ def test_paper_review_trend_uses_latest_review_per_trading_day():
         assert trend.items[0].expectancy == 2.0
 
 
+def test_paper_review_trend_reports_latest_cumulative_pnl_without_double_counting():
+    with make_session() as session:
+        team = Team(name="Cumulative PnL")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+        account = PaperAccount(team_id=team.id, name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        session.add(
+            _review(
+                account,
+                "2026-06-12",
+                expectancy=1.0,
+                equity=100500,
+                readiness=PaperReadiness.watch,
+                realized_pnl=100,
+                unrealized_pnl=20,
+            )
+        )
+        session.add(
+            _review(
+                account,
+                "2026-06-13",
+                expectancy=1.3,
+                equity=100780,
+                readiness=PaperReadiness.watch,
+                realized_pnl=130,
+                unrealized_pnl=50,
+            )
+        )
+        session.commit()
+
+        trend = get_paper_review_trend(session, team_id=team.id, limit=10)
+
+        assert trend.total_realized_pnl == 130
+        assert trend.total_unrealized_pnl == 50
+
+
 def test_paper_review_trend_ignores_future_reviews_for_as_of_baseline():
     with make_session() as session:
         team = Team(name="As Of Trend")
@@ -118,6 +158,8 @@ def _review(
     expectancy: float,
     equity: float,
     readiness: PaperReadiness,
+    realized_pnl: float = 10,
+    unrealized_pnl: float = 20,
 ) -> PaperReview:
     return PaperReview(
         id=uuid4(),
@@ -126,8 +168,8 @@ def _review(
         trading_day=trading_day,
         equity=equity,
         cash=90000,
-        realized_pnl=10,
-        unrealized_pnl=20,
+        realized_pnl=realized_pnl,
+        unrealized_pnl=unrealized_pnl,
         trade_count=1,
         win_rate=0.5,
         average_win=20,
