@@ -17,6 +17,17 @@ class EventLedgerTopicCount(BaseModel):
     count: int
 
 
+class EventLedgerTradeExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticker: str | None = None
+    strategy_id: str | None = None
+    decision: str | None = None
+    explanation: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    backtest: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+
 class EventLedgerReplayChain(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -27,6 +38,7 @@ class EventLedgerReplayChain(BaseModel):
     terminal_state: str | None
     event_count: int
     integrity_warnings: list[str] = Field(default_factory=list)
+    trade_explanation: EventLedgerTradeExplanation | None = None
 
 
 class EventLedgerReplay(BaseModel):
@@ -155,6 +167,7 @@ def _replay_from_events(run_id: UUID, events: list[CoreEventLog]) -> EventLedger
                 order_states=order_states,
                 terminal_state=order_states[-1] if order_states else None,
                 event_count=len(ordered_events),
+                trade_explanation=_chain_trade_explanation(ordered_events),
                 integrity_warnings=_chain_integrity_warnings(
                     ordered_events,
                     event_ids=event_ids,
@@ -314,6 +327,28 @@ def _event_state(event: CoreEventLog) -> str | None:
     if isinstance(current_state, str) and current_state:
         return current_state
     return None
+
+
+def _chain_trade_explanation(events: list[CoreEventLog]) -> EventLedgerTradeExplanation | None:
+    for event in reversed(events):
+        if event.topic != "trade_explanation":
+            continue
+        payload = _event_payload(event)
+        evidence = payload.get("evidence")
+        backtest = payload.get("backtest")
+        return EventLedgerTradeExplanation(
+            ticker=_optional_str(payload.get("ticker")),
+            strategy_id=_optional_str(payload.get("strategy_id")),
+            decision=_optional_str(payload.get("decision")),
+            explanation=_optional_str(payload.get("explanation")),
+            evidence=[item for item in evidence if isinstance(item, str)] if isinstance(evidence, list) else [],
+            backtest=backtest if isinstance(backtest, dict) else {},
+        )
+    return None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _event_payload(event: CoreEventLog) -> dict:

@@ -1061,6 +1061,15 @@ export type EventLedgerTopicCountPayload = {
   count: number;
 };
 
+export type EventLedgerTradeExplanationPayload = {
+  ticker: string | null;
+  strategy_id: string | null;
+  decision: string | null;
+  explanation: string | null;
+  evidence: string[];
+  backtest: Record<string, string | number | boolean | null>;
+};
+
 export type EventLedgerReplayChainPayload = {
   correlation_id: string;
   ticker: string | null;
@@ -1069,6 +1078,7 @@ export type EventLedgerReplayChainPayload = {
   terminal_state: string | null;
   event_count: number;
   integrity_warnings?: string[];
+  trade_explanation?: EventLedgerTradeExplanationPayload | null;
 };
 
 export type EventLedgerReplayPayload = {
@@ -4555,6 +4565,22 @@ function isEventLedgerTopicCount(value: unknown): value is EventLedgerTopicCount
   return isRecord(value) && typeof value.topic === "string" && typeof value.count === "number";
 }
 
+function isEventLedgerTradeExplanation(value: unknown): value is EventLedgerTradeExplanationPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.ticker === "string" || value.ticker === null) &&
+    (typeof value.strategy_id === "string" || value.strategy_id === null) &&
+    (typeof value.decision === "string" || value.decision === null) &&
+    (typeof value.explanation === "string" || value.explanation === null) &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string") &&
+    isRecord(value.backtest) &&
+    Object.values(value.backtest).every(
+      (item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean" || item === null
+    )
+  );
+}
+
 function isEventLedgerReplayChain(value: unknown): value is EventLedgerReplayChainPayload {
   return (
     isRecord(value) &&
@@ -4568,6 +4594,9 @@ function isEventLedgerReplayChain(value: unknown): value is EventLedgerReplayCha
     (value.integrity_warnings === undefined ||
       (Array.isArray(value.integrity_warnings) &&
         value.integrity_warnings.every((item) => typeof item === "string"))) &&
+    (value.trade_explanation === undefined ||
+      value.trade_explanation === null ||
+      isEventLedgerTradeExplanation(value.trade_explanation)) &&
     typeof value.event_count === "number"
   );
 }

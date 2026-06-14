@@ -452,6 +452,8 @@ export function PaperTradingWorkspace() {
   const ledgerWarnings =
     eventLedger?.integrity_warnings?.length ? eventLedger.integrity_warnings : eventLedger?.warnings ?? [];
   const chainWarnings = replayChain?.integrity_warnings ?? [];
+  const tradeExplanation = replayChain?.trade_explanation ?? null;
+  const backtestReturn = tradeExplanation?.backtest.total_net_profit;
 
   return (
     <div className="module-view">
@@ -1351,6 +1353,18 @@ export function PaperTradingWorkspace() {
           <p>账本警告 {ledgerWarnings.join(" / ") || "无"}</p>
           <p>链路警告 {chainWarnings.join(" / ") || "无"}</p>
         </div>
+        {tradeExplanation ? (
+          <div className="import-result">
+            <strong>候选解释</strong>
+            <p>
+              {tradeExplanation.decision ?? "decision_unknown"} ·{" "}
+              {tradeExplanation.strategy_id ?? "strategy_unknown"}
+            </p>
+            <p>{tradeExplanation.explanation ?? "暂无解释摘要"}</p>
+            <p>证据 {tradeExplanation.evidence.join(" / ") || "无"}</p>
+            <p>回测收益 {typeof backtestReturn === "string" || typeof backtestReturn === "number" ? backtestReturn : "n/a"}</p>
+          </div>
+        ) : null}
       </section>
 
       <section className="data-panel workspace-panel" aria-label="候选池">

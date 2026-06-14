@@ -261,6 +261,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       { topic: "order_state", count: 5 },
       { topic: "risk_decision", count: 1 },
       { topic: "strategy_input", count: 1 },
+      { topic: "trade_explanation", count: 1 },
       { topic: "trade_intent", count: 1 }
     ],
     latest_correlation_count: 1,
@@ -281,11 +282,25 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
         {
           correlation_id: "core-chain",
           ticker: "NVDA",
-          topics: ["market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"],
+          topics: ["market_event", "strategy_input", "trade_intent", "trade_explanation", "risk_decision", "order_state"],
           order_states: ["new", "validated", "risk_approved", "sent", "filled"],
           terminal_state: "filled",
-          event_count: 9,
-          integrity_warnings: []
+          event_count: 10,
+          integrity_warnings: [],
+          trade_explanation: {
+            ticker: "NVDA",
+            strategy_id: "deterministic_watchlist_v1",
+            decision: "candidate",
+            explanation: "NVDA promoted by real backtest evidence.",
+            evidence: ["positive expectancy", "source=openbb_yfinance"],
+            backtest: {
+              run_id: "bt-nvda",
+              total_net_profit: "38.60%",
+              sharpe_ratio: "1.42",
+              drawdown: "-4.10%",
+              total_trades: "12"
+            }
+          }
         }
       ]
     }
@@ -871,6 +886,12 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("链路率")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("100%")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("链路警告 无")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("候选解释")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("candidate · deterministic_watchlist_v1")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "事件账本" }).getByText("NVDA promoted by real backtest evidence.")
+  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("回测收益 38.60%")).toBeVisible();
   await expect(
     page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
   ).toBeVisible();

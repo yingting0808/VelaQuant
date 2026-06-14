@@ -167,6 +167,44 @@ def test_event_ledger_prefers_latest_substantive_trade_run_over_newer_skipped_au
         assert status.latest_replay.chains[0].order_states == ["filled"]
 
 
+def test_event_ledger_replay_exposes_trade_explanation_for_candidate_review():
+    with make_session() as session:
+        team_id, run = _workspace_run(session)
+        _add_event(session, team_id, run, event_id="market", topic="market_event", sequence=1)
+        _add_event(session, team_id, run, event_id="input", topic="strategy_input", sequence=2, causation_id="market")
+        _add_event(session, team_id, run, event_id="intent", topic="trade_intent", sequence=3, causation_id="input")
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="explain",
+            topic="trade_explanation",
+            sequence=4,
+            causation_id="intent",
+            payload_json=(
+                '{"ticker":"AAPL","strategy_id":"deterministic_watchlist_v1",'
+                '"decision":"candidate","explanation":"AAPL promoted by real backtest evidence.",'
+                '"evidence":["positive expectancy","source=openbb_yfinance"],'
+                '"backtest":{"run_id":"bt-aapl","total_net_profit":"38.60%",'
+                '"sharpe_ratio":"1.42","drawdown":"-4.10%","total_trades":"12"}}'
+            ),
+        )
+        session.commit()
+
+        status = get_event_ledger_status(session)
+
+        assert status.latest_replay is not None
+        chain = status.latest_replay.chains[0]
+        assert chain.trade_explanation is not None
+        assert chain.trade_explanation.ticker == "AAPL"
+        assert chain.trade_explanation.strategy_id == "deterministic_watchlist_v1"
+        assert chain.trade_explanation.decision == "candidate"
+        assert chain.trade_explanation.explanation == "AAPL promoted by real backtest evidence."
+        assert chain.trade_explanation.evidence == ["positive expectancy", "source=openbb_yfinance"]
+        assert chain.trade_explanation.backtest["run_id"] == "bt-aapl"
+        assert chain.trade_explanation.backtest["total_net_profit"] == "38.60%"
+
+
 def make_session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
