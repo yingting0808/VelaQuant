@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from app.data.providers.base import MarketDataProvider
 from app.domain.models import Portfolio, Position, WatchlistItem
-from app.services.lean_backtest import BacktestResult, read_latest_backtest
+from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, read_backtest_history, read_latest_backtest
 from app.services.strategy_attribution import StrategyAttributionPayload, attribute_current_paper_strategy
 from app.services.strategy_catalog import StrategyDefinition, load_enabled_strategies
 from app.services.strategy_evaluation import StrategyEvaluationPayload, evaluate_current_paper_strategy
@@ -88,6 +88,7 @@ def get_strategy_registry(
         attribution=attribution,
         catalog=load_enabled_strategies(),
         latest_backtest=read_latest_backtest(),
+        backtest_history=read_backtest_history(limit=50),
     )
 
 
@@ -127,9 +128,15 @@ def build_strategy_registry(
     attribution: StrategyAttributionPayload,
     catalog: list[StrategyDefinition],
     latest_backtest: BacktestResult | None,
+    backtest_history: list[BacktestResult | BacktestHistoryItem] | None = None,
 ) -> StrategyRegistryPayload:
-    entries = [_paper_entry(evaluation, attribution)]
-    entries.extend(_catalog_entry(strategy, latest_backtest) for strategy in catalog if strategy.id != evaluation.strategy_id)
+    history = backtest_history or []
+    entries = [_paper_entry(evaluation, attribution, _strategy_backtest(evaluation.strategy_id, latest_backtest, history))]
+    entries.extend(
+        _catalog_entry(strategy, _strategy_backtest(strategy.id, latest_backtest, history))
+        for strategy in catalog
+        if strategy.id != evaluation.strategy_id
+    )
     ranked_entries = _rank(entries)
     backtest_catalog_count = len([entry for entry in ranked_entries if entry.source == "lean_catalog"])
     catalog_noun = "strategy" if backtest_catalog_count == 1 else "strategies"
@@ -146,7 +153,11 @@ def build_strategy_registry(
     )
 
 
-def _paper_entry(evaluation: StrategyEvaluationPayload, attribution: StrategyAttributionPayload) -> StrategyRegistryEntry:
+def _paper_entry(
+    evaluation: StrategyEvaluationPayload,
+    attribution: StrategyAttributionPayload,
+    backtest: BacktestResult | BacktestHistoryItem | None,
+) -> StrategyRegistryEntry:
     return StrategyRegistryEntry(
         strategy_id=evaluation.strategy_id,
         name=evaluation.strategy_name,
@@ -163,15 +174,20 @@ def _paper_entry(evaluation: StrategyEvaluationPayload, attribution: StrategyAtt
         observed_pnl=round(attribution.expectancy_decomposition.total_observed_pnl, 2),
         primary_regime=attribution.regime_breakdown.primary_regime,
         signal_quality_score=attribution.signal_quality.actionable_signal_rate,
-        backtest_status=None,
+        backtest_status=backtest.status if backtest is not None else None,
         supports_live=False,
         supports_hot_swap=True,
         notes=evaluation.notes,
     )
 
 
-def _catalog_entry(strategy: StrategyDefinition, latest_backtest: BacktestResult | None) -> StrategyRegistryEntry:
-    backtest_status = latest_backtest.status if latest_backtest is not None and latest_backtest.strategy_id == strategy.id else None
+def _catalog_entry(
+    strategy: StrategyDefinition,
+    backtest: BacktestResult | BacktestHistoryItem | None,
+) -> StrategyRegistryEntry:
+    ranking_score = _catalog_ranking_score(backtest)
+    has_real_backtest = backtest is not None and backtest.status == "success" and backtest.uses_real_market_data
+    has_success_backtest = backtest is not None and backtest.status == "success"
     return StrategyRegistryEntry(
         strategy_id=strategy.id,
         name=strategy.name,
@@ -180,18 +196,22 @@ def _catalog_entry(strategy: StrategyDefinition, latest_backtest: BacktestResult
         execution_mode="backtest",
         status="available",
         rank=0,
-        ranking_score=0,
-        readiness="backtest_only",
-        promotion_gate="not_connected_to_paper_runtime",
+        ranking_score=ranking_score,
+        readiness="backtest_promising" if ranking_score > 0 and has_real_backtest else "backtest_only",
+        promotion_gate="connect_to_paper_runtime" if ranking_score > 0 and has_real_backtest else "not_connected_to_paper_runtime",
         sample_size=0,
         filled_order_count=0,
         observed_pnl=0,
-        primary_regime="backtest_only",
-        signal_quality_score=0,
-        backtest_status=backtest_status,
+        primary_regime="backtest_real_market" if has_real_backtest else "backtest_research_series" if has_success_backtest else "backtest_only",
+        signal_quality_score=_backtest_win_rate(backtest),
+        backtest_status=backtest.status if backtest is not None else None,
         supports_live=False,
         supports_hot_swap=False,
-        notes="LEAN 目录策略可回测，但尚未接入 paper runtime 和生命周期控制。",
+        notes=(
+            "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"
+            if ranking_score > 0 and has_real_backtest
+            else "LEAN 目录策略可回测，但尚未接入 paper runtime 和生命周期控制。"
+        ),
     )
 
 
@@ -205,6 +225,92 @@ def _paper_ranking_score(evaluation: StrategyEvaluationPayload) -> float:
         + drawdown_score * 0.2
     )
     return round(score * 100, 2)
+
+
+def _strategy_backtest(
+    strategy_id: str,
+    latest_backtest: BacktestResult | None,
+    backtest_history: list[BacktestResult | BacktestHistoryItem],
+) -> BacktestResult | BacktestHistoryItem | None:
+    candidates: list[BacktestResult | BacktestHistoryItem] = []
+    seen: set[str] = set()
+    for backtest in ([latest_backtest] if latest_backtest is not None else []) + backtest_history:
+        if backtest.strategy_id != strategy_id or backtest.run_id in seen:
+            continue
+        seen.add(backtest.run_id)
+        candidates.append(backtest)
+    if not candidates:
+        return None
+    for predicate in (
+        lambda item: item.status == "success" and item.uses_real_market_data,
+        lambda item: item.status == "success",
+        lambda item: True,
+    ):
+        match = next((item for item in candidates if predicate(item)), None)
+        if match is not None:
+            return match
+    return None
+
+
+def _catalog_ranking_score(backtest: BacktestResult | BacktestHistoryItem | None) -> float:
+    if backtest is None or backtest.status != "success":
+        return 0.0
+    net_profit = _ratio_stat(backtest.statistics.total_net_profit)
+    sharpe = _float_stat(backtest.statistics.sharpe_ratio)
+    drawdown = _ratio_stat(backtest.statistics.drawdown)
+    total_trades = _float_stat(backtest.statistics.total_trades)
+    if net_profit is None or net_profit <= 0:
+        return 0.0
+
+    net_profit_score = _clamp(net_profit / 0.2)
+    sharpe_score = _clamp((sharpe or 0.0) / 2.0)
+    drawdown_score = 1.0 - _clamp((drawdown or 0.0) / 0.2)
+    trade_score = _clamp((total_trades or 0.0) / 30.0)
+    quality_multiplier = 1.0 if backtest.uses_real_market_data else 0.5
+    score = (
+        net_profit_score * 0.4
+        + sharpe_score * 0.3
+        + drawdown_score * 0.2
+        + trade_score * 0.1
+    )
+    return round(max(0.0, score) * quality_multiplier * 100, 2)
+
+
+def _backtest_win_rate(backtest: BacktestResult | BacktestHistoryItem | None) -> float:
+    if backtest is None or backtest.status != "success":
+        return 0.0
+    return round(_ratio_stat(backtest.statistics.win_rate) or 0.0, 4)
+
+
+def _ratio_stat(value: str | None) -> float | None:
+    if value is None:
+        return None
+    cleaned = value.strip().replace(",", "")
+    if not cleaned:
+        return None
+    is_percent = cleaned.endswith("%")
+    if is_percent:
+        cleaned = cleaned[:-1].strip()
+    parsed = _float_stat(cleaned)
+    if parsed is None:
+        return None
+    return parsed / 100 if is_percent else parsed
+
+
+def _float_stat(value: str | None) -> float | None:
+    if value is None:
+        return None
+    cleaned = value.strip().replace(",", "")
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+    return max(lower, min(upper, value))
 
 
 def _rank(entries: list[StrategyRegistryEntry]) -> list[StrategyRegistryEntry]:

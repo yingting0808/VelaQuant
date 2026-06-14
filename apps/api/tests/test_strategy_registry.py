@@ -81,6 +81,87 @@ def test_strategy_registry_marks_catalog_strategies_as_backtest_only_and_exposes
     assert "automation enabled" not in payload.summary
 
 
+def test_strategy_registry_scores_catalog_strategy_from_real_market_backtest_history():
+    payload = build_strategy_registry(
+        evaluation=_evaluation(strategy_id="deterministic_watchlist_v1"),
+        attribution=_attribution(strategy_id="deterministic_watchlist_v1"),
+        catalog=[_catalog_strategy()],
+        latest_backtest=_backtest(
+            strategy_id="deterministic_watchlist_v1",
+            status="success",
+            uses_real_market_data=False,
+            total_net_profit="2.23%",
+            sharpe_ratio="0.87",
+            drawdown="1.97%",
+            total_trades="7",
+        ),
+        backtest_history=[
+            _backtest(
+                strategy_id="deterministic_watchlist_v1",
+                status="success",
+                uses_real_market_data=False,
+                total_net_profit="2.23%",
+                sharpe_ratio="0.87",
+                drawdown="1.97%",
+                total_trades="7",
+            ),
+            _backtest(
+                strategy_id="moving_average_cross",
+                status="success",
+                uses_real_market_data=True,
+                total_net_profit="12.34%",
+                sharpe_ratio="0.72",
+                drawdown="15.20%",
+                win_rate="48%",
+                total_trades="24",
+            ),
+            _backtest(
+                strategy_id="moving_average_cross",
+                status="failed",
+                uses_real_market_data=False,
+                total_net_profit=None,
+                sharpe_ratio=None,
+                drawdown=None,
+                total_trades=None,
+            ),
+        ],
+    )
+
+    catalog_entry = next(item for item in payload.entries if item.strategy_id == "moving_average_cross")
+    assert catalog_entry.backtest_status == "success"
+    assert catalog_entry.ranking_score > 0
+    assert catalog_entry.readiness == "backtest_promising"
+    assert catalog_entry.promotion_gate == "connect_to_paper_runtime"
+    assert catalog_entry.primary_regime == "backtest_real_market"
+    assert catalog_entry.signal_quality_score == 0.48
+    assert catalog_entry.notes == "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"
+
+
+def test_strategy_registry_does_not_mark_negative_backtest_as_promising():
+    payload = build_strategy_registry(
+        evaluation=_evaluation(strategy_id="deterministic_watchlist_v1"),
+        attribution=_attribution(strategy_id="deterministic_watchlist_v1"),
+        catalog=[_catalog_strategy()],
+        latest_backtest=_backtest(
+            strategy_id="moving_average_cross",
+            status="success",
+            uses_real_market_data=True,
+            total_net_profit="-0.02%",
+            sharpe_ratio="0.06",
+            drawdown="10.80%",
+            win_rate="50.00%",
+            total_trades="2",
+        ),
+    )
+
+    catalog_entry = next(item for item in payload.entries if item.strategy_id == "moving_average_cross")
+    assert catalog_entry.backtest_status == "success"
+    assert catalog_entry.ranking_score == 0
+    assert catalog_entry.readiness == "backtest_only"
+    assert catalog_entry.promotion_gate == "not_connected_to_paper_runtime"
+    assert catalog_entry.notes == "LEAN 目录策略可回测，但尚未接入 paper runtime 和生命周期控制。"
+
+
 def test_strategy_registry_loads_registered_execution_binding():
     with make_session() as session:
         workspace = get_or_create_default_workspace(session)
@@ -246,17 +327,35 @@ def _catalog_strategy() -> StrategyDefinition:
     )
 
 
-def _backtest(*, strategy_id: str, status: str) -> BacktestResult:
+def _backtest(
+    *,
+    strategy_id: str,
+    status: str,
+    uses_real_market_data: bool = False,
+    total_net_profit: str | None = "12.34%",
+    sharpe_ratio: str | None = "0.72",
+    drawdown: str | None = None,
+    win_rate: str | None = None,
+    total_trades: str | None = None,
+) -> BacktestResult:
     return BacktestResult(
         run_id="20260612T101500Z-moving_average_cross",
         strategy_id=strategy_id,
         status=status,
+        data_quality="real_market_data" if uses_real_market_data else "deterministic_research_series",
+        uses_real_market_data=uses_real_market_data,
         started_at="2026-06-12T10:15:00Z",
         completed_at="2026-06-12T10:16:15Z",
         duration_seconds=75.0,
         message="Backtest completed.",
         parameters={"symbol": "AAPL"},
-        statistics=BacktestStatistics(total_net_profit="12.34%", sharpe_ratio="0.72"),
+        statistics=BacktestStatistics(
+            total_net_profit=total_net_profit,
+            sharpe_ratio=sharpe_ratio,
+            drawdown=drawdown,
+            win_rate=win_rate,
+            total_trades=total_trades,
+        ),
         equity=[],
         logs=[],
         output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",

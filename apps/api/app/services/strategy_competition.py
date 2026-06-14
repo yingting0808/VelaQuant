@@ -239,6 +239,8 @@ def _recommended_action(entry: StrategyRegistryEntry) -> str:
         return "kill_review"
     if _eligible_for_allocation(entry):
         return "allocate_paper_capital"
+    if entry.source == "lean_catalog" and entry.readiness == "backtest_promising":
+        return "connect_to_paper_runtime"
     if entry.source == "lean_catalog":
         return "keep_in_lab"
     return "collect_more_evidence"
