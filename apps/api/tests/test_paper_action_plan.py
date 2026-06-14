@@ -186,6 +186,27 @@ def test_paper_action_plan_prioritizes_score_pnl_inversion_review():
     assert any(item.action_code == "continue_paper_validation" for item in plan.items)
 
 
+def test_paper_action_plan_holds_when_score_pnl_inversion_review_is_recorded_for_current_tickers():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("score_pnl_inversion_review", "评分盈亏反向", 1, 0, 1, "项", comparison="at_most"),
+                _gate("review_day_sample", "复盘天数", 1, 5, 4, "天"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+        inverted_score_pnl_tickers=["AMZN"],
+        score_pnl_inversion_review_recorded=True,
+    )
+
+    assert plan.primary_action == "hold_until_next_session"
+    assert all(item.action_code != "review_score_pnl_inversion" for item in plan.items)
+    assert "score_pnl_inversion_review_recorded=true" in plan.items[0].evidence
+
+
 def test_paper_action_plan_holds_after_current_alpha_snapshot_is_recorded():
     plan = build_paper_action_plan(
         operations=_operations(blockers=[], health_status="ready"),

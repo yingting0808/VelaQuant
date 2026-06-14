@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from app.domain.models import CoreEventLog
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload, get_alpha_gate_progress
 from app.services.alpha_validation_forecast import AlphaValidationForecastPayload, get_alpha_validation_forecast
 from app.services.alpha_validation_snapshot import get_alpha_validation_snapshots
@@ -45,6 +47,9 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
     team_id = get_or_create_default_workspace(session).team.id
     snapshots = get_alpha_validation_snapshots(session, team_id=team_id, limit=1)
     attribution = attribute_current_paper_strategy(session, team_id=team_id)
+    inverted_tickers = [
+        item.ticker for item in attribution.ticker_diagnostics if item.score_pnl_alignment == "inverted"
+    ]
     return build_paper_action_plan(
         operations=get_paper_operations_status(session, team_id=team_id),
         alpha_gates=get_alpha_gate_progress(session, team_id=team_id),
@@ -55,9 +60,12 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
         alpha_forecast=get_alpha_validation_forecast(session, team_id=team_id),
         scheduler=get_paper_scheduler_status(),
         latest_alpha_snapshot_trading_day=snapshots.latest.trading_day if snapshots.latest is not None else None,
-        inverted_score_pnl_tickers=[
-            item.ticker for item in attribution.ticker_diagnostics if item.score_pnl_alignment == "inverted"
-        ],
+        inverted_score_pnl_tickers=inverted_tickers,
+        score_pnl_inversion_review_recorded=_has_score_pnl_inversion_review_record(
+            session,
+            team_id=team_id,
+            tickers=inverted_tickers,
+        ),
     )
 
 
@@ -73,6 +81,7 @@ def build_paper_action_plan(
     scheduler: PaperSchedulerStatus | None = None,
     latest_alpha_snapshot_trading_day: str | None = None,
     inverted_score_pnl_tickers: list[str] | None = None,
+    score_pnl_inversion_review_recorded: bool = False,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
     if "legacy_manual_future_runs_detected" in operations.data_quality_warnings:
@@ -107,7 +116,7 @@ def build_paper_action_plan(
 
     open_gates = [item for item in alpha_gates.items if not item.passed]
     score_pnl_gate = _gate(open_gates, "score_pnl_inversion_review")
-    if score_pnl_gate is not None:
+    if score_pnl_gate is not None and not score_pnl_inversion_review_recorded:
         tickers = sorted(inverted_score_pnl_tickers or [])
         ticker_text = ", ".join(tickers) if tickers else f"{score_pnl_gate.remaining:g} 项"
         items.append(
@@ -126,6 +135,8 @@ def build_paper_action_plan(
                 ],
             )
         )
+    elif score_pnl_gate is not None:
+        open_gates = [item for item in open_gates if item.gate != "score_pnl_inversion_review"]
 
     latest_review = review_trend.items[0] if review_trend is not None and review_trend.items else None
     if latest_review is not None and latest_review.daily_pnl < 0:
@@ -228,6 +239,11 @@ def build_paper_action_plan(
                     alpha_gates.summary,
                     f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day}",
                     operations.summary,
+                    *(
+                        ["score_pnl_inversion_review_recorded=true"]
+                        if score_pnl_inversion_review_recorded
+                        else []
+                    ),
                     *_hold_until_next_session_evidence(alpha_forecast, scheduler),
                 ],
             )
@@ -240,7 +256,14 @@ def build_paper_action_plan(
                 action_code="continue_paper_validation",
                 title="继续纸面验证",
                 detail=f"Alpha 仍在 collecting，{remaining}。",
-                evidence=[alpha_gates.summary],
+                evidence=[
+                    alpha_gates.summary,
+                    *(
+                        ["score_pnl_inversion_review_recorded=true"]
+                        if score_pnl_inversion_review_recorded
+                        else []
+                    ),
+                ],
             )
         )
 
@@ -293,6 +316,42 @@ def _gate(items: list[AlphaGateProgressItem], gate: str) -> AlphaGateProgressIte
         if item.gate == gate:
             return item
     return None
+
+
+def _has_score_pnl_inversion_review_record(
+    session: Session,
+    *,
+    team_id,
+    tickers: list[str],
+) -> bool:
+    normalized_tickers = sorted({ticker.strip().upper() for ticker in tickers if ticker.strip()})
+    if not normalized_tickers:
+        return False
+
+    events = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .order_by(CoreEventLog.published_at.desc())
+    ).all()
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("action_code") != "review_score_pnl_inversion":
+            continue
+        reviewed_tickers = sorted(
+            {
+                str(ticker).strip().upper()
+                for ticker in payload.get("inverted_tickers", [])
+                if str(ticker).strip()
+            }
+        )
+        if reviewed_tickers == normalized_tickers:
+            return True
+    return False
 
 
 def _hold_until_next_session_detail(

@@ -1,12 +1,14 @@
+import json
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.db.session import engine
+from app.domain.models import CoreEventLog, utc_now
 from app.services.alpha_validation_snapshot import record_alpha_validation_snapshot
 from app.services.paper_action_plan import get_paper_action_plan
 from app.services.paper_operations import (
@@ -16,6 +18,7 @@ from app.services.paper_operations import (
 from app.services.paper_risk_settings import apply_paper_risk_limit_recommendation
 from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.paper_trading import run_daily_paper_trading_loop
+from app.services.workspace import get_or_create_default_workspace
 
 BACKGROUND_PAPER_ACTIONS = {"run_daily_paper_trading", "retry_daily_paper_trading", "collect_post_limit_sample"}
 
@@ -64,10 +67,22 @@ def execute_paper_primary_action(
         executed = False
         status = "review_required"
         review_item = next((item for item in plan.items if item.action_code == action), None)
+        title = review_item.title if review_item is not None else "复盘评分背离"
+        detail = review_item.detail if review_item is not None else "评分方向与观测盈亏存在反向，需要人工复盘。"
+        evidence = review_item.evidence if review_item is not None else []
+        audit_event, audit_created = _record_strategy_review_event(
+            session,
+            action_code=action,
+            title=title,
+            detail=detail,
+            evidence=evidence,
+        )
         result = {
-            "title": review_item.title if review_item is not None else "复盘评分背离",
-            "detail": review_item.detail if review_item is not None else "评分方向与观测盈亏存在反向，需要人工复盘。",
-            "evidence": review_item.evidence if review_item is not None else [],
+            "title": title,
+            "detail": detail,
+            "evidence": evidence,
+            "audit_event_created": audit_created,
+            "audit_event_id": audit_event.event_id,
         }
     elif action in BACKGROUND_PAPER_ACTIONS:
         result = run_daily_paper_trading_loop(
@@ -101,6 +116,80 @@ def execute_paper_primary_action(
 
 def should_queue_paper_primary_action(action_code: str) -> bool:
     return action_code in BACKGROUND_PAPER_ACTIONS
+
+
+def _record_strategy_review_event(
+    session: Session,
+    *,
+    action_code: str,
+    title: str,
+    detail: str,
+    evidence: list[str],
+) -> tuple[CoreEventLog, bool]:
+    workspace = get_or_create_default_workspace(session)
+    tickers = _tickers_from_evidence(evidence)
+    ticker_key = ",".join(tickers) if tickers else "unknown"
+    correlation_id = f"paper_action:{action_code}:{ticker_key}"
+    existing = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == workspace.team.id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .where(CoreEventLog.correlation_id == correlation_id)
+        .order_by(CoreEventLog.published_at.desc())
+    ).first()
+    if existing is not None:
+        return existing, False
+
+    sequence = _next_strategy_review_sequence(session, workspace.team.id)
+    payload = {
+        "action_code": action_code,
+        "title": title,
+        "detail": detail,
+        "evidence": evidence,
+        "inverted_tickers": tickers,
+        "review_status": "required",
+        "created_from": "paper_action_plan",
+    }
+    event = CoreEventLog(
+        team_id=workspace.team.id,
+        run_id=None,
+        event_id=f"{correlation_id}:{sequence}:strategy_review",
+        topic="strategy_review",
+        sequence=sequence,
+        correlation_id=correlation_id,
+        causation_id=None,
+        payload_json=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        published_at=utc_now(),
+    )
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event, True
+
+
+def _tickers_from_evidence(evidence: list[str]) -> list[str]:
+    for item in evidence:
+        if not item.startswith("inverted_tickers="):
+            continue
+        raw = item.split("=", 1)[1]
+        if raw.strip().lower() == "unknown":
+            return []
+        return sorted({ticker.strip().upper() for ticker in raw.split(",") if ticker.strip()})
+    return []
+
+
+def _next_strategy_review_sequence(session: Session, team_id) -> int:
+    latest = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .order_by(CoreEventLog.sequence.desc())
+    ).first()
+    if latest is None:
+        return 1
+    return latest.sequence + 1
 
 
 def queue_paper_primary_action(

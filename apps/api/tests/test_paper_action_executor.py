@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.mock import MockMarketDataProvider
-from app.domain.models import PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus, StrategyAlphaSnapshot
+from app.domain.models import CoreEventLog, PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus, StrategyAlphaSnapshot
 from app.services import paper_action_executor
 from app.services.paper_action_executor import execute_paper_primary_action, queue_paper_primary_action
 from app.services.paper_risk_profile import get_paper_risk_profile
@@ -158,12 +158,51 @@ def test_execute_primary_action_score_pnl_inversion_returns_review_required(monk
         assert result.status == "review_required"
         assert result.action_code == "review_score_pnl_inversion"
         assert result.next_primary_action == "review_score_pnl_inversion"
-        assert result.result == {
-            "title": "复盘评分背离",
-            "detail": "检测到 AMZN 的候选评分方向与观测盈亏相反。",
-            "evidence": ["inverted_tickers=AMZN"],
-        }
+        assert result.result is not None
+        assert result.result["title"] == "复盘评分背离"
+        assert result.result["detail"] == "检测到 AMZN 的候选评分方向与观测盈亏相反。"
+        assert result.result["evidence"] == ["inverted_tickers=AMZN"]
+        assert result.result["audit_event_created"] is True
+        assert result.result["audit_event_id"] == "paper_action:review_score_pnl_inversion:AMZN:1:strategy_review"
         assert "manual review required" in result.summary
+
+
+def test_execute_primary_action_score_pnl_inversion_persists_strategy_review_event(monkeypatch):
+    plan = SimpleNamespace(
+        primary_action="review_score_pnl_inversion",
+        items=[
+            SimpleNamespace(
+                action_code="review_score_pnl_inversion",
+                title="复盘评分背离",
+                detail="检测到 AMZN 的候选评分方向与观测盈亏相反。",
+                evidence=[
+                    "Alpha gate progress: 5/10 gates passed.",
+                    "score_pnl_inversion_remaining=1",
+                    "inverted_tickers=AMZN",
+                ],
+            )
+        ],
+    )
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", lambda session: plan)
+
+    with make_session() as session:
+        team = get_or_create_default_workspace(session).team
+
+        result = execute_paper_primary_action(session, MockMarketDataProvider())
+
+        events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "strategy_review")).all()
+        assert len(events) == 1
+        event = events[0]
+        assert event.team_id == team.id
+        assert event.run_id is None
+        assert event.correlation_id == "paper_action:review_score_pnl_inversion:AMZN"
+        assert result.result is not None
+        assert result.result["audit_event_created"] is True
+        assert result.result["audit_event_id"] == event.event_id
+        assert '"action_code":"review_score_pnl_inversion"' in event.payload_json
+        assert '"inverted_tickers":["AMZN"]' in event.payload_json
+        assert '"review_status":"required"' in event.payload_json
 
 
 def test_queue_primary_action_collects_post_limit_sample_without_blocking(monkeypatch):

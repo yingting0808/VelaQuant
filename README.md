@@ -196,7 +196,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
 - Alpha validation now treats score/PnL inversion as a quality blocker: any ticker with inverted candidate score direction versus observed PnL adds `score_pnl_inversion_review`, exposes `score_pnl_inversion_count`, and blocks `paper_validated` until reviewed.
-- The paper action plan now turns `score_pnl_inversion_review` into a concrete `review_score_pnl_inversion` action, including inverted tickers such as AMZN in the evidence. Executing that primary action returns `review_required` instead of placing trades or changing risk limits.
+- The paper action plan now turns `score_pnl_inversion_review` into a concrete `review_score_pnl_inversion` action, including inverted tickers such as AMZN in the evidence. Executing that primary action writes a `strategy_review` CoreEventLog audit event and returns `review_required` instead of placing trades or changing risk limits; the next plan consumes the recorded review event so the same score/PnL inversion is not repeatedly promoted as the primary action.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `0d8a4017-67c4-4a4c-8f09-d257cc74770c`, trading day `2026-06-12`, status `completed`, 7 candidates, 28 replayable core events, including 7 `trade_explanation` events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
@@ -228,7 +228,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
 - Alpha 验证现在会把评分/盈亏反向视为质量阻断：任何 ticker 的候选评分方向与观测盈亏相反，都会加入 `score_pnl_inversion_review`，暴露 `score_pnl_inversion_count`，并在复盘前阻止进入 `paper_validated`。
-- Paper action plan 现在会把 `score_pnl_inversion_review` 转成具体的 `review_score_pnl_inversion` 行动项，并在证据里列出 AMZN 等评分反向标的。执行这个首要动作只返回 `review_required`，不会自动下单或改风控。
+- Paper action plan 现在会把 `score_pnl_inversion_review` 转成具体的 `review_score_pnl_inversion` 行动项，并在证据里列出 AMZN 等评分反向标的。执行这个首要动作会写入一条 `strategy_review` CoreEventLog 审计事件，并返回 `review_required`，不会自动下单或改风控；下一轮计划会消费这条已记录复盘事件，避免同一评分/盈亏背离反复被提升为主动作。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`0d8a4017-67c4-4a4c-8f09-d257cc74770c`，交易日 `2026-06-12`，状态 `completed`，7 个候选，28 条可回放 core events，其中包含 7 条 `trade_explanation` 事件。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
