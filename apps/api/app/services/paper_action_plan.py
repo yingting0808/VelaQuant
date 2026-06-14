@@ -4,6 +4,7 @@ from sqlmodel import Session
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload, get_alpha_gate_progress
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, get_paper_execution_diagnostics
 from app.services.paper_operations import PaperOperationsStatusPayload, get_paper_operations_status
+from app.services.paper_review_trend import PaperReviewTrendPayload, get_paper_review_trend
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload, get_paper_risk_limit_review
 from app.services.paper_risk_profile import PaperRiskProfilePayload, get_paper_risk_profile
 from app.services.workspace import get_or_create_default_workspace
@@ -36,6 +37,7 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
         execution=get_paper_execution_diagnostics(session, team_id=team_id),
         risk_profile=get_paper_risk_profile(session, team_id=team_id),
         risk_limit_review=get_paper_risk_limit_review(session, team_id=team_id),
+        review_trend=get_paper_review_trend(session, team_id=team_id),
     )
 
 
@@ -46,6 +48,7 @@ def build_paper_action_plan(
     execution: PaperExecutionDiagnosticsPayload,
     risk_profile: PaperRiskProfilePayload,
     risk_limit_review: PaperRiskLimitReviewPayload | None = None,
+    review_trend: PaperReviewTrendPayload | None = None,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
     if "legacy_manual_future_runs_detected" in operations.data_quality_warnings:
@@ -75,6 +78,26 @@ def build_paper_action_plan(
                 title="修复事件账本",
                 detail="最新纸面运行不可完整回放，先修复 CoreEventLog 再继续判断策略质量。",
                 evidence=[operations.summary, f"latest_run_event_count={operations.latest_run_event_count}"],
+            )
+        )
+
+    latest_review = review_trend.items[0] if review_trend is not None and review_trend.items else None
+    if latest_review is not None and latest_review.daily_pnl < 0:
+        items.append(
+            PaperActionPlanItem(
+                priority=2,
+                action_code="review_negative_daily_pnl",
+                title="复盘亏损日",
+                detail=(
+                    f"{latest_review.trading_day} 日 PnL {latest_review.daily_pnl:.2f} "
+                    f"({latest_review.daily_return:.2%})；先复盘候选理由、入场价格和退出规则。"
+                ),
+                evidence=[
+                    review_trend.summary if review_trend is not None else "",
+                    f"daily_pnl={latest_review.daily_pnl:.2f}",
+                    f"daily_return={latest_review.daily_return:.4f}",
+                    f"latest_expectancy={review_trend.latest_expectancy:.2f}" if review_trend is not None else "",
+                ],
             )
         )
 

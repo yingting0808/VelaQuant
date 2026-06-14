@@ -2,6 +2,7 @@ from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGatePro
 from app.services.paper_action_plan import build_paper_action_plan
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, PaperExecutionRejectionReason
 from app.services.paper_operations import PaperOperationsStatusPayload
+from app.services.paper_review_trend import PaperReviewTrendItem, PaperReviewTrendPayload
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
 from app.services.paper_risk_profile import PaperRiskProfilePayload
 
@@ -92,6 +93,21 @@ def test_paper_action_plan_prioritizes_legacy_manual_future_run_quarantine():
     assert "latest_legacy_trading_day=2026-06-30" in plan.items[0].evidence
 
 
+def test_paper_action_plan_prioritizes_negative_daily_pnl_review():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates([]),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(),
+        review_trend=_review_trend(daily_pnl=-420.25, daily_return=-0.0042),
+    )
+
+    assert plan.primary_action == "review_negative_daily_pnl"
+    assert plan.items[0].title == "复盘亏损日"
+    assert "2026-06-13 日 PnL -420.25" in plan.items[0].detail
+    assert "daily_return=-0.0042" in plan.items[0].evidence
+
+
 def _operations(
     *,
     blockers: list[str],
@@ -130,6 +146,35 @@ def _alpha_gates(items: list[AlphaGateProgressItem]) -> AlphaGateProgressPayload
         total_gates=8,
         items=items,
         summary="Alpha gate progress: 5/8 gates passed.",
+    )
+
+
+def _review_trend(*, daily_pnl: float, daily_return: float) -> PaperReviewTrendPayload:
+    return PaperReviewTrendPayload(
+        sample_size=2,
+        positive_expectancy_days=1,
+        consecutive_positive_expectancy_days=0,
+        average_expectancy=0.4,
+        latest_expectancy=1.2,
+        total_realized_pnl=100,
+        total_unrealized_pnl=-30,
+        latest_readiness="watch",
+        items=[
+            PaperReviewTrendItem(
+                trading_day="2026-06-13",
+                equity=99579.75,
+                daily_pnl=daily_pnl,
+                daily_return=daily_return,
+                cash=98000,
+                realized_pnl=100,
+                unrealized_pnl=-30,
+                trade_count=3,
+                win_rate=0.33,
+                expectancy=1.2,
+                readiness="watch",
+            )
+        ],
+        summary="Paper review trend fixture.",
     )
 
 
