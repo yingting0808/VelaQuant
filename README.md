@@ -45,6 +45,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
+- After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -53,13 +54,14 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Latest Alpha gate state: 5/9 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
 - Latest filtered Alpha snapshot: trading day `2026-06-12`, `validation_level=collecting`, blockers `review_day_sample`, `consecutive_positive_expectancy`, `filled_order_sample`, `closed_trade_sample`.
 - Latest paper risk review: hold `max_daily_orders` at 10; the latest post-limit sample completed without a new buy `max_daily_orders` rejection.
-- Current recommended action after the verified run: continue paper validation; live limits remain unchanged.
+- Current recommended action after the current-day snapshot is recorded: hold until the next scheduled paper run; live limits remain unchanged.
 
 中文对应事实：
 
 - API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
+- 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
@@ -68,7 +70,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - 最新 Alpha 门禁：5/9 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
 - 最新过滤后的 Alpha 快照：交易日 `2026-06-12`，`validation_level=collecting`，阻断项为 `review_day_sample`、`consecutive_positive_expectancy`、`filled_order_sample`、`closed_trade_sample`。
 - 最新 Paper 风险评审：保持 `max_daily_orders=10`；最新限额后样本没有新的买入侧 `max_daily_orders` 拒单。
-- 当前推荐动作：继续 paper validation；live 限额不变。
+- 当前推荐动作：当前日快照已记录后等待下一次定时 paper run；live 限额不变。
 
 ## Architecture / 系统架构
 
@@ -111,6 +113,65 @@ Core rules:
 - LangGraph 用于编排确定性的 AI 投研 workflow，不用于订单执行。
 - OpenBB 在可用时提供行情和研究数据能力，但不能绕过数据源抽象层或交易执行路径。
 - LEAN 和 vectorbt 只用于研究/回测，不进入实盘执行路径。
+
+## Trading Core / 自研交易内核
+
+VelaQuant has its own Trading Core. It is implemented in `apps/api/app/trading_core/` and is not provided by LEAN, OpenBB, LangGraph, or the frontend.
+
+VelaQuant 有自己的 Trading Core。它位于 `apps/api/app/trading_core/`，不是 LEAN、OpenBB、LangGraph 或前端页面提供的能力。
+
+Trading Core modules:
+
+Trading Core 模块：
+
+```text
+apps/api/app/trading_core/
+  engine.py           TradingEngine orchestration
+  event_bus.py        EventEnvelope, event topics, in-memory and Redis stream event bus
+  events.py           MarketEvent and StrategyInputEvent schemas
+  strategy_engine.py  StrategyEngine wrapper for deterministic strategy output
+  strategy.py         TradeIntent and deterministic watchlist strategy contract
+  risk.py             RiskEngine and RiskLimits
+  execution.py        ExecutionEngine, CoreOrder, OrderState, execution adapter boundary
+  portfolio.py        PortfolioState and positions
+```
+
+The core execution sequence is:
+
+核心执行顺序是：
+
+```text
+MarketEvent
+  -> StrategyInputEvent
+  -> TradeIntent
+  -> RiskDecision
+  -> OrderState
+  -> EventLedger
+```
+
+Important boundary:
+
+重要边界：
+
+- `TradingEngine` requires a registry-provided `StrategyExecutionBinding`; a raw strategy engine should not be wired directly into execution.
+- `RiskEngine` is inside the Trading Core path and must approve/reject `TradeIntent` before order state is recorded.
+- `ExecutionEngine` owns order-state transitions for the core path.
+- `EventLedger` persists runtime core events for audit and replay.
+- LEAN/vectorbt are research and backtest tools only.
+- OpenBB is data/research access only.
+- LangGraph is research workflow orchestration only.
+- AI does not generate executable `TradeIntent` and does not call `ExecutionEngine`.
+
+中文说明：
+
+- `TradingEngine` 要求使用由 registry 提供的 `StrategyExecutionBinding`，不能把裸 strategy engine 直接接进执行链。
+- `RiskEngine` 位于 Trading Core 主路径中，必须先批准或拒绝 `TradeIntent`，随后才记录订单状态。
+- `ExecutionEngine` 负责核心路径上的订单状态转换。
+- `EventLedger` 将运行时 core events 持久化，用于审计和回放。
+- LEAN/vectorbt 只用于研究和回测。
+- OpenBB 只用于数据和研究访问。
+- LangGraph 只用于投研 workflow 编排。
+- AI 不生成可执行 `TradeIntent`，也不调用 `ExecutionEngine`。
 
 ## Tech Stack / 技术栈
 

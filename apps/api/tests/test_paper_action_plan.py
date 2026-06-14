@@ -160,6 +160,25 @@ def test_paper_action_plan_does_not_reopen_daily_limit_review_after_clear_post_l
     assert all(item.action_code != "collect_post_limit_sample" for item in plan.items)
 
 
+def test_paper_action_plan_holds_after_current_alpha_snapshot_is_recorded():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("review_day_sample", "复盘天数", 1, 5, 4, "天"),
+                _gate("filled_order_sample", "成交订单", 10, 30, 20, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+    )
+
+    assert plan.primary_action == "hold_until_next_session"
+    assert all(item.action_code != "continue_paper_validation" for item in plan.items)
+    assert plan.items[0].detail == "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。"
+
+
 def test_paper_action_plan_prioritizes_legacy_manual_future_run_quarantine():
     plan = build_paper_action_plan(
         operations=_operations(

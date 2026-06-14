@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session
 
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload, get_alpha_gate_progress
+from app.services.alpha_validation_snapshot import get_alpha_validation_snapshots
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, get_paper_execution_diagnostics
 from app.services.paper_operations import PaperOperationsStatusPayload, get_paper_operations_status
 from app.services.paper_review_trend import PaperReviewTrendPayload, get_paper_review_trend
@@ -31,6 +32,7 @@ class PaperActionPlanPayload(BaseModel):
 
 def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
     team_id = get_or_create_default_workspace(session).team.id
+    snapshots = get_alpha_validation_snapshots(session, team_id=team_id, limit=1)
     return build_paper_action_plan(
         operations=get_paper_operations_status(session, team_id=team_id),
         alpha_gates=get_alpha_gate_progress(session, team_id=team_id),
@@ -38,6 +40,7 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
         risk_profile=get_paper_risk_profile(session, team_id=team_id),
         risk_limit_review=get_paper_risk_limit_review(session, team_id=team_id),
         review_trend=get_paper_review_trend(session, team_id=team_id),
+        latest_alpha_snapshot_trading_day=snapshots.latest.trading_day if snapshots.latest is not None else None,
     )
 
 
@@ -49,6 +52,7 @@ def build_paper_action_plan(
     risk_profile: PaperRiskProfilePayload,
     risk_limit_review: PaperRiskLimitReviewPayload | None = None,
     review_trend: PaperReviewTrendPayload | None = None,
+    latest_alpha_snapshot_trading_day: str | None = None,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
     if "legacy_manual_future_runs_detected" in operations.data_quality_warnings:
@@ -172,7 +176,21 @@ def build_paper_action_plan(
             )
         )
 
-    if open_gates:
+    if open_gates and latest_alpha_snapshot_trading_day == operations.trading_day:
+        items.append(
+            PaperActionPlanItem(
+                priority=5,
+                action_code="hold_until_next_session",
+                title="等待下一次调度",
+                detail="当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。",
+                evidence=[
+                    alpha_gates.summary,
+                    f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day}",
+                    operations.summary,
+                ],
+            )
+        )
+    elif open_gates:
         remaining = " / ".join(f"{item.label}还差{item.remaining:g}{item.unit}" for item in open_gates)
         items.append(
             PaperActionPlanItem(
