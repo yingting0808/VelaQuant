@@ -1,13 +1,19 @@
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 from langgraph.graph import END, StateGraph
 
 from app.ai.schemas import ResearchRequest, ResearchResult, TradePlanDraft
 
 
+class ResearchLLMClient(Protocol):
+    def generate_research_result(self, request: ResearchRequest) -> ResearchResult:
+        raise NotImplementedError
+
+
 class ResearchState(TypedDict):
     request: ResearchRequest
     result: ResearchResult | None
+    llm_client: ResearchLLMClient | None
 
 
 def analyze(state: ResearchState) -> ResearchState:
@@ -29,6 +35,14 @@ def analyze(state: ResearchState) -> ResearchState:
             ),
         )
         return state
+
+    llm_client = state.get("llm_client")
+    if llm_client is not None:
+        try:
+            state["result"] = _enforce_research_only_guardrails(llm_client.generate_research_result(request))
+            return state
+        except Exception:
+            pass
 
     combined = " ".join(item.summary for item in request.evidence)
     state["result"] = ResearchResult(
@@ -60,10 +74,27 @@ def build_graph():
     return graph.compile()
 
 
-def run_research_workflow(request: ResearchRequest) -> ResearchResult:
+def run_research_workflow(request: ResearchRequest, llm_client: ResearchLLMClient | None = None) -> ResearchResult:
     graph = build_graph()
-    final_state = graph.invoke({"request": request, "result": None})
+    final_state = graph.invoke({"request": request, "result": None, "llm_client": llm_client})
     result = final_state["result"]
     if result is None:
         raise RuntimeError("research workflow did not produce a result")
     return result
+
+
+def _enforce_research_only_guardrails(result: ResearchResult) -> ResearchResult:
+    guardrail_notes = [
+        "AI 仅用于投研解释，不参与 TradeIntent、风控或执行。",
+        "这不是可直接执行的订单建议。",
+        "必须经过人工审批。",
+    ]
+    existing_notes = result.trade_plan_draft.risk_notes
+    notes = list(dict.fromkeys([*existing_notes, *guardrail_notes]))
+    draft = result.trade_plan_draft.model_copy(
+        update={
+            "requires_human_review": True,
+            "risk_notes": notes,
+        }
+    )
+    return result.model_copy(update={"trade_plan_draft": draft})

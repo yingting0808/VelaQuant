@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     event_bus_mode: str = "memory"
     redis_url: str = "redis://localhost:6379/0"
     redis_stream_name: str = "trading:events"
+    openai_research_enabled: bool = True
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_research_model: str = "gpt-5.5"
+    openai_timeout_seconds: float = 20.0
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AI_STOCKS_")
 

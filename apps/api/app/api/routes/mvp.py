@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 
 from app.ai.schemas import EvidenceItemInput, ResearchRequest
+from app.ai.llm import build_openai_research_client, build_openai_research_status
 from app.ai.workflow import run_research_workflow
 from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
@@ -53,6 +54,12 @@ from app.services.paper_review_trend import get_paper_review_trend
 from app.services.paper_simulation import PaperSimulationRequest, run_paper_simulation_lab
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
+from app.services.runtime_settings import (
+    RuntimeSettingsUpdate,
+    get_effective_settings,
+    get_runtime_settings_payload,
+    update_runtime_settings,
+)
 from app.services.alpha_validation import get_alpha_validation
 from app.services.alpha_gate_progress import get_alpha_gate_progress
 from app.services.alpha_validation_snapshot import get_alpha_validation_snapshots, record_alpha_validation_snapshot
@@ -715,6 +722,34 @@ def strategy_lab_execution_accounts(
     }
 
 
+@router.get("/ai/status")
+def ai_status(session: Session = Depends(get_session)) -> dict:
+    effective_settings = get_effective_settings(session, get_settings())
+    return {
+        "langgraph": {
+            "available": True,
+            "mode": "research_workflow",
+            "message": "LangGraph is used for research workflow orchestration only.",
+        },
+        "research_llm": build_openai_research_status(effective_settings).model_dump(),
+        "execution_path": {
+            "ai_generates_trade_intent": False,
+            "ai_influences_risk": False,
+            "ai_calls_execution": False,
+        },
+    }
+
+
+@router.get("/runtime-settings")
+def runtime_settings(session: Session = Depends(get_session)) -> dict:
+    return get_runtime_settings_payload(session, get_settings()).model_dump()
+
+
+@router.put("/runtime-settings")
+def runtime_settings_update(body: RuntimeSettingsUpdate, session: Session = Depends(get_session)) -> dict:
+    return update_runtime_settings(session, body, get_settings()).model_dump()
+
+
 @router.get("/strategy-lab/strategies")
 def strategy_lab_strategies() -> dict:
     return {"strategies": [strategy.public_payload() for strategy in load_enabled_strategies()]}
@@ -828,7 +863,11 @@ def market_snapshot(
 
 
 @router.post("/research")
-def research(body: ResearchBody, provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
+def research(
+    body: ResearchBody,
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
     evidence = [
         EvidenceItemInput(
             title=item.title,
@@ -838,7 +877,9 @@ def research(body: ResearchBody, provider: MarketDataProvider = Depends(get_mark
         )
         for item in provider.get_research_evidence(body.ticker)
     ]
+    effective_settings = get_effective_settings(session, get_settings())
     result = run_research_workflow(
-        ResearchRequest(ticker=body.ticker, question=body.question, evidence=evidence)
+        ResearchRequest(ticker=body.ticker, question=body.question, evidence=evidence),
+        llm_client=build_openai_research_client(effective_settings),
     )
     return result.model_dump()

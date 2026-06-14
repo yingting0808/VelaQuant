@@ -766,6 +766,72 @@ tbody tr:last-child td {
   width: 100%;
 }
 
+.settings-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.settings-field {
+  color: #667085;
+  display: grid;
+  font-size: 0.78rem;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.settings-field input {
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  color: #172033;
+  font: inherit;
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.settings-toggle {
+  align-items: center;
+  color: #172033;
+  display: flex;
+  font-weight: 700;
+  gap: 10px;
+}
+
+.settings-toggle input {
+  accent-color: #176b4c;
+  height: 18px;
+  width: 18px;
+}
+
+.settings-secret-row {
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+}
+
+.settings-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-actions button {
+  background: #172033;
+  border: 1px solid #172033;
+  border-radius: 7px;
+  color: #ffffff;
+  cursor: pointer;
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.settings-actions button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
 .result-toolbar {
   align-items: flex-start;
   display: flex;

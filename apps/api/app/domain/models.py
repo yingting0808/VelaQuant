@@ -171,6 +171,15 @@ class AuditLog(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class RuntimeConfiguration(SQLModel, table=True):
+    id: str = Field(default="default", primary_key=True)
+    openai_research_enabled: bool = True
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_research_model: str = "gpt-5.5"
+    openai_timeout_seconds: float = 20.0
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class PaperAccount(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="team.id", index=True)

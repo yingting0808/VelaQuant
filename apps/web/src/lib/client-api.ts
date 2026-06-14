@@ -27,6 +27,45 @@ export type DataSourcesStatusPayload = {
   data_sources: ProviderStatusPayload[];
 };
 
+export type AIStatusPayload = {
+  langgraph: {
+    available: boolean;
+    mode: string;
+    message: string;
+  };
+  research_llm: {
+    provider: string;
+    mode: string;
+    configured: boolean;
+    available: boolean;
+    model: string;
+    base_url: string;
+    message: string;
+  };
+  execution_path: {
+    ai_generates_trade_intent: boolean;
+    ai_influences_risk: boolean;
+    ai_calls_execution: boolean;
+  };
+};
+
+export type RuntimeSettingsPayload = {
+  source: string;
+  openai_research_enabled: boolean;
+  openai_research_model: string;
+  openai_base_url: string;
+  openai_timeout_seconds: number;
+  openai_api_key_configured: boolean;
+  openai_api_key_source: string | null;
+};
+
+export type RuntimeSettingsUpdatePayload = {
+  openai_research_enabled: boolean;
+  openai_research_model: string;
+  openai_base_url: string;
+  openai_timeout_seconds: number;
+};
+
 export type StrategyToolStatusPayload = {
   name: string;
   available: boolean;
@@ -1194,6 +1233,38 @@ const fallbackDataSourcesStatus: DataSourcesStatusPayload = {
   ]
 };
 
+const fallbackAIStatus: AIStatusPayload = {
+  langgraph: {
+    available: true,
+    mode: "research_workflow",
+    message: "LangGraph 编排投研 workflow；后端 API 暂不可用，无法确认实时状态。"
+  },
+  research_llm: {
+    provider: "openai_responses",
+    mode: "research_only",
+    configured: false,
+    available: false,
+    model: "gpt-5.5",
+    base_url: "https://api.openai.com/v1",
+    message: "后端 API 暂不可用，无法确认 OpenAI Responses LLM 状态。"
+  },
+  execution_path: {
+    ai_generates_trade_intent: false,
+    ai_influences_risk: false,
+    ai_calls_execution: false
+  }
+};
+
+const fallbackRuntimeSettings: RuntimeSettingsPayload = {
+  source: "fallback",
+  openai_research_enabled: true,
+  openai_research_model: "gpt-5.5",
+  openai_base_url: "https://api.openai.com/v1",
+  openai_timeout_seconds: 20,
+  openai_api_key_configured: false,
+  openai_api_key_source: null
+};
+
 const fallbackStrategyLabStatus: StrategyLabStatusPayload = {
   can_run_backtests: false,
   summary: "后端 API 暂不可用，无法确认 Docker / LEAN 状态。",
@@ -2018,6 +2089,41 @@ function isDataSourcesStatusPayload(value: unknown): value is DataSourcesStatusP
     typeof value.provider_mode === "string" &&
     Array.isArray(value.data_sources) &&
     value.data_sources.every(isProviderStatus)
+  );
+}
+
+function isAIStatusPayload(value: unknown): value is AIStatusPayload {
+  return (
+    isRecord(value) &&
+    isRecord(value.langgraph) &&
+    typeof value.langgraph.available === "boolean" &&
+    typeof value.langgraph.mode === "string" &&
+    typeof value.langgraph.message === "string" &&
+    isRecord(value.research_llm) &&
+    typeof value.research_llm.provider === "string" &&
+    typeof value.research_llm.mode === "string" &&
+    typeof value.research_llm.configured === "boolean" &&
+    typeof value.research_llm.available === "boolean" &&
+    typeof value.research_llm.model === "string" &&
+    typeof value.research_llm.base_url === "string" &&
+    typeof value.research_llm.message === "string" &&
+    isRecord(value.execution_path) &&
+    typeof value.execution_path.ai_generates_trade_intent === "boolean" &&
+    typeof value.execution_path.ai_influences_risk === "boolean" &&
+    typeof value.execution_path.ai_calls_execution === "boolean"
+  );
+}
+
+function isRuntimeSettingsPayload(value: unknown): value is RuntimeSettingsPayload {
+  return (
+    isRecord(value) &&
+    typeof value.source === "string" &&
+    typeof value.openai_research_enabled === "boolean" &&
+    typeof value.openai_research_model === "string" &&
+    typeof value.openai_base_url === "string" &&
+    typeof value.openai_timeout_seconds === "number" &&
+    typeof value.openai_api_key_configured === "boolean" &&
+    (typeof value.openai_api_key_source === "string" || value.openai_api_key_source === null)
   );
 }
 
@@ -2860,6 +2966,53 @@ export async function getDataSourcesStatus(): Promise<DataSourcesStatusPayload> 
     return isDataSourcesStatusPayload(payload) ? payload : fallbackDataSourcesStatus;
   } catch {
     return fallbackDataSourcesStatus;
+  }
+}
+
+export async function getAIStatus(): Promise<AIStatusPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/ai/status`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackAIStatus;
+    }
+    const payload: unknown = await response.json();
+    return isAIStatusPayload(payload) ? payload : fallbackAIStatus;
+  } catch {
+    return fallbackAIStatus;
+  }
+}
+
+export async function getRuntimeSettings(): Promise<RuntimeSettingsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/runtime-settings`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackRuntimeSettings;
+    }
+    const payload: unknown = await response.json();
+    return isRuntimeSettingsPayload(payload) ? payload : fallbackRuntimeSettings;
+  } catch {
+    return fallbackRuntimeSettings;
+  }
+}
+
+export async function updateRuntimeSettings(input: RuntimeSettingsUpdatePayload): Promise<RuntimeSettingsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/runtime-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      return fallbackRuntimeSettings;
+    }
+    const payload: unknown = await response.json();
+    return isRuntimeSettingsPayload(payload) ? payload : fallbackRuntimeSettings;
+  } catch {
+    return fallbackRuntimeSettings;
   }
 }
 

@@ -3,6 +3,7 @@ import pytest
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.ai.schemas import ResearchResult, TradePlanDraft
 from app.api.routes import mvp
 from app.data.providers.base import ProviderStatus
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
@@ -217,6 +218,25 @@ def test_mvp_data_sources_status_route_returns_statuses():
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
     assert any(source["name"] == "Mock" for source in payload["data_sources"])
+
+
+def test_mvp_ai_status_route_reports_research_llm_isolated_from_execution(monkeypatch):
+    monkeypatch.delenv("AI_STOCKS_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/ai/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["langgraph"]["available"] is True
+    assert payload["research_llm"]["provider"] == "openai_responses"
+    assert payload["research_llm"]["available"] is False
+    assert payload["execution_path"] == {
+        "ai_generates_trade_intent": False,
+        "ai_influences_risk": False,
+        "ai_calls_execution": False,
+    }
 
 
 def test_mvp_strategy_lab_status_route_returns_readiness_payload():
@@ -1361,6 +1381,42 @@ def test_mvp_research_route_returns_structured_ai_result():
     assert payload["ticker"] == "AAPL"
     assert payload["status"] == "complete"
     assert payload["trade_plan_draft"]["requires_human_review"] is True
+
+
+def test_mvp_research_route_injects_optional_llm_client(monkeypatch):
+    llm_client = object()
+    captured = {}
+
+    def fake_run_research_workflow(request, llm_client=None):
+        captured["ticker"] = request.ticker
+        captured["llm_client"] = llm_client
+        return ResearchResult(
+            ticker="AAPL",
+            status="complete_llm",
+            summary="LLM summary.",
+            bull_case="Bull.",
+            bear_case="Bear.",
+            watch_items=["Watch."],
+            evidence_count=len(request.evidence),
+            trade_plan_draft=TradePlanDraft(
+                entry_condition="Human review confirms the thesis.",
+                invalidation_condition="Evidence turns negative.",
+                risk_notes=["Research only."],
+            ),
+        )
+
+    monkeypatch.setattr(mvp, "build_openai_research_client", lambda settings: llm_client, raising=False)
+    monkeypatch.setattr(mvp, "run_research_workflow", fake_run_research_workflow, raising=False)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/mvp/research",
+        json={"ticker": "AAPL", "question": "What changed?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "complete_llm"
+    assert captured == {"ticker": "AAPL", "llm_client": llm_client}
 
 
 def test_mvp_research_sec_mode_does_not_mask_missing_sec_evidence(monkeypatch):

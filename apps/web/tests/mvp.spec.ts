@@ -1880,6 +1880,51 @@ test("settings renders data source status", async ({ page }) => {
       }
     });
   });
+  await page.route("**/api/mvp/ai/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        langgraph: {
+          available: true,
+          mode: "research_workflow",
+          message: "LangGraph is used for research workflow orchestration only."
+        },
+        research_llm: {
+          provider: "openai_responses",
+          mode: "research_only",
+          configured: true,
+          available: true,
+          model: "gpt-5.5",
+          base_url: "https://api.openai.com/v1",
+          message: "OpenAI Responses research LLM is configured for research explanations only."
+        },
+        execution_path: {
+          ai_generates_trade_intent: false,
+          ai_influences_risk: false,
+          ai_calls_execution: false
+        }
+      }
+    });
+  });
+  let runtimeSettings = {
+    source: "defaults",
+    openai_research_enabled: true,
+    openai_research_model: "gpt-5.5",
+    openai_base_url: "https://api.openai.com/v1",
+    openai_timeout_seconds: 20,
+    openai_api_key_configured: false,
+    openai_api_key_source: null
+  };
+  await page.route("**/api/mvp/runtime-settings", async (route) => {
+    if (route.request().method() === "PUT") {
+      const update = route.request().postDataJSON() as Partial<typeof runtimeSettings>;
+      runtimeSettings = { ...runtimeSettings, ...update, source: "database" };
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      json: runtimeSettings
+    });
+  });
 
   await page.goto("/settings");
 
@@ -1889,6 +1934,22 @@ test("settings renders data source status", async ({ page }) => {
   await expect(page.getByText("Deterministic local fallback data is available.")).toBeVisible();
   await expect(page.getByText("SEC submissions adapter is configured.")).toBeVisible();
   await expect(page.getByText("data.sec.gov")).toBeVisible();
+  const aiStatusPanel = page.getByLabel("AI / LLM 状态");
+  await expect(aiStatusPanel.getByRole("heading", { name: "AI / LLM 状态" })).toBeVisible();
+  await expect(aiStatusPanel.getByText("LangGraph", { exact: true })).toBeVisible();
+  await expect(aiStatusPanel.getByText("OpenAI Responses", { exact: true })).toBeVisible();
+  await expect(aiStatusPanel.getByText("gpt-5.5")).toBeVisible();
+  await expect(aiStatusPanel.getByText("AI 不进入交易执行链", { exact: true })).toBeVisible();
+  const runtimeSettingsPanel = page.getByLabel("运行配置");
+  await expect(runtimeSettingsPanel.getByRole("heading", { name: "运行配置" })).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("API Key")).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("未配置", { exact: true })).toBeVisible();
+  await expect(runtimeSettingsPanel.getByLabel("模型")).toHaveValue("gpt-5.5");
+  await runtimeSettingsPanel.getByLabel("模型").fill("gpt-5.4");
+  await runtimeSettingsPanel.getByLabel("Base URL").fill("https://api.openai.example/v1");
+  await runtimeSettingsPanel.getByLabel("超时秒数").fill("15");
+  await runtimeSettingsPanel.getByRole("button", { name: "保存设置" }).click();
+  await expect(runtimeSettingsPanel.locator("form").getByText("已保存", { exact: true })).toBeVisible();
 });
 
 test("strategy lab renders readiness status", async ({ page }) => {

@@ -20,7 +20,7 @@ The quickest proof is the runtime code path, not a marketing label:
 | What owns paper/live-small execution flow? | VelaQuant `TradingEngine -> RiskEngine -> ExecutionEngine -> EventLedger`. |
 | Does LEAN or vectorbt replace the runtime? | **No.** They are research/backtest tools only. |
 | Does OpenBB execute trades? | **No.** OpenBB is data/research access only. |
-| Does LangGraph or AI generate executable orders? | **No.** LangGraph is research workflow orchestration only. |
+| Does LangGraph or AI generate executable orders? | **No.** LangGraph orchestrates research workflow; optional OpenAI Responses LLM is research/explanation only. |
 
 | 问题 | 回答 |
 | --- | --- |
@@ -28,7 +28,7 @@ The quickest proof is the runtime code path, not a marketing label:
 | 模拟盘 / live-small 执行主路径由谁负责？ | VelaQuant `TradingEngine -> RiskEngine -> ExecutionEngine -> EventLedger`。 |
 | LEAN 或 vectorbt 是否替代交易运行时？ | **不是。** 它们只用于研究 / 回测。 |
 | OpenBB 是否负责下单？ | **不是。** OpenBB 只用于数据 / 研究访问。 |
-| LangGraph 或 AI 是否生成可执行订单？ | **不是。** LangGraph 只编排投研 workflow。 |
+| LangGraph 或 AI 是否生成可执行订单？ | **不是。** LangGraph 编排投研 workflow；可选 OpenAI Responses LLM 只做投研解释。 |
 
 Repository proof path for the owned Trading Core:
 
@@ -107,12 +107,14 @@ External frameworks are support tools around the core, not replacements for it:
 | LEAN / vectorbt | Research and backtesting | Replace live/paper execution runtime |
 | OpenBB | Data and research access | Act as broker, risk engine, or execution adapter |
 | LangGraph | AI research workflow orchestration | Generate executable `TradeIntent` or call execution |
+| OpenAI Responses | Optional research explanation LLM | Generate executable orders, risk decisions, or execution calls |
 
 | 工具 | 职责 | 明确禁止 |
 | --- | --- | --- |
 | LEAN / vectorbt | 研究与回测 | 替代模拟盘/实盘执行运行时 |
 | OpenBB | 数据与研究访问 | 充当券商、风控或执行适配器 |
 | LangGraph | AI 投研 workflow 编排 | 生成可执行 `TradeIntent` 或调用执行链 |
+| OpenAI Responses | 可选投研解释 LLM | 生成可执行订单、风控决策或执行调用 |
 
 VelaQuant is a local-first US equities research and paper-trading system built around that owned Trading Core for building a verifiable alpha loop before any small-capital live deployment.
 
@@ -213,6 +215,10 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 截至 2026-06-15，已在 Docker Compose 运行态验证：
 
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
+- `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with Mock, SEC EDGAR, and OpenBB available in the current Docker runtime.
+- `GET /api/mvp/ai/status` returns LangGraph research workflow availability and the OpenAI Responses research-LLM status. In the current Docker runtime the OpenAI Responses client is wired but not configured because no API key is present; `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
+- `GET/PUT /api/mvp/runtime-settings` backs the Web Settings page, where non-secret OpenAI Research LLM parameters can be adjusted at runtime; API keys still come from environment variables only.
+- `POST /api/mvp/research` returns deterministic LangGraph research output when no OpenAI key is configured, using SEC EDGAR/OpenBB/provider evidence where available and preserving `requires_human_review=true`.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
@@ -255,6 +261,10 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 中文对应事实：
 
 - API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
+- `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，并显示 Mock、SEC EDGAR、OpenBB 均可用。
+- `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI Responses 投研 LLM 状态。当前 Docker 运行态已经接入 OpenAI Responses client，但因为没有配置 API key，外部 LLM 处于未启用状态；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
+- `GET/PUT /api/mvp/runtime-settings` 支撑 Web 设置页，可在运行态调整非密钥类 OpenAI Research LLM 参数；API key 仍只从环境变量读取。
+- `POST /api/mvp/research` 在未配置 OpenAI key 时返回确定性的 LangGraph 投研输出，使用可用的 SEC EDGAR/OpenBB/provider 证据，并保持 `requires_human_review=true`。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
@@ -321,7 +331,8 @@ Core rules:
 - `ExecutionEngine` records order state transitions.
 - Production events are persisted through the event ledger.
 - AI is for research, explanation, and event structuring, not direct order decisions.
-- LangGraph orchestrates the deterministic AI research workflow, not order execution.
+- LangGraph orchestrates the AI research workflow, not order execution.
+- OpenAI Responses can optionally generate structured research explanations when `AI_STOCKS_OPENAI_API_KEY` or `OPENAI_API_KEY` is configured; without a key, the same endpoint falls back to deterministic LangGraph research output.
 - OpenBB provides market-data/research access when available, but it does not bypass the data-provider abstraction or execution path.
 - LEAN and vectorbt are research/backtest tools, not live execution paths.
 
@@ -332,7 +343,8 @@ Core rules:
 - `ExecutionEngine` 记录订单状态机变化。
 - 生产事件必须写入事件账本。
 - AI 只用于研究、解释和事件结构化，不直接生成交易指令。
-- LangGraph 用于编排确定性的 AI 投研 workflow，不用于订单执行。
+- LangGraph 用于编排 AI 投研 workflow，不用于订单执行。
+- 配置 `AI_STOCKS_OPENAI_API_KEY` 或 `OPENAI_API_KEY` 后，OpenAI Responses 可以生成结构化投研解释；未配置 key 时，同一接口会回退到确定性的 LangGraph 投研输出。
 - OpenBB 在可用时提供行情和研究数据能力，但不能绕过数据源抽象层或交易执行路径。
 - LEAN 和 vectorbt 只用于研究/回测，不进入实盘执行路径。
 
@@ -406,6 +418,7 @@ Backend / 后端：
 - Redis Streams
 - APScheduler
 - LangGraph
+- OpenAI Responses API for optional research-only LLM explanations
 - OpenBB
 - vectorbt
 - QuantConnect LEAN CLI integration for research workflows
@@ -417,6 +430,7 @@ Backend support libraries / 后端支撑库：
 
 - `psycopg`: PostgreSQL driver.
 - `httpx`: HTTP client used by data and provider integrations.
+- `OpenAI Responses API`: optional research-only LLM integration behind the existing AI workflow.
 - `openpyxl`: spreadsheet import support.
 - `pydantic-settings`: environment-driven runtime configuration.
 
@@ -424,6 +438,7 @@ Backend support libraries / 后端支撑库：
 
 - `psycopg`：PostgreSQL 驱动。
 - `httpx`：数据源和 provider 集成使用的 HTTP 客户端。
+- `OpenAI Responses API`：挂在现有 AI workflow 后面的可选投研解释 LLM。
 - `openpyxl`：表格导入能力。
 - `pydantic-settings`：环境变量驱动的运行配置。
 
@@ -442,9 +457,9 @@ Runtime / 运行环境：
 
 ## AI Workflow / AI 工作流
 
-VelaQuant uses LangGraph in `apps/api/app/ai/workflow.py` to run the research assistant workflow behind `POST /api/mvp/research`.
+VelaQuant uses LangGraph in `apps/api/app/ai/workflow.py` to run the research assistant workflow behind `POST /api/mvp/research`. When an OpenAI API key is configured, the workflow can call OpenAI Responses through `apps/api/app/ai/llm.py` for structured research explanations. When no key is configured, the same endpoint returns deterministic research output.
 
-VelaQuant 在 `apps/api/app/ai/workflow.py` 中使用 LangGraph，支撑 `POST /api/mvp/research` 背后的投研助手 workflow。
+VelaQuant 在 `apps/api/app/ai/workflow.py` 中使用 LangGraph，支撑 `POST /api/mvp/research` 背后的投研助手 workflow。配置 OpenAI API key 后，workflow 可通过 `apps/api/app/ai/llm.py` 调用 OpenAI Responses 生成结构化投研解释；未配置 key 时，同一接口返回确定性投研输出。
 
 Current workflow behavior:
 
@@ -452,6 +467,7 @@ Current workflow behavior:
 
 - Input: ticker, user question, and structured evidence items.
 - Output: summary, bull case, bear case, watch items, and a trade-plan draft.
+- Optional LLM mode: OpenAI Responses returns schema-constrained JSON and is forced back into a human-review-only `TradePlanDraft`.
 - If evidence is missing, the workflow returns an `insufficient_evidence` result.
 - The trade-plan draft is explicitly not an executable order.
 
@@ -459,6 +475,7 @@ Current workflow behavior:
 
 - 输入：ticker、用户问题和结构化证据项。
 - 输出：摘要、多头观点、空头风险、观察项和交易计划草稿。
+- 可选 LLM 模式：OpenAI Responses 返回受 schema 约束的 JSON，并被强制收敛为仅供人工复核的 `TradePlanDraft`。
 - 如果证据不足，workflow 返回 `insufficient_evidence`。
 - 交易计划草稿不是可执行订单。
 
@@ -466,14 +483,16 @@ Current boundary:
 
 当前边界：
 
-- LangGraph is used for deterministic research workflow orchestration.
+- LangGraph is used for research workflow orchestration.
+- OpenAI Responses is optional and research-only.
 - It does not generate `TradeIntent`.
 - It does not call `ExecutionEngine`.
 - It does not bypass `StrategyRegistry` or `RiskEngine`.
 
 中文说明：
 
-- LangGraph 当前用于确定性投研 workflow 编排。
+- LangGraph 当前用于投研 workflow 编排。
+- OpenAI Responses 是可选的，且只用于投研解释。
 - 它不生成 `TradeIntent`。
 - 它不调用 `ExecutionEngine`。
 - 它不能绕过 `StrategyRegistry` 或 `RiskEngine`。
