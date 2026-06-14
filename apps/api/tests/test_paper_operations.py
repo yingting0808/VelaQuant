@@ -20,7 +20,7 @@ from app.services.paper_operations import (
 )
 
 
-TRADING_DAY = "2026-06-13"
+TRADING_DAY = "2026-06-12"
 
 
 def test_operations_status_marks_today_missing_as_runnable():
@@ -236,10 +236,10 @@ def test_operations_status_blocks_completed_run_without_event_ledger():
 def test_operations_history_aggregates_recent_run_health():
     with make_session() as session:
         team, account = _team_and_account(session)
-        healthy_review = _review(account, "2026-06-12")
-        healthy_run = _run(account, "2026-06-12", PaperRunStatus.completed, review_id=healthy_review.id)
-        skipped_review = _review(account, "2026-06-13")
-        skipped_run = _run(account, "2026-06-13", PaperRunStatus.skipped, review_id=skipped_review.id)
+        healthy_review = _review(account, "2026-06-11")
+        healthy_run = _run(account, "2026-06-11", PaperRunStatus.completed, review_id=healthy_review.id)
+        skipped_review = _review(account, "2026-06-12")
+        skipped_run = _run(account, "2026-06-12", PaperRunStatus.skipped, review_id=skipped_review.id)
         session.add(healthy_review)
         session.add(skipped_review)
         session.add(healthy_run)
@@ -260,17 +260,17 @@ def test_operations_history_aggregates_recent_run_health():
         assert history.completion_rate == 1
         assert history.replay_rate == 1
         assert history.latest_health_status == "ready"
-        assert history.items[0].trading_day == "2026-06-13"
+        assert history.items[0].trading_day == "2026-06-12"
         assert history.items[0].event_count == 1
 
 
 def test_operations_history_marks_failed_and_unreplayable_runs():
     with make_session() as session:
         team, account = _team_and_account(session)
-        failed_run = _run(account, "2026-06-13", PaperRunStatus.failed, error_message="provider timeout")
-        failed_run.started_at = datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc)
-        completed_without_events = _run(account, "2026-06-12", PaperRunStatus.completed)
-        completed_without_events.started_at = datetime(2026, 6, 12, 12, 0, tzinfo=timezone.utc)
+        failed_run = _run(account, "2026-06-12", PaperRunStatus.failed, error_message="provider timeout")
+        failed_run.started_at = datetime(2026, 6, 12, 12, 0, tzinfo=timezone.utc)
+        completed_without_events = _run(account, "2026-06-11", PaperRunStatus.completed)
+        completed_without_events.started_at = datetime(2026, 6, 11, 12, 0, tzinfo=timezone.utc)
         session.add(failed_run)
         session.add(completed_without_events)
         session.commit()

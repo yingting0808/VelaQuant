@@ -52,7 +52,7 @@ def test_alpha_validation_snapshot_history_returns_latest_first_and_progress_cou
             alpha=alpha_payload(latest_expectancy=35, blockers=[]),
         )
 
-        history = get_alpha_validation_snapshots(session, team_id=workspace.team.id)
+        history = get_alpha_validation_snapshots(session, team_id=workspace.team.id, as_of_trading_day="2026-06-14")
 
         assert history.snapshot_count == 2
         assert history.positive_expectancy_snapshot_count == 2
@@ -84,7 +84,7 @@ def test_alpha_validation_snapshot_history_summarizes_streaks_and_blockers():
             alpha=alpha_payload(latest_expectancy=35, blockers=["closed_trade_sample"]),
         )
 
-        history = get_alpha_validation_snapshots(session, team_id=workspace.team.id)
+        history = get_alpha_validation_snapshots(session, team_id=workspace.team.id, as_of_trading_day="2026-06-14")
 
         assert history.positive_expectancy_streak == 2
         assert history.ready_streak == 0
@@ -94,6 +94,30 @@ def test_alpha_validation_snapshot_history_summarizes_streaks_and_blockers():
             ("filled_order_sample", 1),
             ("latest_positive_expectancy", 1),
         ]
+
+
+def test_alpha_validation_snapshot_history_excludes_future_snapshots_by_default_window():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        record_alpha_validation_snapshot_from_payload(
+            session,
+            team_id=workspace.team.id,
+            trading_day="2026-06-12",
+            alpha=alpha_payload(latest_expectancy=35, blockers=["closed_trade_sample"]),
+        )
+        record_alpha_validation_snapshot_from_payload(
+            session,
+            team_id=workspace.team.id,
+            trading_day="2026-08-01",
+            alpha=alpha_payload(latest_expectancy=102, blockers=[]),
+        )
+
+        history = get_alpha_validation_snapshots(session, team_id=workspace.team.id, as_of_trading_day="2026-06-12")
+
+        assert history.snapshot_count == 1
+        assert history.latest is not None
+        assert history.latest.trading_day == "2026-06-12"
+        assert [item.trading_day for item in history.items] == ["2026-06-12"]
 
 
 def alpha_payload(*, latest_expectancy: float, blockers: list[str]) -> AlphaValidationPayload:

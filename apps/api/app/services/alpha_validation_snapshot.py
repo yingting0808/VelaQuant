@@ -108,14 +108,17 @@ def get_alpha_validation_snapshots(
     *,
     team_id: UUID | None = None,
     strategy_id: str = "deterministic_watchlist_v1",
+    as_of_trading_day: str | None = None,
     limit: int = 20,
 ) -> AlphaValidationSnapshotHistoryPayload:
     if team_id is None:
         team_id = get_or_create_default_workspace(session).team.id
+    as_of_trading_day = as_of_trading_day or current_market_trading_day()
     rows = list(
         session.exec(
             select(StrategyAlphaSnapshot)
             .where(StrategyAlphaSnapshot.team_id == team_id, StrategyAlphaSnapshot.strategy_id == strategy_id)
+            .where(StrategyAlphaSnapshot.trading_day <= as_of_trading_day)
             .order_by(StrategyAlphaSnapshot.trading_day.desc(), StrategyAlphaSnapshot.updated_at.desc())
         ).all()
     )

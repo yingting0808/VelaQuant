@@ -66,6 +66,7 @@ def _filled_buy(session: Session, account: PaperAccount, ticker: str = "NVDA") -
         fill_price=100,
         risk_status="approved",
         risk_code="approved",
+        submitted_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
     )
     session.add(order)
     session.commit()

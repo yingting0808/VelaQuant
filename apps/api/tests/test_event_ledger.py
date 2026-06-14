@@ -7,7 +7,7 @@ from app.services.event_ledger import get_event_ledger_status
 from app.services.workspace import get_or_create_default_workspace
 
 
-TRADING_DAY = "2026-06-13"
+TRADING_DAY = "2026-06-12"
 
 
 def test_event_ledger_marks_complete_order_chain_integrity_ready():

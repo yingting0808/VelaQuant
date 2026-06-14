@@ -44,11 +44,14 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
+- `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
+- Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `5e8e1996-ef56-4164-b6d6-431299d16c46`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
 - Latest Alpha gate state: 5/9 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
+- Latest filtered Alpha snapshot: trading day `2026-06-12`, `validation_level=collecting`, blockers `review_day_sample`, `consecutive_positive_expectancy`, `filled_order_sample`, `closed_trade_sample`.
 - Latest paper risk review: hold `max_daily_orders` at 10; the latest post-limit sample completed without a new buy `max_daily_orders` rejection.
 - Current recommended action after the verified run: continue paper validation; live limits remain unchanged.
 
@@ -56,11 +59,14 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 
 - API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
+- `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
+- Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`5e8e1996-ef56-4164-b6d6-431299d16c46`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
 - 最新 Alpha 门禁：5/9 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
+- 最新过滤后的 Alpha 快照：交易日 `2026-06-12`，`validation_level=collecting`，阻断项为 `review_day_sample`、`consecutive_positive_expectancy`、`filled_order_sample`、`closed_trade_sample`。
 - 最新 Paper 风险评审：保持 `max_daily_orders=10`；最新限额后样本没有新的买入侧 `max_daily_orders` 拒单。
 - 当前推荐动作：继续 paper validation；live 限额不变。
 
@@ -251,6 +257,7 @@ GET  /api/mvp/paper-trading/action-plan
 POST /api/mvp/paper-trading/action-plan/execute-primary
 GET  /api/mvp/paper-trading/event-ledger
 GET  /api/mvp/strategy-lab/alpha-gates
+GET  /api/mvp/strategy-lab/alpha-snapshots
 GET  /api/mvp/strategy-lab/evaluation
 POST /api/mvp/strategy-lab/backtests
 ```
@@ -281,9 +288,9 @@ Run a focused paper action:
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/mvp/paper-trading/action-plan/execute-primary
 ```
 
-Quick actions return `status: completed`. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
+Quick actions return `status: completed`. When the primary action is `continue_paper_validation`, the result is an Alpha validation snapshot. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
 
-快速动作返回 `status: completed`。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
+快速动作返回 `status: completed`。当主动作是 `continue_paper_validation` 时，结果是一条 Alpha 验证快照。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
 
 Run a Strategy Lab backtest:
 

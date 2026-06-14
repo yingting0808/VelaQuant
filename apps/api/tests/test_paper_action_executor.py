@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.mock import MockMarketDataProvider
-from app.domain.models import PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus
+from app.domain.models import PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus, StrategyAlphaSnapshot
 from app.services import paper_action_executor
 from app.services.paper_action_executor import execute_paper_primary_action, queue_paper_primary_action
 from app.services.paper_risk_profile import get_paper_risk_profile
@@ -30,7 +30,7 @@ def test_execute_primary_action_applies_safe_paper_risk_recommendation_and_advan
                 realized_pnl=0,
                 risk_code="max_daily_orders",
                 rejection_reason="Orders today 5 reached limit 5.",
-                submitted_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+                submitted_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
             )
         )
         session.commit()
@@ -68,6 +68,28 @@ def test_execute_primary_action_collects_post_limit_sample_by_running_daily_loop
         assert result.action_code == "collect_post_limit_sample"
         assert result.result == {"daily_run": "executed"}
         assert calls == [(session, provider, {"force_new_sample": True})]
+
+
+def test_execute_primary_action_continue_validation_records_alpha_snapshot(monkeypatch):
+    def action_plan(session):
+        return SimpleNamespace(primary_action="continue_paper_validation")
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", action_plan)
+
+    with make_session() as session:
+        team = get_or_create_default_workspace(session).team
+
+        result = execute_paper_primary_action(session, MockMarketDataProvider())
+
+        snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
+        assert result.executed is True
+        assert result.status == "completed"
+        assert result.action_code == "continue_paper_validation"
+        assert result.result is not None
+        assert result.result["team_id"] == str(team.id)
+        assert result.result["strategy_id"] == "deterministic_watchlist_v1"
+        assert len(snapshots) == 1
+        assert snapshots[0].team_id == team.id
 
 
 def test_queue_primary_action_collects_post_limit_sample_without_blocking(monkeypatch):

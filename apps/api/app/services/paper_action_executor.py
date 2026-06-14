@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.db.session import engine
+from app.services.alpha_validation_snapshot import record_alpha_validation_snapshot
 from app.services.paper_action_plan import get_paper_action_plan
 from app.services.paper_operations import (
     quarantine_legacy_manual_future_runs,
@@ -50,6 +51,8 @@ def execute_paper_primary_action(
         result = repair_paper_operations_event_ledger(session).model_dump(mode="json")
     elif action == "quarantine_legacy_manual_future_runs":
         result = quarantine_legacy_manual_future_runs(session).model_dump(mode="json")
+    elif action == "continue_paper_validation":
+        result = record_alpha_validation_snapshot(session).model_dump(mode="json")
     elif action in BACKGROUND_PAPER_ACTIONS:
         result = run_daily_paper_trading_loop(
             session,

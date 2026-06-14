@@ -81,7 +81,7 @@ def _core_event(
         sequence=sequence,
         correlation_id="paper-run-test",
         payload_json=json.dumps(payload),
-        published_at=published_at or datetime(2026, 6, 13, tzinfo=timezone.utc) + timedelta(seconds=sequence),
+        published_at=published_at or datetime(2026, 6, 12, tzinfo=timezone.utc) + timedelta(seconds=sequence),
     )
     session.add(event)
     session.commit()
@@ -100,6 +100,7 @@ def _filled_buy(session: Session, account: PaperAccount, ticker: str = "NVDA") -
         fill_price=100,
         risk_status="approved",
         risk_code="approved",
+        submitted_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
     )
     session.add(order)
     session.commit()
@@ -124,6 +125,7 @@ def _filled_sell(
         realized_pnl=realized_pnl,
         risk_status="approved",
         risk_code="approved",
+        submitted_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
     )
     session.add(order)
     session.commit()
@@ -147,6 +149,7 @@ def _rejected_buy(
         rejection_reason="Risk limit rejected order.",
         risk_status="rejected",
         risk_code=risk_code,
+        submitted_at=datetime(2026, 6, 12, 21, 0, tzinfo=timezone.utc),
     )
     session.add(order)
     session.commit()

@@ -22,7 +22,7 @@ def test_paper_review_trend_aggregates_expectancy_window():
         session.add(_review(account, "2026-06-13", expectancy=1.4, equity=100350, readiness=PaperReadiness.watch))
         session.commit()
 
-        trend = get_paper_review_trend(session, team_id=team.id, limit=10)
+        trend = get_paper_review_trend(session, team_id=team.id, limit=10, as_of_trading_day="2026-06-13")
 
         assert trend.sample_size == 3
         assert trend.positive_expectancy_days == 2
@@ -73,7 +73,7 @@ def test_paper_review_trend_uses_latest_review_per_trading_day():
         session.add(prior_day)
         session.commit()
 
-        trend = get_paper_review_trend(session, team_id=team.id, limit=10)
+        trend = get_paper_review_trend(session, team_id=team.id, limit=10, as_of_trading_day="2026-06-13")
 
         assert trend.sample_size == 2
         assert trend.positive_expectancy_days == 2
@@ -118,7 +118,7 @@ def test_paper_review_trend_reports_latest_cumulative_pnl_without_double_countin
         )
         session.commit()
 
-        trend = get_paper_review_trend(session, team_id=team.id, limit=10)
+        trend = get_paper_review_trend(session, team_id=team.id, limit=10, as_of_trading_day="2026-06-13")
 
         assert trend.total_realized_pnl == 130
         assert trend.total_unrealized_pnl == 50

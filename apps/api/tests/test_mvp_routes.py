@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 import pytest
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.api.routes import mvp
@@ -48,6 +49,7 @@ from app.services.paper_risk_profile import PaperRiskProfilePayload
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
 from app.services.paper_risk_settings import PaperRiskLimitApplyPayload
 from app.services.paper_review_trend import PaperReviewTrendItem, PaperReviewTrendPayload
+from app.services.paper_scheduler import PaperSchedulerStatus
 from app.services.paper_simulation import PaperSimulationPayload
 from app.services.market_calendar import MarketSessionStatus
 from app.services.paper_trading import (
@@ -2154,7 +2156,26 @@ def test_mvp_paper_trading_order_route_rejects_unknown_strategy(monkeypatch):
     assert "Strategy is not registered for execution" in response.json()["detail"]
 
 
-def test_mvp_paper_trading_scheduler_status_route_returns_configuration():
+def test_mvp_paper_trading_scheduler_status_route_returns_configuration(monkeypatch):
+    status = PaperSchedulerStatus(
+        enabled=False,
+        running=False,
+        job_count=0,
+        job_id="paper_trading_daily_run",
+        cron="30 6 * * *",
+        timezone="Asia/Shanghai",
+        next_run_at=None,
+        last_checked_at=datetime(2026, 6, 14, 13, 0, tzinfo=timezone.utc),
+        can_run_now=False,
+        execution_gate="market_closed",
+        market_date="2026-06-14",
+        trading_day="2026-06-12",
+        is_market_session=False,
+        session_closed=False,
+        calendar_provider="test",
+        gate_reason="market_closed",
+    )
+    monkeypatch.setattr(mvp, "get_paper_scheduler_status", lambda: status, raising=False)
     client = TestClient(create_app())
 
     response = client.get("/api/mvp/paper-trading/scheduler")
