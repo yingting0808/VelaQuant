@@ -2427,6 +2427,18 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
         event_ledger_ready=True,
         alpha_ready=False,
         alpha_blockers=["review_day_sample"],
+        open_alpha_gates=[
+            AlphaGateProgressItem(
+                gate="filled_order_sample",
+                label="成交订单",
+                current=10,
+                required=30,
+                remaining=20,
+                unit="笔",
+                comparison="at_least",
+                passed=False,
+            )
+        ],
         data_quality_warnings=[],
         summary="Daily paper report.",
     )
@@ -2446,6 +2458,8 @@ def test_mvp_paper_trading_daily_report_route_returns_operational_summary(monkey
     assert payload["daily_pnl"] == 125.5
     assert payload["daily_return"] == 0.0013
     assert payload["alpha_blockers"] == ["review_day_sample"]
+    assert payload["open_alpha_gates"][0]["gate"] == "filled_order_sample"
+    assert payload["open_alpha_gates"][0]["remaining"] == 20
     assert payload["scheduler_next_run_will_execute"] is False
     assert payload["scheduler_next_actionable_trading_day"] == "2026-06-14"
     assert payload["estimated_sessions_to_alpha_ready"] == 4

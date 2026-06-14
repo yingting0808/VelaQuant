@@ -631,6 +631,17 @@ export function PaperTradingWorkspace() {
             {dailyReport?.scheduler_next_run_will_execute ? "将执行" : "会守门"} ·{" "}
             {dailyReport?.scheduler_next_run_execution_gate ?? "未知"}
           </p>
+          <p>
+            门禁缺口{" "}
+            {(dailyReport?.open_alpha_gates ?? [])
+              .map(
+                (item) =>
+                  `${item.label} ${formatNumber(item.current)} / ${formatNumber(item.required)}，还差 ${formatNumber(
+                    item.remaining
+                  )}${item.unit}`
+              )
+              .join("；") || "无"}
+          </p>
           <p>阻断 {(dailyReport?.alpha_blockers ?? []).join(" / ") || "无"}</p>
           <p>数据警告 {(dailyReport?.data_quality_warnings ?? []).map(dataQualityWarningLabel).join(" / ") || "无"}</p>
         </div>

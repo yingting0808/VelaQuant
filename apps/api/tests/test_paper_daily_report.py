@@ -37,6 +37,13 @@ def test_paper_daily_report_summarizes_runtime_facts_after_daily_run():
         assert report.event_ledger_ready is True
         assert report.alpha_ready is False
         assert "review_day_sample" in report.alpha_blockers
+        filled_gate = next(item for item in report.open_alpha_gates if item.gate == "filled_order_sample")
+        assert filled_gate.label == "成交订单"
+        assert filled_gate.current < filled_gate.required
+        assert filled_gate.remaining > 0
+        closed_gate = next(item for item in report.open_alpha_gates if item.gate == "closed_trade_sample")
+        assert closed_gate.label == "闭环交易"
+        assert closed_gate.remaining > 0
 
 
 def test_paper_daily_report_breaks_down_candidate_quality_counts():

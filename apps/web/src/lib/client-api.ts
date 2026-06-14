@@ -772,6 +772,7 @@ export type PaperDailyReportPayload = {
   event_ledger_ready: boolean;
   alpha_ready: boolean;
   alpha_blockers: string[];
+  open_alpha_gates: AlphaGateProgressItemPayload[];
   data_quality_warnings: string[];
   summary: string;
 };
@@ -1732,6 +1733,7 @@ const fallbackPaperDailyReport: PaperDailyReportPayload = {
   event_ledger_ready: false,
   alpha_ready: false,
   alpha_blockers: ["api_unavailable"],
+  open_alpha_gates: [],
   data_quality_warnings: ["api_unavailable"],
   summary: "后端 API 暂不可用，无法生成今日简报。"
 };
@@ -4760,6 +4762,8 @@ function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPay
     typeof value.alpha_ready === "boolean" &&
     Array.isArray(value.alpha_blockers) &&
     value.alpha_blockers.every((item) => typeof item === "string") &&
+    Array.isArray(value.open_alpha_gates) &&
+    value.open_alpha_gates.every(isAlphaGateProgressItemPayload) &&
     Array.isArray(value.data_quality_warnings) &&
     value.data_quality_warnings.every((item) => typeof item === "string") &&
     typeof value.summary === "string"

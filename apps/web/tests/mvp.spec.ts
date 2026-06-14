@@ -451,6 +451,28 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     event_ledger_ready: false,
     alpha_ready: false,
     alpha_blockers: ["review_day_sample"],
+    open_alpha_gates: [
+      {
+        gate: "filled_order_sample",
+        label: "成交订单",
+        current: 10,
+        required: 30,
+        remaining: 20,
+        unit: "笔",
+        comparison: "at_least",
+        passed: false
+      },
+      {
+        gate: "closed_trade_sample",
+        label: "闭环交易",
+        current: 6,
+        required: 10,
+        remaining: 4,
+        unit: "笔",
+        comparison: "at_least",
+        passed: false
+      }
+    ],
     data_quality_warnings: [],
     summary: "Daily paper report: operations blocked, run not_started, latest expectancy 0.00; continue paper validation before live capital."
   };
@@ -794,7 +816,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(marketSessionPanel.getByText("pandas_market_calendars")).toBeVisible();
   const dailyReportPanel = page.getByRole("region", { name: "今日简报" });
   await expect(dailyReportPanel.getByText("Daily paper report: operations blocked")).toBeVisible();
-  await expect(dailyReportPanel.getByText("review_day_sample")).toBeVisible();
+  await expect(dailyReportPanel.getByText("成交订单 10 / 30，还差 20笔")).toBeVisible();
+  await expect(dailyReportPanel.getByText("闭环交易 6 / 10，还差 4笔")).toBeVisible();
+  await expect(dailyReportPanel.getByText("阻断 review_day_sample")).toBeVisible();
   const operationsPanel = page.getByRole("region", { name: "运行健康" });
   await expect(operationsPanel.getByText("blocked", { exact: true })).toBeVisible();
   await expect(operationsPanel.getByText("run_daily_paper_trading")).toBeVisible();
@@ -975,6 +999,7 @@ test("paper trading disables daily run when today's operations are complete", as
         event_ledger_ready: true,
         alpha_ready: false,
         alpha_blockers: ["review_day_sample"],
+        open_alpha_gates: [],
         data_quality_warnings: [],
         summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
       }
@@ -1257,6 +1282,7 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
     event_ledger_ready: true,
     alpha_ready: false,
     alpha_blockers: ["review_day_sample"],
+    open_alpha_gates: [],
     data_quality_warnings: ["future_runs_excluded_from_as_of_report"],
     summary: "Daily paper report: operations ready, run skipped, latest expectancy 1.00; continue paper validation before live capital."
   };
@@ -1616,6 +1642,10 @@ test("strategy lab renders readiness status", async ({ page }) => {
             ticker: "NVDA",
             market_event_count: 8,
             trade_intent_count: 4,
+            candidate_score_count: 2,
+            average_candidate_score: 0.74,
+            latest_candidate_score: 0.82,
+            score_pnl_alignment: "aligned",
             filled_order_count: 3,
             false_positive_count: 1,
             false_positive_rate: 0.3333,

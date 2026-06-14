@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 
 from app.domain.models import PaperRun, PaperRunTrigger
 from app.data.providers.base import MarketDataProvider
+from app.services.alpha_gate_progress import AlphaGateProgressItem, build_alpha_gate_progress
 from app.services.alpha_validation import get_alpha_validation
 from app.services.alpha_validation_forecast import build_alpha_validation_forecast
 from app.services.event_ledger import get_event_ledger_status
@@ -48,6 +49,7 @@ class PaperDailyReportPayload(BaseModel):
     event_ledger_ready: bool
     alpha_ready: bool
     alpha_blockers: list[str]
+    open_alpha_gates: list[AlphaGateProgressItem]
     data_quality_warnings: list[str]
     summary: str
 
@@ -61,6 +63,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
     event_ledger = get_event_ledger_status(session, as_of_trading_day=trading_day)
     alpha_validation = get_alpha_validation(session, as_of_trading_day=trading_day)
     alpha_forecast = build_alpha_validation_forecast(alpha_validation)
+    alpha_gate_progress = build_alpha_gate_progress(alpha_validation)
     data_quality_warnings = _data_quality_warnings(session, trading_day)
     latest_trend_item = review_trend.items[0] if review_trend.items else None
     candidate_status_counts = _candidate_status_counts(trading_summary.candidates)
@@ -96,6 +99,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         event_ledger_ready=event_ledger.replay_ready,
         alpha_ready=alpha_validation.alpha_ready,
         alpha_blockers=alpha_validation.blockers,
+        open_alpha_gates=[item for item in alpha_gate_progress.items if not item.passed],
         data_quality_warnings=data_quality_warnings,
         summary=_summary(
             health_status=operations.health_status,
