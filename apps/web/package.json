@@ -1,5 +1,5 @@
 {
-  "name": "ai-us-stocks-web",
+  "name": "velaquant-web",
   "private": true,
   "scripts": {
     "dev": "next dev",

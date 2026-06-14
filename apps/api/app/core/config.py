@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "ai-us-stocks-api"
+    app_name: str = "velaquant-api"
     database_url: str = "sqlite:///./local.db"
     cors_origin: str = "http://localhost:3000"
     data_mode: str = "hybrid"

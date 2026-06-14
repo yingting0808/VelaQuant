@@ -1,5 +1,5 @@
 {
-  "name": "ai-us-stocks-tool",
+  "name": "velaquant",
   "private": true,
   "scripts": {
     "api:dev": "cd apps/api && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
