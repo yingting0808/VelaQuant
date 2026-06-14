@@ -380,6 +380,23 @@ def test_strategy_attribution_orders_tickers_by_observed_pnl_impact_before_score
         assert [item.ticker for item in attribution.ticker_diagnostics] == ["NVDA", "AAPL", "QQQ"]
 
 
+def test_strategy_attribution_labels_candidate_score_pnl_alignment():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(session, account, "trade_explanation", 1, {"ticker": "AAPL", "evidence": ["final_score=1200.00"]})
+        _core_event(session, account, "trade_explanation", 2, {"ticker": "AMZN", "evidence": ["final_score=-950.00"]})
+        _core_event(session, account, "trade_explanation", 3, {"ticker": "QQQ", "evidence": ["final_score=1050.00"]})
+        _filled_sell(session, account, "AAPL", realized_pnl=10)
+        _filled_sell(session, account, "AMZN", realized_pnl=15)
+
+        attribution = attribute_current_paper_strategy(session)
+        diagnostics = {item.ticker: item for item in attribution.ticker_diagnostics}
+
+        assert diagnostics["AAPL"].score_pnl_alignment == "aligned"
+        assert diagnostics["AMZN"].score_pnl_alignment == "inverted"
+        assert diagnostics["QQQ"].score_pnl_alignment == "unresolved"
+
+
 def test_strategy_attribution_flags_losing_open_position_as_false_positive():
     with make_session() as session:
         account = _account(session)

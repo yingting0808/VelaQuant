@@ -1278,7 +1278,10 @@ export function StrategyLabStatusPanel() {
                     )}`}
               </p>
             </div>
-            <span className="state-ok">置信 {formatPercent(topTicker?.average_confidence ?? 0)}</span>
+            <span className={scorePnlAlignmentBadgeClass(topTicker?.score_pnl_alignment)}>
+              {scorePnlAlignmentLabel(topTicker?.score_pnl_alignment)} · 置信{" "}
+              {formatPercent(topTicker?.average_confidence ?? 0)}
+            </span>
           </article>
           <article className="module-row">
             <div>
@@ -1455,6 +1458,27 @@ function lifecycleAuditBadgeClass(item: StrategyLifecycleAuditPayload["items"][n
     return "state-warn";
   }
   return "state-ok";
+}
+
+function scorePnlAlignmentLabel(
+  alignment: StrategyAttributionPayload["ticker_diagnostics"][number]["score_pnl_alignment"] | undefined
+): string {
+  if (alignment === "aligned") {
+    return "评分一致";
+  }
+  if (alignment === "inverted") {
+    return "评分反向";
+  }
+  return "待验证";
+}
+
+function scorePnlAlignmentBadgeClass(
+  alignment: StrategyAttributionPayload["ticker_diagnostics"][number]["score_pnl_alignment"] | undefined
+): string {
+  if (alignment === "aligned") {
+    return "state-ok";
+  }
+  return "state-warn";
 }
 
 function formatPercent(value: number): string {

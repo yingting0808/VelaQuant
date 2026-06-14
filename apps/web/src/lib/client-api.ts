@@ -64,6 +64,7 @@ export type TickerSignalAttributionPayload = {
   candidate_score_count: number;
   average_candidate_score: number;
   latest_candidate_score: number | null;
+  score_pnl_alignment: "aligned" | "inverted" | "unresolved";
   filled_order_count: number;
   false_positive_count: number;
   false_positive_rate: number;
@@ -2031,6 +2032,9 @@ function isTickerSignalAttributionPayload(value: unknown): value is TickerSignal
     typeof value.candidate_score_count === "number" &&
     typeof value.average_candidate_score === "number" &&
     (typeof value.latest_candidate_score === "number" || value.latest_candidate_score === null) &&
+    (value.score_pnl_alignment === "aligned" ||
+      value.score_pnl_alignment === "inverted" ||
+      value.score_pnl_alignment === "unresolved") &&
     typeof value.filled_order_count === "number" &&
     typeof value.false_positive_count === "number" &&
     typeof value.false_positive_rate === "number" &&

@@ -32,6 +32,7 @@ class TickerSignalAttribution(BaseModel):
     candidate_score_count: int
     average_candidate_score: float
     latest_candidate_score: float | None = None
+    score_pnl_alignment: Literal["aligned", "inverted", "unresolved"]
     filled_order_count: int
     false_positive_count: int
     false_positive_rate: float
@@ -321,6 +322,8 @@ def _ticker_diagnostics(
         false_positive_count = int(row["false_positive_count"])
         realized = round(float(row["realized_pnl"]), 2)
         unrealized = round(float(row["unrealized_pnl"]), 2)
+        observed = round(realized + unrealized, 2)
+        latest_candidate_score = round(candidate_scores[-1], 2) if candidate_scores else None
         diagnostics.append(
             TickerSignalAttribution(
                 ticker=ticker,
@@ -330,17 +333,26 @@ def _ticker_diagnostics(
                 average_candidate_score=round(sum(candidate_scores) / len(candidate_scores), 2)
                 if candidate_scores
                 else 0.0,
-                latest_candidate_score=round(candidate_scores[-1], 2) if candidate_scores else None,
+                latest_candidate_score=latest_candidate_score,
+                score_pnl_alignment=_score_pnl_alignment(latest_candidate_score, observed),
                 filled_order_count=filled_order_count,
                 false_positive_count=false_positive_count,
                 false_positive_rate=_ratio(false_positive_count, filled_order_count),
                 average_confidence=round(sum(confidences) / len(confidences), 4) if confidences else 0.0,
                 realized_pnl=realized,
                 unrealized_pnl=unrealized,
-                observed_pnl=round(realized + unrealized, 2),
+                observed_pnl=observed,
             )
         )
     return sorted(diagnostics, key=_ticker_diagnostic_sort_key)
+
+
+def _score_pnl_alignment(candidate_score: float | None, observed_pnl: float) -> Literal["aligned", "inverted", "unresolved"]:
+    if candidate_score is None or candidate_score == 0 or observed_pnl == 0:
+        return "unresolved"
+    if (candidate_score > 0 and observed_pnl > 0) or (candidate_score < 0 and observed_pnl < 0):
+        return "aligned"
+    return "inverted"
 
 
 def _ticker_diagnostic_sort_key(item: TickerSignalAttribution) -> tuple[float, float, str]:

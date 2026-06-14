@@ -168,6 +168,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
+- Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `0d8a4017-67c4-4a4c-8f09-d257cc74770c`, trading day `2026-06-12`, status `completed`, 7 candidates, 28 replayable core events, including 7 `trade_explanation` events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
@@ -197,6 +198,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
+- 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`0d8a4017-67c4-4a4c-8f09-d257cc74770c`，交易日 `2026-06-12`，状态 `completed`，7 个候选，28 条可回放 core events，其中包含 7 条 `trade_explanation` 事件。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
