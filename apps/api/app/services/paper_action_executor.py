@@ -38,7 +38,7 @@ def execute_paper_primary_action(
         result = repair_paper_operations_event_ledger(session).model_dump(mode="json")
     elif action == "quarantine_legacy_manual_future_runs":
         result = quarantine_legacy_manual_future_runs(session).model_dump(mode="json")
-    elif action in {"run_daily_paper_trading", "retry_daily_paper_trading"}:
+    elif action in {"run_daily_paper_trading", "retry_daily_paper_trading", "collect_post_limit_sample"}:
         result = run_daily_paper_trading_loop(session, provider).model_dump(mode="json")
     else:
         executed = False

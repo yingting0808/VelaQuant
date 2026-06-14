@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.data.providers.mock import MockMarketDataProvider
 from app.domain.models import PaperAccount, PaperOrder, PaperOrderSide, PaperOrderStatus
+from app.services import paper_action_executor
 from app.services.paper_action_executor import execute_paper_primary_action
 from app.services.paper_risk_profile import get_paper_risk_profile
 from app.services.workspace import get_or_create_default_workspace
@@ -42,6 +44,30 @@ def test_execute_primary_action_applies_safe_paper_risk_recommendation_and_advan
         assert result.result is not None
         assert result.result["applied"] is True
         assert profile.max_daily_orders == 6
+
+
+def test_execute_primary_action_collects_post_limit_sample_by_running_daily_loop(monkeypatch):
+    calls = []
+
+    def action_plan(session):
+        return SimpleNamespace(primary_action="collect_post_limit_sample")
+
+    def daily_run(session, provider):
+        calls.append((session, provider))
+        return SimpleNamespace(model_dump=lambda mode="json": {"daily_run": "executed"})
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", action_plan)
+    monkeypatch.setattr(paper_action_executor, "run_daily_paper_trading_loop", daily_run)
+
+    with make_session() as session:
+        provider = MockMarketDataProvider()
+
+        result = execute_paper_primary_action(session, provider)
+
+        assert result.executed is True
+        assert result.action_code == "collect_post_limit_sample"
+        assert result.result == {"daily_run": "executed"}
+        assert calls == [(session, provider)]
 
 
 def make_session() -> Session:
