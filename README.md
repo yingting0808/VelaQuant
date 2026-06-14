@@ -167,8 +167,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
+- Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
-- Latest verified paper run: `5e8e1996-ef56-4164-b6d6-431299d16c46`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
+- Latest verified paper run: `0d8a4017-67c4-4a4c-8f09-d257cc74770c`, trading day `2026-06-12`, status `completed`, 7 candidates, 28 replayable core events, including 7 `trade_explanation` events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
 - Latest Alpha gate state: 5/9 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
 - Latest filtered Alpha snapshot: trading day `2026-06-12`, `validation_level=collecting`, blockers `review_day_sample`, `consecutive_positive_expectancy`, `filled_order_sample`, `closed_trade_sample`.
@@ -195,8 +196,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
+- 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
-- 最新已验证 paper run：`5e8e1996-ef56-4164-b6d6-431299d16c46`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
+- 最新已验证 paper run：`0d8a4017-67c4-4a4c-8f09-d257cc74770c`，交易日 `2026-06-12`，状态 `completed`，7 个候选，28 条可回放 core events，其中包含 7 条 `trade_explanation` 事件。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
 - 最新 Alpha 门禁：5/9 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
 - 最新过滤后的 Alpha 快照：交易日 `2026-06-12`，`validation_level=collecting`，阻断项为 `review_day_sample`、`consecutive_positive_expectancy`、`filled_order_sample`、`closed_trade_sample`。

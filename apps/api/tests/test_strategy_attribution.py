@@ -348,6 +348,38 @@ def test_strategy_attribution_links_candidate_scores_to_ticker_pnl():
         assert diagnostics["NVDA"].observed_pnl == 18
 
 
+def test_strategy_attribution_orders_tickers_by_observed_pnl_impact_before_score():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            1,
+            {"ticker": "AAPL", "evidence": ["final_score=1200.00"]},
+        )
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            2,
+            {"ticker": "NVDA", "evidence": ["final_score=200.00"]},
+        )
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            3,
+            {"ticker": "QQQ", "evidence": ["final_score=5000.00"]},
+        )
+        _filled_sell(session, account, "AAPL", realized_pnl=10)
+        _filled_sell(session, account, "NVDA", realized_pnl=-30)
+
+        attribution = attribute_current_paper_strategy(session)
+
+        assert [item.ticker for item in attribution.ticker_diagnostics] == ["NVDA", "AAPL", "QQQ"]
+
+
 def test_strategy_attribution_flags_losing_open_position_as_false_positive():
     with make_session() as session:
         account = _account(session)

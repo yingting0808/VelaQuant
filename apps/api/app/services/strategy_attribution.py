@@ -340,7 +340,12 @@ def _ticker_diagnostics(
                 observed_pnl=round(realized + unrealized, 2),
             )
         )
-    return diagnostics
+    return sorted(diagnostics, key=_ticker_diagnostic_sort_key)
+
+
+def _ticker_diagnostic_sort_key(item: TickerSignalAttribution) -> tuple[float, float, str]:
+    candidate_score = item.latest_candidate_score if item.latest_candidate_score is not None else item.average_candidate_score
+    return (-abs(item.observed_pnl), -abs(candidate_score), item.ticker)
 
 
 def _ticker_row(rows: dict[str, dict[str, float | int | list[float]]], ticker: str) -> dict[str, float | int | list[float]]:
