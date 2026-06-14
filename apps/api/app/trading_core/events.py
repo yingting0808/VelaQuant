@@ -69,3 +69,22 @@ class StrategyInputEvent(BaseModel):
 
     market_event: MarketEvent
     portfolio: PortfolioState
+
+
+class TradeExplanationEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticker: str = Field(min_length=1)
+    strategy_id: str = Field(min_length=1)
+    decision: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+    evidence: list[str] = Field(default_factory=list)
+    backtest: dict[str, str | bool | None] = Field(default_factory=dict)
+
+    @field_validator("ticker")
+    @classmethod
+    def normalize_explanation_ticker(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("ticker must not be empty")
+        return normalized

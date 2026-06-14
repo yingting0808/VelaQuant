@@ -1,6 +1,13 @@
 from app.trading_core.engine import TradingEngine, TradingEngineResult
 from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, RedisStreamEventBus, TradingEventTopic
-from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
+from app.trading_core.events import (
+    EventSource,
+    MarketEvent,
+    MarketEventType,
+    Sentiment,
+    StrategyInputEvent,
+    TradeExplanationEvent,
+)
 from app.trading_core.execution import (
     CoreOrder,
     ExecutionEngine,
@@ -40,6 +47,7 @@ __all__ = [
     "StrategyEngine",
     "StrategyEngineResult",
     "StrategyInputEvent",
+    "TradeExplanationEvent",
     "TradeIntent",
     "TradeIntentSide",
     "TradingEventTopic",

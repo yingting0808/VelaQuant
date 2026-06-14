@@ -338,6 +338,28 @@ def test_daily_run_prioritizes_real_backtest_candidate(monkeypatch):
         assert "收益为正" in ordered.thesis
         assert "38.60%" in ordered.evidence_summary
         assert "Sharpe 1.45" in ordered.risk_notes
+        explanation_events = session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.topic == "trade_explanation")
+            .order_by(CoreEventLog.sequence)
+        ).all()
+        assert explanation_events
+        aapl_explanation = next(
+            event
+            for event in explanation_events
+            if json.loads(event.payload_json)["ticker"] == "AAPL"
+        )
+        payload = json.loads(aapl_explanation.payload_json)
+        assert payload["strategy_id"] == "deterministic_watchlist_v1"
+        assert payload["decision"] == "candidate"
+        assert payload["backtest"]["run_id"] == "bt-aapl"
+        assert payload["backtest"]["total_net_profit"] == "38.60%"
+        trade_intent_event = session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.topic == "trade_intent")
+            .where(CoreEventLog.correlation_id == aapl_explanation.correlation_id)
+        ).one()
+        assert aapl_explanation.causation_id == trade_intent_event.event_id
 
 
 def test_daily_run_auto_exits_profitable_open_position_before_review():

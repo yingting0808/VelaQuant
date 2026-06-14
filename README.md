@@ -112,6 +112,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Strategy Registry now reads per-strategy backtest history, prioritizes successful real-market backtests over the latest mock/deterministic fallback, and converts only positive-return backtests into read-only ranking evidence.
 - Strategy Competition marks positive catalog backtests as `connect_to_paper_runtime` work, while keeping negative or flat backtests in the lab and still blocking all catalog strategies from allocation until they are connected to the paper runtime and hot-swap path.
+- Daily paper candidate selection records backtest-based candidate explanations as `trade_explanation` core events, so replay can trace why a ticker was promoted, watched, or dismissed.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `5e8e1996-ef56-4164-b6d6-431299d16c46`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
@@ -136,6 +137,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - Strategy Registry 现在会按策略读取回测历史，优先采用真实市场成功回测，而不是被最新 mock/deterministic fallback 覆盖，并且只把正收益回测转成只读排名证据。
 - Strategy Competition 会把正收益目录回测标记为 `connect_to_paper_runtime` 工作项；负收益或持平回测继续留在 lab，且所有目录策略在接入 paper runtime 和热切换路径前仍禁止进入资金分配。
+- 每日 paper 候选筛选会把回测驱动的候选解释记录为 `trade_explanation` core events，因此回放时可以追踪某个 ticker 为什么被提级、观察或剔除。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`5e8e1996-ef56-4164-b6d6-431299d16c46`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。

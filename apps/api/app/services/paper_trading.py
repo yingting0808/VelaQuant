@@ -43,7 +43,14 @@ from app.services.strategy_candidate_backtest import (
     run_strategy_candidate_backtests,
 )
 from app.trading_core.event_bus import EventEnvelope, InMemoryEventBus, TradingEventTopic, build_event_bus
-from app.trading_core.events import EventSource, MarketEvent, MarketEventType, Sentiment, StrategyInputEvent
+from app.trading_core.events import (
+    EventSource,
+    MarketEvent,
+    MarketEventType,
+    Sentiment,
+    StrategyInputEvent,
+    TradeExplanationEvent,
+)
 from app.trading_core.execution import CoreOrder, ExecutionEngine, OrderState, order_state_event
 from app.trading_core.portfolio import PortfolioPosition, PortfolioState
 from app.trading_core.risk import RiskEngine, RiskLimits
@@ -716,6 +723,12 @@ def _generate_candidates(
         if backtest_item is not None:
             _apply_backtest_evidence(candidate, backtest_item)
             score = _candidate_score_with_backtest(score, backtest_item)
+            event_bus.publish(
+                TradingEventTopic.trade_explanation,
+                _trade_explanation_event(candidate, backtest_item, strategy_id=binding.strategy_id),
+                causation_id=trade_intent_envelope.event_id,
+                correlation_id=trade_intent_envelope.correlation_id,
+            )
         ranked.append(
             (
                 score,
@@ -1036,6 +1049,32 @@ def _apply_backtest_evidence(candidate: PaperCandidate, item: StrategyCandidateB
     candidate.risk_notes = f"{candidate.risk_notes} 回测风控：{item.reason}。"
     if item.recommendation != "candidate":
         candidate.status = PaperCandidateStatus.dismissed
+
+
+def _trade_explanation_event(
+    candidate: PaperCandidate,
+    item: StrategyCandidateBacktestItem,
+    *,
+    strategy_id: str,
+) -> TradeExplanationEvent:
+    return TradeExplanationEvent(
+        ticker=candidate.ticker,
+        strategy_id=strategy_id,
+        decision=item.recommendation,
+        explanation=candidate.thesis,
+        evidence=[item.reason, _backtest_metric_summary(item), f"source={item.data_source or 'unknown'}"],
+        backtest={
+            "run_id": item.run_id,
+            "status": item.status,
+            "engine": item.engine,
+            "data_source": item.data_source,
+            "uses_real_market_data": item.uses_real_market_data,
+            "total_net_profit": item.total_net_profit,
+            "sharpe_ratio": item.sharpe_ratio,
+            "drawdown": item.drawdown,
+            "total_trades": item.total_trades,
+        },
+    )
 
 
 def _backtest_metric_summary(item: StrategyCandidateBacktestItem) -> str:
