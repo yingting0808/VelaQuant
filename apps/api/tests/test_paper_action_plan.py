@@ -40,6 +40,39 @@ def test_paper_action_plan_recommends_risk_review_when_daily_order_limit_blocks_
     assert any(item.action_code == "continue_paper_validation" for item in plan.items)
 
 
+def test_paper_action_plan_applies_paper_only_risk_recommendation_when_review_is_ready():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("filled_order_sample", "成交订单", 8, 30, 22, "笔"),
+                _gate("closed_trade_sample", "闭环交易", 4, 10, 6, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=1),
+        risk_profile=_risk_profile(max_daily_orders=6),
+        risk_limit_review=PaperRiskLimitReviewPayload(
+            status="review_required",
+            current_max_daily_orders=6,
+            recommended_paper_max_daily_orders=7,
+            live_change_allowed=False,
+            max_daily_order_rejections=1,
+            max_daily_order_buy_rejections=1,
+            max_daily_order_sell_rejections=0,
+            filled_order_count=8,
+            closed_trade_count=4,
+            sample_collection_blocked=True,
+            blockers=["filled_order_sample", "closed_trade_sample", "max_daily_orders"],
+            summary="Paper risk limit review: paper-only review required; max_daily_orders 6 -> 7.",
+        ),
+    )
+
+    assert plan.primary_action == "apply_paper_risk_limit_recommendation"
+    assert plan.items[0].action_code == "apply_paper_risk_limit_recommendation"
+    assert "max_daily_orders 6 -> 7" in plan.items[0].detail
+    assert "Live 不变" in plan.items[0].detail
+
+
 def test_paper_action_plan_collects_post_limit_sample_after_risk_limit_update():
     plan = build_paper_action_plan(
         operations=_operations(blockers=[], health_status="ready"),

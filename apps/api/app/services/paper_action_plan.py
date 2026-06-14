@@ -107,7 +107,32 @@ def build_paper_action_plan(
     awaiting_post_limit_sample = (
         risk_limit_review is not None and "awaiting_post_limit_sample" in risk_limit_review.blockers
     )
-    if awaiting_post_limit_sample:
+    can_apply_paper_risk_limit = (
+        risk_limit_review is not None
+        and risk_limit_review.status == "review_required"
+        and risk_limit_review.recommended_paper_max_daily_orders > risk_limit_review.current_max_daily_orders
+        and not risk_limit_review.live_change_allowed
+    )
+    if can_apply_paper_risk_limit and (closed_trade_gate is not None or filled_order_gate is not None):
+        items.append(
+            PaperActionPlanItem(
+                priority=2,
+                action_code="apply_paper_risk_limit_recommendation",
+                title="应用 Paper 限额建议",
+                detail=(
+                    "按默认推荐提高模拟盘样本采集容量："
+                    f"max_daily_orders {risk_limit_review.current_max_daily_orders} -> "
+                    f"{risk_limit_review.recommended_paper_max_daily_orders}；Live 不变。"
+                ),
+                evidence=[
+                    risk_limit_review.summary,
+                    f"filled={execution.filled_order_count}",
+                    f"closed={execution.closed_trade_count}",
+                    f"rejected={execution.max_daily_order_rejections}",
+                ],
+            )
+        )
+    elif awaiting_post_limit_sample:
         items.append(
             PaperActionPlanItem(
                 priority=2,
