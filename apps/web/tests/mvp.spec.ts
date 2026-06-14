@@ -306,6 +306,11 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     legacy_manual_future_run_count: 0,
     latest_legacy_manual_future_trading_day: null,
     data_quality_warnings: [],
+    latest_scheduler_decision: "failed",
+    latest_scheduler_decision_at: "2026-06-13T06:30:00+08:00",
+    latest_scheduler_decision_trading_day: "2026-06-12",
+    latest_scheduler_decision_reason: "current_session_closed",
+    latest_scheduler_decision_summary: "Scheduled paper trading failed: paper loop failed.",
     blockers: ["daily_run_missing"],
     recommended_action: "run_daily_paper_trading",
     summary: "Daily paper pipeline has not run for this trading day."
@@ -765,6 +770,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   const operationsPanel = page.getByRole("region", { name: "运行健康" });
   await expect(operationsPanel.getByText("blocked", { exact: true })).toBeVisible();
   await expect(operationsPanel.getByText("run_daily_paper_trading")).toBeVisible();
+  await expect(operationsPanel.getByText("调度决策")).toBeVisible();
+  await expect(operationsPanel.getByText("failed · 2026-06-12")).toBeVisible();
+  await expect(operationsPanel.getByText("Scheduled paper trading failed: paper loop failed.")).toBeVisible();
   await expect(operationsPanel.getByText("事件链缺失", { exact: true })).toBeVisible();
   const stabilityPanel = page.getByRole("region", { name: "稳定趋势" });
   await expect(stabilityPanel.getByText("No paper operations history is available yet.")).toBeVisible();
@@ -1074,6 +1082,11 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
     legacy_manual_future_run_count: 1,
     latest_legacy_manual_future_trading_day: "2026-06-30",
     data_quality_warnings: ["legacy_manual_future_runs_detected"],
+    latest_scheduler_decision: "skipped",
+    latest_scheduler_decision_at: "2026-06-13T06:30:00+08:00",
+    latest_scheduler_decision_trading_day: "2026-06-13",
+    latest_scheduler_decision_reason: "market_closed",
+    latest_scheduler_decision_summary: "Market is closed; scheduled paper trading skipped.",
     blockers: [],
     recommended_action: "hold_until_next_session",
     summary:

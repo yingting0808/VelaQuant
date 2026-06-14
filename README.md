@@ -106,6 +106,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
 - Current scheduler runtime shows the next cron trigger will be guarded as `market_closed`, while the next actionable paper sample is `2026-06-16T06:30:00+08:00` for trading day `2026-06-15`.
 - Scheduled paper runs persist `scheduler_decision` events for guarded skips, executed runs, and failed execution attempts, so daily automation decisions remain auditable even when no broker-facing action occurs or an internal paper loop error is raised.
+- The operations status API and Paper Trading workspace now surface the latest persisted `scheduler_decision`, including outcome, trading day, reason, timestamp, and summary.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -126,6 +127,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
 - 当前调度器运行态显示，下一次 cron 会因 `market_closed` 守门跳过，而下一次真正有效的 paper 采样时间是 `2026-06-16T06:30:00+08:00`，对应交易日 `2026-06-15`。
 - 定时 paper run 已对守门跳过、真实执行和执行失败三种结果都写入 `scheduler_decision` 事件，因此每日自动化决策即使没有触发券商侧动作或内部 paper loop 报错，也可以审计。
+- 运行健康 API 和模拟盘工作台已展示最新落库的 `scheduler_decision`，包括结果、交易日、原因、时间和摘要。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。

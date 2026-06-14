@@ -813,6 +813,11 @@ export type PaperOperationsStatusPayload = {
   legacy_manual_future_run_count: number;
   latest_legacy_manual_future_trading_day: string | null;
   data_quality_warnings: string[];
+  latest_scheduler_decision: "executed" | "skipped" | "failed" | null;
+  latest_scheduler_decision_at: string | null;
+  latest_scheduler_decision_trading_day: string | null;
+  latest_scheduler_decision_reason: string | null;
+  latest_scheduler_decision_summary: string | null;
   blockers: string[];
   recommended_action:
     | "run_daily_paper_trading"
@@ -1747,6 +1752,11 @@ const fallbackPaperOperationsStatus: PaperOperationsStatusPayload = {
   legacy_manual_future_run_count: 0,
   latest_legacy_manual_future_trading_day: null,
   data_quality_warnings: [],
+  latest_scheduler_decision: null,
+  latest_scheduler_decision_at: null,
+  latest_scheduler_decision_trading_day: null,
+  latest_scheduler_decision_reason: null,
+  latest_scheduler_decision_summary: null,
   blockers: ["api_unavailable"],
   recommended_action: "run_daily_paper_trading",
   summary: "后端 API 暂不可用，无法确认每日运行健康。"
@@ -4235,6 +4245,17 @@ function isPaperOperationsStatusPayload(value: unknown): value is PaperOperation
       value.latest_legacy_manual_future_trading_day === null) &&
     Array.isArray(value.data_quality_warnings) &&
     value.data_quality_warnings.every((item) => typeof item === "string") &&
+    (value.latest_scheduler_decision === "executed" ||
+      value.latest_scheduler_decision === "skipped" ||
+      value.latest_scheduler_decision === "failed" ||
+      value.latest_scheduler_decision === null) &&
+    (typeof value.latest_scheduler_decision_at === "string" || value.latest_scheduler_decision_at === null) &&
+    (typeof value.latest_scheduler_decision_trading_day === "string" ||
+      value.latest_scheduler_decision_trading_day === null) &&
+    (typeof value.latest_scheduler_decision_reason === "string" ||
+      value.latest_scheduler_decision_reason === null) &&
+    (typeof value.latest_scheduler_decision_summary === "string" ||
+      value.latest_scheduler_decision_summary === null) &&
     Array.isArray(value.blockers) &&
     value.blockers.every((item) => typeof item === "string") &&
     typeof value.recommended_action === "string" &&

@@ -680,6 +680,16 @@ export function PaperTradingWorkspace() {
             <span>建议动作</span>
             <strong>{operations?.recommended_action ?? "run_daily_paper_trading"}</strong>
           </div>
+          <div>
+            <span>调度决策</span>
+            <strong>
+              {operations?.latest_scheduler_decision
+                ? `${operations.latest_scheduler_decision} · ${
+                    operations.latest_scheduler_decision_trading_day ?? "无交易日"
+                  }`
+                : "未记录"}
+            </strong>
+          </div>
         </div>
         <div className="import-result">
           <strong>{operations?.event_ledger_ready ? "事件链可回放" : "事件链缺失"}</strong>
@@ -687,6 +697,13 @@ export function PaperTradingWorkspace() {
             事件 {operations?.latest_run_event_count ?? 0} · 可重跑{" "}
             {operations?.can_retry_today ? "是" : "否"} · 最新错误 {operations?.latest_error ?? "无"}
           </p>
+          {operations?.latest_scheduler_decision ? (
+            <p>
+              调度 {formatTimestamp(operations.latest_scheduler_decision_at, "未同步")} · 原因{" "}
+              {operations.latest_scheduler_decision_reason ?? "未知"} ·{" "}
+              {operations.latest_scheduler_decision_summary ?? "无摘要"}
+            </p>
+          ) : null}
           <p>阻断 {(operations?.blockers ?? []).map(operationBlockerLabel).join(" / ") || "无"}</p>
           {(operations?.data_quality_warnings ?? []).length ? (
             <p>

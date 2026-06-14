@@ -15,6 +15,7 @@ from app.services.workspace import get_or_create_default_workspace
 
 PaperOperationsRunState = Literal["not_started", "running", "completed", "skipped", "failed"]
 PaperOperationsHealthStatus = Literal["ready", "warning", "blocked"]
+PaperSchedulerDecision = Literal["executed", "skipped", "failed"]
 PaperOperationsAction = Literal[
     "run_daily_paper_trading",
     "retry_daily_paper_trading",
@@ -42,6 +43,11 @@ class PaperOperationsStatusPayload(BaseModel):
     legacy_manual_future_run_count: int
     latest_legacy_manual_future_trading_day: str | None
     data_quality_warnings: list[str]
+    latest_scheduler_decision: PaperSchedulerDecision | None = None
+    latest_scheduler_decision_at: datetime | None = None
+    latest_scheduler_decision_trading_day: str | None = None
+    latest_scheduler_decision_reason: str | None = None
+    latest_scheduler_decision_summary: str | None = None
     blockers: list[str]
     recommended_action: PaperOperationsAction
     summary: str
@@ -140,6 +146,7 @@ def get_paper_operations_status(
     event_ledger_ready = (
         _event_ledger_ready(session, selected_run.id, event_count) if selected_run is not None else False
     )
+    scheduler_decision = _latest_scheduler_decision(session, team_id)
     review_id = _review_id(session, selected_run)
     legacy_future_runs = _legacy_manual_future_runs(session, team_id, trading_day)
     data_quality_warnings = (
@@ -170,6 +177,11 @@ def get_paper_operations_status(
         legacy_manual_future_run_count=len(legacy_future_runs),
         latest_legacy_manual_future_trading_day=legacy_future_runs[0].trading_day if legacy_future_runs else None,
         data_quality_warnings=data_quality_warnings,
+        latest_scheduler_decision=scheduler_decision["decision"],
+        latest_scheduler_decision_at=scheduler_decision["published_at"],
+        latest_scheduler_decision_trading_day=scheduler_decision["trading_day"],
+        latest_scheduler_decision_reason=scheduler_decision["reason"],
+        latest_scheduler_decision_summary=scheduler_decision["summary"],
         blockers=blockers,
         recommended_action=action,
         summary=_summary(run_state, health_status, action, blockers, data_quality_warnings),
@@ -455,6 +467,63 @@ def _legacy_manual_future_runs(
             .order_by(PaperRun.trading_day.desc(), PaperRun.started_at.desc())
         ).all()
     )
+
+
+def _latest_scheduler_decision(session: Session, team_id: UUID) -> dict[str, datetime | str | None]:
+    event = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "scheduler_decision")
+        .order_by(CoreEventLog.sequence.desc(), CoreEventLog.published_at.desc())
+    ).first()
+    if event is None:
+        return _empty_scheduler_decision()
+    try:
+        payload = json.loads(event.payload_json)
+    except json.JSONDecodeError:
+        return {
+            **_empty_scheduler_decision(),
+            "published_at": event.published_at,
+            "summary": "Malformed scheduler_decision payload.",
+        }
+    if not isinstance(payload, dict):
+        return {
+            **_empty_scheduler_decision(),
+            "published_at": event.published_at,
+            "summary": "Malformed scheduler_decision payload.",
+        }
+    summary = _payload_string(payload, "summary")
+    return {
+        "decision": _scheduler_decision_outcome(payload, summary),
+        "published_at": event.published_at,
+        "trading_day": _payload_string(payload, "trading_day"),
+        "reason": _payload_string(payload, "reason"),
+        "summary": summary,
+    }
+
+
+def _empty_scheduler_decision() -> dict[str, datetime | str | None]:
+    return {
+        "decision": None,
+        "published_at": None,
+        "trading_day": None,
+        "reason": None,
+        "summary": None,
+    }
+
+
+def _scheduler_decision_outcome(payload: dict, summary: str | None) -> PaperSchedulerDecision:
+    if payload.get("executed") is True:
+        return "executed"
+    if (summary or "").lower().startswith("scheduled paper trading failed"):
+        return "failed"
+    return "skipped"
+
+
+def _payload_string(payload: dict, key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 def _event_count(session: Session, run_id: UUID) -> int:

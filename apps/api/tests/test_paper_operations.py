@@ -57,6 +57,52 @@ def test_operations_status_marks_completed_review_with_events_healthy():
         assert status.recommended_action == "hold_until_next_session"
 
 
+def test_operations_status_surfaces_latest_scheduler_decision_event():
+    with make_session() as session:
+        team, _account = _team_and_account(session)
+        session.add(
+            CoreEventLog(
+                team_id=team.id,
+                run_id=None,
+                event_id="paper_scheduler:2026-06-11:1:scheduler_decision",
+                topic="scheduler_decision",
+                sequence=1,
+                correlation_id="paper_scheduler:2026-06-11",
+                causation_id=None,
+                payload_json=(
+                    '{"executed":true,"execution_gate":"ready_to_run","market_date":"2026-06-11",'
+                    '"trading_day":"2026-06-11","reason":"current_session_closed",'
+                    '"summary":"Scheduled paper trading completed."}'
+                ),
+            )
+        )
+        session.add(
+            CoreEventLog(
+                team_id=team.id,
+                run_id=None,
+                event_id="paper_scheduler:2026-06-12:2:scheduler_decision",
+                topic="scheduler_decision",
+                sequence=2,
+                correlation_id="paper_scheduler:2026-06-12",
+                causation_id=None,
+                payload_json=(
+                    '{"executed":false,"execution_gate":"ready_to_run","market_date":"2026-06-12",'
+                    '"trading_day":"2026-06-12","reason":"current_session_closed",'
+                    '"summary":"Scheduled paper trading failed: paper loop failed."}'
+                ),
+            )
+        )
+        session.commit()
+
+        status = get_paper_operations_status(session, team_id=team.id, trading_day=TRADING_DAY)
+
+        assert status.latest_scheduler_decision == "failed"
+        assert status.latest_scheduler_decision_trading_day == TRADING_DAY
+        assert status.latest_scheduler_decision_reason == "current_session_closed"
+        assert status.latest_scheduler_decision_summary == "Scheduled paper trading failed: paper loop failed."
+        assert status.latest_scheduler_decision_at is not None
+
+
 def test_operations_status_prefers_completed_trade_run_over_newer_duplicate_skipped_run():
     with make_session() as session:
         team, account = _team_and_account(session)
