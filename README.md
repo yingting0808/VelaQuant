@@ -62,6 +62,7 @@ Core rules:
 - `ExecutionEngine` records order state transitions.
 - Production events are persisted through the event ledger.
 - AI is for research, explanation, and event structuring, not direct order decisions.
+- OpenBB provides market-data/research access when available, but it does not bypass the data-provider abstraction or execution path.
 - LEAN and vectorbt are research/backtest tools, not live execution paths.
 
 中文说明：
@@ -71,6 +72,7 @@ Core rules:
 - `ExecutionEngine` 记录订单状态机变化。
 - 生产事件必须写入事件账本。
 - AI 只用于研究、解释和事件结构化，不直接生成交易指令。
+- OpenBB 在可用时提供行情和研究数据能力，但不能绕过数据源抽象层或交易执行路径。
 - LEAN 和 vectorbt 只用于研究/回测，不进入实盘执行路径。
 
 ## Tech Stack / 技术栈
@@ -83,6 +85,7 @@ Backend / 后端：
 - PostgreSQL
 - Redis Streams
 - APScheduler
+- OpenBB
 - vectorbt
 - QuantConnect LEAN CLI integration for research workflows
 
@@ -98,6 +101,30 @@ Runtime / 运行环境：
 - Docker Compose
 - API: `http://127.0.0.1:8000`
 - Web: `http://127.0.0.1:3000`
+
+## Data Sources / 数据源
+
+VelaQuant uses a provider abstraction for market and research data. The current data layer can run safely with mock data for development and can use OpenBB when the package and its upstream data access are available.
+
+VelaQuant 通过统一的数据源抽象层读取行情和研究数据。当前系统可以在开发环境使用 Mock 数据安全运行，也可以在 OpenBB 包和上游数据访问可用时调用 OpenBB。
+
+Current data-source roles:
+
+当前数据源职责：
+
+- OpenBB: quote, historical price, and fundamentals research access when available.
+- SEC EDGAR: filing evidence and regulatory document metadata.
+- MockProvider: deterministic local development and test data.
+
+中文说明：
+
+- OpenBB：在可用时提供报价、历史价格和基本面研究数据。
+- SEC EDGAR：提供公告、财报文件和监管披露证据。
+- MockProvider：用于本地开发和测试的确定性数据。
+
+OpenBB is part of the data/research layer. It is not a broker, not a risk engine, and not an execution adapter.
+
+OpenBB 属于数据/研究层，不是券商接口、不是风控引擎，也不是执行适配器。
 
 ## Local Startup / 本地启动
 
