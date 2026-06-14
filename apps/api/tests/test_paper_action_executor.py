@@ -92,6 +92,50 @@ def test_execute_primary_action_continue_validation_records_alpha_snapshot(monke
         assert snapshots[0].team_id == team.id
 
 
+def test_execute_primary_action_hold_until_next_session_returns_waiting_scheduler_status(monkeypatch):
+    plan = SimpleNamespace(
+        primary_action="hold_until_next_session",
+        items=[
+            SimpleNamespace(
+                detail="当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。",
+            )
+        ],
+    )
+    scheduler = SimpleNamespace(
+        running=True,
+        next_run_at=datetime(2026, 6, 15, 6, 30, tzinfo=timezone.utc),
+        execution_gate="market_closed",
+        trading_day="2026-06-12",
+        model_dump=lambda mode="json": {
+            "running": True,
+            "next_run_at": "2026-06-15T06:30:00+00:00",
+            "execution_gate": "market_closed",
+            "trading_day": "2026-06-12",
+        },
+    )
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", lambda session: plan)
+    monkeypatch.setattr(paper_action_executor, "get_paper_scheduler_status", lambda: scheduler)
+
+    with make_session() as session:
+        result = execute_paper_primary_action(session, MockMarketDataProvider())
+
+        assert result.executed is False
+        assert result.status == "waiting"
+        assert result.action_code == "hold_until_next_session"
+        assert result.next_primary_action == "hold_until_next_session"
+        assert result.result == {
+            "reason": "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。",
+            "scheduler": {
+                "running": True,
+                "next_run_at": "2026-06-15T06:30:00+00:00",
+                "execution_gate": "market_closed",
+                "trading_day": "2026-06-12",
+            },
+        }
+        assert "waiting for the next scheduled paper run" in result.summary
+
+
 def test_queue_primary_action_collects_post_limit_sample_without_blocking(monkeypatch):
     class CapturingTasks:
         def __init__(self):

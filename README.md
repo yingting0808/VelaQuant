@@ -46,6 +46,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
+- Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -62,6 +63,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
+- 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
@@ -349,9 +351,9 @@ Run a focused paper action:
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/mvp/paper-trading/action-plan/execute-primary
 ```
 
-Quick actions return `status: completed`. When the primary action is `continue_paper_validation`, the result is an Alpha validation snapshot. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
+Quick actions return `status: completed`. When the primary action is `continue_paper_validation`, the result is an Alpha validation snapshot. When the primary action is `hold_until_next_session`, the result returns `status: waiting` plus scheduler context. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
 
-快速动作返回 `status: completed`。当主动作是 `continue_paper_validation` 时，结果是一条 Alpha 验证快照。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
+快速动作返回 `status: completed`。当主动作是 `continue_paper_validation` 时，结果是一条 Alpha 验证快照。当主动作是 `hold_until_next_session` 时，结果会返回 `status: waiting` 和调度器上下文。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
 
 Run a Strategy Lab backtest:
 

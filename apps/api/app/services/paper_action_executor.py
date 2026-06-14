@@ -14,6 +14,7 @@ from app.services.paper_operations import (
     repair_paper_operations_event_ledger,
 )
 from app.services.paper_risk_settings import apply_paper_risk_limit_recommendation
+from app.services.paper_scheduler import get_paper_scheduler_status
 from app.services.paper_trading import run_daily_paper_trading_loop
 
 BACKGROUND_PAPER_ACTIONS = {"run_daily_paper_trading", "retry_daily_paper_trading", "collect_post_limit_sample"}
@@ -53,6 +54,12 @@ def execute_paper_primary_action(
         result = quarantine_legacy_manual_future_runs(session).model_dump(mode="json")
     elif action == "continue_paper_validation":
         result = record_alpha_validation_snapshot(session).model_dump(mode="json")
+    elif action == "hold_until_next_session":
+        executed = False
+        status = "waiting"
+        scheduler = get_paper_scheduler_status().model_dump(mode="json")
+        hold_detail = plan.items[0].detail if plan.items else "Waiting for the next scheduled paper run."
+        result = {"reason": hold_detail, "scheduler": scheduler}
     elif action in BACKGROUND_PAPER_ACTIONS:
         result = run_daily_paper_trading_loop(
             session,
@@ -64,14 +71,18 @@ def execute_paper_primary_action(
         status = "skipped"
 
     next_plan = get_paper_action_plan(session)
-    verb = "Executed" if executed else "No executable default for"
+    if status == "waiting":
+        verb = "Holding"
+    else:
+        verb = "Executed" if executed else "No executable default for"
+    suffix = " waiting for the next scheduled paper run" if status == "waiting" else ""
     return PaperActionExecutionPayload(
         executed=executed,
         status=status,
         action_code=action,
         next_primary_action=next_plan.primary_action,
         result=result,
-        summary=f"{verb} primary action {action}; next action {next_plan.primary_action}.",
+        summary=f"{verb} primary action {action}; next action {next_plan.primary_action}.{suffix}",
     )
 
 
