@@ -1,7 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session
 
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload, get_alpha_gate_progress
+from app.services.alpha_validation_forecast import AlphaValidationForecastPayload, get_alpha_validation_forecast
 from app.services.alpha_validation_snapshot import get_alpha_validation_snapshots
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, get_paper_execution_diagnostics
 from app.services.paper_operations import PaperOperationsStatusPayload, get_paper_operations_status
@@ -9,6 +14,9 @@ from app.services.paper_review_trend import PaperReviewTrendPayload, get_paper_r
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload, get_paper_risk_limit_review
 from app.services.paper_risk_profile import PaperRiskProfilePayload, get_paper_risk_profile
 from app.services.workspace import get_or_create_default_workspace
+
+if TYPE_CHECKING:
+    from app.services.paper_scheduler import PaperSchedulerStatus
 
 
 class PaperActionPlanItem(BaseModel):
@@ -31,6 +39,8 @@ class PaperActionPlanPayload(BaseModel):
 
 
 def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
+    from app.services.paper_scheduler import get_paper_scheduler_status
+
     team_id = get_or_create_default_workspace(session).team.id
     snapshots = get_alpha_validation_snapshots(session, team_id=team_id, limit=1)
     return build_paper_action_plan(
@@ -40,6 +50,8 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
         risk_profile=get_paper_risk_profile(session, team_id=team_id),
         risk_limit_review=get_paper_risk_limit_review(session, team_id=team_id),
         review_trend=get_paper_review_trend(session, team_id=team_id),
+        alpha_forecast=get_alpha_validation_forecast(session, team_id=team_id),
+        scheduler=get_paper_scheduler_status(),
         latest_alpha_snapshot_trading_day=snapshots.latest.trading_day if snapshots.latest is not None else None,
     )
 
@@ -52,6 +64,8 @@ def build_paper_action_plan(
     risk_profile: PaperRiskProfilePayload,
     risk_limit_review: PaperRiskLimitReviewPayload | None = None,
     review_trend: PaperReviewTrendPayload | None = None,
+    alpha_forecast: AlphaValidationForecastPayload | None = None,
+    scheduler: PaperSchedulerStatus | None = None,
     latest_alpha_snapshot_trading_day: str | None = None,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
@@ -182,11 +196,12 @@ def build_paper_action_plan(
                 priority=5,
                 action_code="hold_until_next_session",
                 title="等待下一次调度",
-                detail="当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。",
+                detail=_hold_until_next_session_detail(alpha_forecast, scheduler),
                 evidence=[
                     alpha_gates.summary,
                     f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day}",
                     operations.summary,
+                    *_hold_until_next_session_evidence(alpha_forecast, scheduler),
                 ],
             )
         )
@@ -251,3 +266,42 @@ def _gate(items: list[AlphaGateProgressItem], gate: str) -> AlphaGateProgressIte
         if item.gate == gate:
             return item
     return None
+
+
+def _hold_until_next_session_detail(
+    alpha_forecast: AlphaValidationForecastPayload | None,
+    scheduler: PaperSchedulerStatus | None,
+) -> str:
+    detail = "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。"
+    parts: list[str] = []
+    if alpha_forecast is not None and alpha_forecast.estimated_sessions_to_alpha_ready is not None:
+        parts.append(f"预计还需 {alpha_forecast.estimated_sessions_to_alpha_ready} 次有效 paper sessions")
+    if scheduler is not None and scheduler.next_actionable_run_at is not None:
+        parts.append(
+            "下一次有效采样 "
+            f"{scheduler.next_actionable_run_at.isoformat()}，交易日 {scheduler.next_actionable_trading_day or '未知'}"
+        )
+    if not parts:
+        return detail
+    return f"{detail}{'；'.join(parts)}。"
+
+
+def _hold_until_next_session_evidence(
+    alpha_forecast: AlphaValidationForecastPayload | None,
+    scheduler: PaperSchedulerStatus | None,
+) -> list[str]:
+    evidence: list[str] = []
+    if alpha_forecast is not None:
+        evidence.append(alpha_forecast.summary)
+        if alpha_forecast.estimated_sessions_to_alpha_ready is not None:
+            evidence.append(f"estimated_sessions_to_alpha_ready={alpha_forecast.estimated_sessions_to_alpha_ready}")
+        if alpha_forecast.limiting_gate is not None:
+            evidence.append(f"limiting_gate={alpha_forecast.limiting_gate}")
+    if scheduler is not None:
+        if scheduler.next_actionable_run_at is not None:
+            evidence.append(f"next_actionable_run_at={scheduler.next_actionable_run_at.isoformat()}")
+        if scheduler.next_actionable_trading_day is not None:
+            evidence.append(f"next_actionable_trading_day={scheduler.next_actionable_trading_day}")
+        if scheduler.next_actionable_execution_gate is not None:
+            evidence.append(f"next_actionable_execution_gate={scheduler.next_actionable_execution_gate}")
+    return evidence

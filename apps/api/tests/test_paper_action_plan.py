@@ -1,10 +1,14 @@
+from datetime import datetime, timezone
+
 from app.services.alpha_gate_progress import AlphaGateProgressItem, AlphaGateProgressPayload
+from app.services.alpha_validation_forecast import AlphaValidationForecastItem, AlphaValidationForecastPayload
 from app.services.paper_action_plan import build_paper_action_plan
 from app.services.paper_execution_diagnostics import PaperExecutionDiagnosticsPayload, PaperExecutionRejectionReason
 from app.services.paper_operations import PaperOperationsStatusPayload
 from app.services.paper_review_trend import PaperReviewTrendItem, PaperReviewTrendPayload
 from app.services.paper_risk_limit_review import PaperRiskLimitReviewPayload
 from app.services.paper_risk_profile import PaperRiskProfilePayload
+from app.services.paper_scheduler import PaperSchedulerStatus
 
 
 def test_paper_action_plan_prioritizes_event_ledger_repair():
@@ -179,6 +183,29 @@ def test_paper_action_plan_holds_after_current_alpha_snapshot_is_recorded():
     assert plan.items[0].detail == "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。"
 
 
+def test_paper_action_plan_hold_includes_next_actionable_alpha_sampling_plan():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("review_day_sample", "复盘天数", 1, 5, 4, "天"),
+                _gate("filled_order_sample", "成交订单", 10, 30, 20, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        alpha_forecast=_alpha_forecast(estimated_sessions=4, limiting_gate="review_day_sample"),
+        scheduler=_scheduler_status(),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+    )
+
+    assert plan.primary_action == "hold_until_next_session"
+    assert "预计还需 4 次有效 paper sessions" in plan.items[0].detail
+    assert "下一次有效采样 2026-06-16T06:30:00+08:00" in plan.items[0].detail
+    assert "next_actionable_trading_day=2026-06-15" in plan.items[0].evidence
+    assert "limiting_gate=review_day_sample" in plan.items[0].evidence
+
+
 def test_paper_action_plan_prioritizes_legacy_manual_future_run_quarantine():
     plan = build_paper_action_plan(
         operations=_operations(
@@ -289,6 +316,59 @@ def _review_trend(*, daily_pnl: float, daily_return: float) -> PaperReviewTrendP
             )
         ],
         summary="Paper review trend fixture.",
+    )
+
+
+def _alpha_forecast(*, estimated_sessions: int, limiting_gate: str) -> AlphaValidationForecastPayload:
+    return AlphaValidationForecastPayload(
+        alpha_ready=False,
+        status="forecastable",
+        estimated_sessions_to_alpha_ready=estimated_sessions,
+        limiting_gate=limiting_gate,
+        items=[
+            AlphaValidationForecastItem(
+                gate=limiting_gate,
+                label="复盘天数",
+                current=1,
+                required=5,
+                remaining=4,
+                unit="天",
+                passed=False,
+                estimated_per_session=1,
+                estimated_sessions=estimated_sessions,
+                reason="按当前样本速度估算。",
+            )
+        ],
+        summary=f"Alpha validation needs about {estimated_sessions} more paper sessions.",
+    )
+
+
+def _scheduler_status() -> PaperSchedulerStatus:
+    return PaperSchedulerStatus(
+        enabled=True,
+        running=True,
+        job_count=1,
+        job_id="paper_trading_daily_run",
+        cron="30 6 * * *",
+        timezone="Asia/Shanghai",
+        next_run_at=datetime(2026, 6, 15, 6, 30, tzinfo=timezone.utc),
+        next_run_will_execute=False,
+        next_run_execution_gate="market_closed",
+        next_run_trading_day="2026-06-12",
+        next_run_gate_reason="market_closed",
+        next_actionable_run_at=datetime.fromisoformat("2026-06-16T06:30:00+08:00"),
+        next_actionable_trading_day="2026-06-15",
+        next_actionable_execution_gate="ready_to_run",
+        next_actionable_gate_reason="current_session_closed",
+        last_checked_at=datetime(2026, 6, 15, tzinfo=timezone.utc),
+        can_run_now=False,
+        execution_gate="market_closed",
+        market_date="2026-06-14",
+        trading_day="2026-06-12",
+        is_market_session=False,
+        session_closed=False,
+        calendar_provider="pandas_market_calendars",
+        gate_reason="market_closed",
     )
 
 

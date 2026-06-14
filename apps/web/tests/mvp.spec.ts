@@ -960,6 +960,11 @@ test("paper trading disables daily run when today's operations are complete", as
         legacy_manual_future_run_count: 0,
         latest_legacy_manual_future_trading_day: null,
         data_quality_warnings: [],
+        latest_scheduler_decision: "skipped",
+        latest_scheduler_decision_at: "2026-06-13T06:30:00+08:00",
+        latest_scheduler_decision_trading_day: "2026-06-13",
+        latest_scheduler_decision_reason: "market_closed",
+        latest_scheduler_decision_summary: "Market is closed; scheduled paper trading skipped.",
         blockers: [],
         recommended_action: "hold_until_next_session",
         summary: "Daily paper pipeline is complete for the trading day."
@@ -1040,12 +1045,41 @@ test("paper trading disables daily run when today's operations are complete", as
       }
     });
   });
+  await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        readiness: "ready",
+        primary_action: "hold_until_next_session",
+        items: [
+          {
+            priority: 5,
+            action_code: "hold_until_next_session",
+            title: "等待下一次调度",
+            detail:
+              "当前交易日 Alpha 验证快照已记录，等待下一交易日继续收集样本。预计还需 4 次有效 paper sessions；下一次有效采样 2026-06-16T06:30:00+08:00，交易日 2026-06-15。",
+            evidence: [
+              "Alpha validation needs about 4 more paper sessions.",
+              "estimated_sessions_to_alpha_ready=4",
+              "limiting_gate=review_day_sample",
+              "next_actionable_trading_day=2026-06-15"
+            ]
+          }
+        ],
+        summary: "Paper action plan primary action: hold_until_next_session; 1 actions available."
+      }
+    });
+  });
 
   await page.goto("/paper-trading");
 
   await expect(page.getByRole("button", { name: "今日已完成" })).toBeDisabled();
   await expect(page.getByRole("region", { name: "运行健康" }).getByText("hold_until_next_session")).toBeVisible();
   await expect(page.getByRole("region", { name: "稳定趋势" }).getByText("100.0%")).toHaveCount(2);
+  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
+  await expect(actionPlanPanel.getByText("预计还需 4 次有效 paper sessions")).toBeVisible();
+  await expect(actionPlanPanel.getByText("下一次有效采样 2026-06-16T06:30:00+08:00")).toBeVisible();
+  await expect(actionPlanPanel.getByText("limiting_gate=review_day_sample")).toBeVisible();
 });
 
 test("paper trading can repair missing historical event ledgers", async ({ page }) => {
