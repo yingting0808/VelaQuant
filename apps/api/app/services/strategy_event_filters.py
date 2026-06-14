@@ -3,7 +3,14 @@ import json
 from app.domain.models import CoreEventLog
 
 
-TRADE_EVENT_TOPICS = {"market_event", "strategy_input", "trade_intent", "risk_decision", "order_state"}
+TRADE_EVENT_TOPICS = {
+    "market_event",
+    "strategy_input",
+    "trade_intent",
+    "trade_explanation",
+    "risk_decision",
+    "order_state",
+}
 MANUAL_OVERRIDE_STRATEGY_SUFFIX = ":manual_override"
 
 

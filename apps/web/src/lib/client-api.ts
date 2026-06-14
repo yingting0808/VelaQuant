@@ -61,6 +61,9 @@ export type TickerSignalAttributionPayload = {
   ticker: string;
   market_event_count: number;
   trade_intent_count: number;
+  candidate_score_count: number;
+  average_candidate_score: number;
+  latest_candidate_score: number | null;
   filled_order_count: number;
   false_positive_count: number;
   false_positive_rate: number;
@@ -2025,6 +2028,9 @@ function isTickerSignalAttributionPayload(value: unknown): value is TickerSignal
     typeof value.ticker === "string" &&
     typeof value.market_event_count === "number" &&
     typeof value.trade_intent_count === "number" &&
+    typeof value.candidate_score_count === "number" &&
+    typeof value.average_candidate_score === "number" &&
+    (typeof value.latest_candidate_score === "number" || value.latest_candidate_score === null) &&
     typeof value.filled_order_count === "number" &&
     typeof value.false_positive_count === "number" &&
     typeof value.false_positive_rate === "number" &&

@@ -145,9 +145,9 @@ The system is designed to prove paper-trading expectancy and execution disciplin
 
 ## Current Verified Progress / 当前已验证进度
 
-Runtime-verified on Docker Compose as of 2026-06-14:
+Runtime-verified on Docker Compose as of 2026-06-15:
 
-截至 2026-06-14，已在 Docker Compose 运行态验证：
+截至 2026-06-15，已在 Docker Compose 运行态验证：
 
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
@@ -166,6 +166,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
+- Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `5e8e1996-ef56-4164-b6d6-431299d16c46`, trading day `2026-06-12`, status `completed`, 7 candidates, 21 replayable core events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
@@ -193,6 +194,7 @@ Runtime-verified on Docker Compose as of 2026-06-14:
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
+- 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`5e8e1996-ef56-4164-b6d6-431299d16c46`，交易日 `2026-06-12`，状态 `completed`，7 个候选，21 条可回放 core events。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。

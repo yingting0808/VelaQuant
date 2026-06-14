@@ -29,6 +29,9 @@ class TickerSignalAttribution(BaseModel):
     ticker: str
     market_event_count: int
     trade_intent_count: int
+    candidate_score_count: int
+    average_candidate_score: float
+    latest_candidate_score: float | None = None
     filled_order_count: int
     false_positive_count: int
     false_positive_rate: float
@@ -273,7 +276,7 @@ def _ticker_diagnostics(
 ) -> list[TickerSignalAttribution]:
     rows: dict[str, dict[str, float | int | list[float]]] = {}
     for event in events:
-        if event.topic not in {"market_event", "trade_intent"}:
+        if event.topic not in {"market_event", "trade_intent", "trade_explanation"}:
             continue
         payload = _event_payload(event, warnings)
         ticker = _payload_ticker(payload)
@@ -289,6 +292,12 @@ def _ticker_diagnostics(
                     confidences.append(float(confidence))
         elif event.topic == "trade_intent":
             row["trade_intent_count"] = int(row["trade_intent_count"]) + 1
+        elif event.topic == "trade_explanation":
+            score = _candidate_score(payload)
+            if score is not None:
+                candidate_scores = row["candidate_scores"]
+                if isinstance(candidate_scores, list):
+                    candidate_scores.append(score)
 
     positions_by_ticker = {position.ticker: position for position in positions}
     for order in orders:
@@ -307,6 +316,7 @@ def _ticker_diagnostics(
     for ticker in sorted(rows):
         row = rows[ticker]
         confidences = row["confidences"] if isinstance(row["confidences"], list) else []
+        candidate_scores = row["candidate_scores"] if isinstance(row["candidate_scores"], list) else []
         filled_order_count = int(row["filled_order_count"])
         false_positive_count = int(row["false_positive_count"])
         realized = round(float(row["realized_pnl"]), 2)
@@ -316,6 +326,11 @@ def _ticker_diagnostics(
                 ticker=ticker,
                 market_event_count=int(row["market_event_count"]),
                 trade_intent_count=int(row["trade_intent_count"]),
+                candidate_score_count=len(candidate_scores),
+                average_candidate_score=round(sum(candidate_scores) / len(candidate_scores), 2)
+                if candidate_scores
+                else 0.0,
+                latest_candidate_score=round(candidate_scores[-1], 2) if candidate_scores else None,
                 filled_order_count=filled_order_count,
                 false_positive_count=false_positive_count,
                 false_positive_rate=_ratio(false_positive_count, filled_order_count),
@@ -338,6 +353,7 @@ def _ticker_row(rows: dict[str, dict[str, float | int | list[float]]], ticker: s
             "realized_pnl": 0.0,
             "unrealized_pnl": 0.0,
             "confidences": [],
+            "candidate_scores": [],
         }
     return rows[ticker]
 
@@ -353,6 +369,28 @@ def _payload_ticker(payload: dict | None) -> str | None:
         nested_ticker = market_event.get("ticker")
         if isinstance(nested_ticker, str) and nested_ticker.strip():
             return nested_ticker.strip().upper()
+    return None
+
+
+def _candidate_score(payload: dict | None) -> float | None:
+    if payload is None:
+        return None
+    direct_score = payload.get("final_score")
+    if isinstance(direct_score, int | float):
+        return float(direct_score)
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, list):
+        return None
+    for item in reversed(evidence):
+        if not isinstance(item, str):
+            continue
+        key, separator, raw_value = item.partition("=")
+        if separator != "=" or key.strip() != "final_score":
+            continue
+        try:
+            return float(raw_value.strip())
+        except ValueError:
+            return None
     return None
 
 

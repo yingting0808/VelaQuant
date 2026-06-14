@@ -1270,7 +1270,12 @@ export function StrategyLabStatusPanel() {
               </strong>
               <p>
                 事件 {topTicker?.market_event_count ?? 0} / 意图 {topTicker?.trade_intent_count ?? 0} · 误报{" "}
-                {formatPercent(topTicker?.false_positive_rate ?? 0)}
+                {formatPercent(topTicker?.false_positive_rate ?? 0)} · 候选分{" "}
+                {topTicker?.latest_candidate_score == null
+                  ? "暂无"
+                  : `${formatNumber(topTicker.latest_candidate_score)} / 均值 ${formatNumber(
+                      topTicker.average_candidate_score
+                    )}`}
               </p>
             </div>
             <span className="state-ok">置信 {formatPercent(topTicker?.average_confidence ?? 0)}</span>

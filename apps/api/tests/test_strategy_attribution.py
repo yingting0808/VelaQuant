@@ -316,6 +316,38 @@ def test_strategy_attribution_reports_per_ticker_signal_diagnostics():
         assert diagnostics["MSFT"].trade_intent_count == 0
 
 
+def test_strategy_attribution_links_candidate_scores_to_ticker_pnl():
+    with make_session() as session:
+        account = _account(session)
+        _core_event(session, account, "market_event", 1, {"ticker": "NVDA", "confidence": 0.8})
+        _core_event(session, account, "trade_intent", 2, {"ticker": "NVDA", "side": "buy"})
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            3,
+            {
+                "ticker": "NVDA",
+                "strategy_id": "deterministic_watchlist_v1",
+                "decision": "candidate",
+                "evidence": [
+                    "base_score=0.85",
+                    "backtest_score=1034.12",
+                    "final_score=1034.97",
+                ],
+            },
+        )
+        _filled_sell(session, account, "NVDA", realized_pnl=18)
+
+        attribution = attribute_current_paper_strategy(session)
+        diagnostics = {item.ticker: item for item in attribution.ticker_diagnostics}
+
+        assert diagnostics["NVDA"].candidate_score_count == 1
+        assert diagnostics["NVDA"].average_candidate_score == 1034.97
+        assert diagnostics["NVDA"].latest_candidate_score == 1034.97
+        assert diagnostics["NVDA"].observed_pnl == 18
+
+
 def test_strategy_attribution_flags_losing_open_position_as_false_positive():
     with make_session() as session:
         account = _account(session)
