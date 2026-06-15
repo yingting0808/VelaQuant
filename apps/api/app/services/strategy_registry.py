@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.data.providers.base import MarketDataProvider
 from app.domain.models import Portfolio, Position, WatchlistItem
+from app.services.alpha_validation import AlphaValidationPayload, get_alpha_validation
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, read_backtest_history, read_latest_backtest
 from app.services.strategy_attribution import StrategyAttributionPayload, attribute_current_paper_strategy
 from app.services.strategy_catalog import StrategyDefinition, load_enabled_strategies
@@ -92,6 +93,10 @@ def get_strategy_registry(
         catalog=load_enabled_strategies(),
         latest_backtest=read_latest_backtest(),
         backtest_history=read_backtest_history(limit=50),
+        alpha_validations=[
+            get_alpha_validation(session, strategy_id=strategy_id)
+            for strategy_id in REGISTERED_PAPER_RUNTIME_STRATEGY_IDS
+        ],
     )
 
 
@@ -172,11 +177,17 @@ def build_strategy_registry(
     catalog: list[StrategyDefinition],
     latest_backtest: BacktestResult | None,
     backtest_history: list[BacktestResult | BacktestHistoryItem] | None = None,
+    alpha_validations: list[AlphaValidationPayload] | None = None,
 ) -> StrategyRegistryPayload:
     history = backtest_history or []
+    alpha_by_strategy = {alpha.strategy_id: alpha for alpha in alpha_validations or []}
     entries = [_paper_entry(evaluation, attribution, _strategy_backtest(evaluation.strategy_id, latest_backtest, history))]
     entries.extend(
-        _catalog_entry(strategy, _strategy_backtest(strategy.id, latest_backtest, history))
+        _catalog_entry(
+            strategy,
+            _strategy_backtest(strategy.id, latest_backtest, history),
+            alpha_by_strategy.get(strategy.id),
+        )
         for strategy in catalog
         if strategy.id != evaluation.strategy_id
     )
@@ -227,11 +238,17 @@ def _paper_entry(
 def _catalog_entry(
     strategy: StrategyDefinition,
     backtest: BacktestResult | BacktestHistoryItem | None,
+    alpha: AlphaValidationPayload | None = None,
 ) -> StrategyRegistryEntry:
     ranking_score = _catalog_ranking_score(backtest)
     has_real_backtest = backtest is not None and backtest.status == "success" and backtest.uses_real_market_data
     has_success_backtest = backtest is not None and backtest.status == "success"
     is_connected_runtime_strategy = strategy.id == MOVING_AVERAGE_CROSS_STRATEGY_ID and ranking_score > 0 and has_real_backtest
+    has_runtime_alpha = (
+        is_connected_runtime_strategy
+        and alpha is not None
+        and (alpha.review_day_count > 0 or alpha.filled_order_count > 0 or alpha.event_chain_count > 0)
+    )
     return StrategyRegistryEntry(
         strategy_id=strategy.id,
         name=strategy.name,
@@ -241,23 +258,44 @@ def _catalog_entry(
         status="active" if is_connected_runtime_strategy else "available",
         rank=0,
         ranking_score=ranking_score,
-        readiness="backtest_promising" if ranking_score > 0 and has_real_backtest else "backtest_only",
+        readiness=(
+            "paper_ready"
+            if has_runtime_alpha and alpha.alpha_ready
+            else "watch"
+            if has_runtime_alpha
+            else "backtest_promising"
+            if ranking_score > 0 and has_real_backtest
+            else "backtest_only"
+        ),
         promotion_gate=(
-            "collect_paper_runtime_samples"
+            "paper_alpha_validated"
+            if has_runtime_alpha and alpha.alpha_ready
+            else "collect_paper_runtime_samples"
             if is_connected_runtime_strategy
             else "connect_to_paper_runtime"
             if ranking_score > 0 and has_real_backtest
             else "not_connected_to_paper_runtime"
         ),
-        sample_size=0,
-        filled_order_count=0,
+        sample_size=alpha.review_day_count if has_runtime_alpha else 0,
+        filled_order_count=alpha.filled_order_count if has_runtime_alpha else 0,
         observed_pnl=0,
-        primary_regime="backtest_real_market" if has_real_backtest else "backtest_research_series" if has_success_backtest else "backtest_only",
+        primary_regime=(
+            "paper_runtime_alpha"
+            if has_runtime_alpha
+            else "backtest_real_market"
+            if has_real_backtest
+            else "backtest_research_series"
+            if has_success_backtest
+            else "backtest_only"
+        ),
         signal_quality_score=_backtest_win_rate(backtest),
         backtest_status=backtest.status if backtest is not None else None,
         supports_live=False,
         supports_hot_swap=is_connected_runtime_strategy,
         notes=(
+            f"已接入 paper runtime；已收集 {alpha.filled_order_count} 笔成交、{alpha.review_day_count} 个复盘日，继续等待 Alpha 门禁。"
+            if has_runtime_alpha
+            else
             "真实市场回测为正；已接入 paper runtime，需收集独立模拟盘样本，不能直接实盘。"
             if is_connected_runtime_strategy
             else "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"

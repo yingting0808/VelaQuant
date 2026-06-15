@@ -1,4 +1,5 @@
 from app.services.lean_backtest import BacktestResult, BacktestStatistics
+from app.services.alpha_validation import AlphaValidationPayload
 from app.services.strategy_registry import get_registered_strategy_execution_binding
 from app.services.strategy_attribution import (
     DrawdownAttribution,
@@ -139,6 +140,45 @@ def test_strategy_registry_scores_catalog_strategy_from_real_market_backtest_his
     assert catalog_entry.signal_quality_score == 0.48
     assert catalog_entry.supports_hot_swap is True
     assert catalog_entry.notes == "真实市场回测为正；已接入 paper runtime，需收集独立模拟盘样本，不能直接实盘。"
+
+
+def test_strategy_registry_applies_runtime_alpha_evidence_to_connected_strategy():
+    payload = build_strategy_registry(
+        evaluation=_evaluation(strategy_id="deterministic_watchlist_v1"),
+        attribution=_attribution(strategy_id="deterministic_watchlist_v1"),
+        catalog=[_catalog_strategy()],
+        latest_backtest=None,
+        backtest_history=[
+            _backtest(
+                strategy_id="moving_average_cross",
+                status="success",
+                uses_real_market_data=True,
+                total_net_profit="12.34%",
+                sharpe_ratio="0.72",
+                drawdown="15.20%",
+                win_rate="48%",
+                total_trades="24",
+            )
+        ],
+        alpha_validations=[
+            _alpha_validation(
+                strategy_id="moving_average_cross",
+                review_day_count=2,
+                filled_order_count=3,
+                event_chain_count=4,
+            )
+        ],
+    )
+
+    catalog_entry = next(item for item in payload.entries if item.strategy_id == "moving_average_cross")
+    assert catalog_entry.source == "paper_core"
+    assert catalog_entry.execution_mode == "paper"
+    assert catalog_entry.status == "active"
+    assert catalog_entry.readiness == "watch"
+    assert catalog_entry.sample_size == 2
+    assert catalog_entry.filled_order_count == 3
+    assert catalog_entry.primary_regime == "paper_runtime_alpha"
+    assert catalog_entry.supports_hot_swap is True
 
 
 def test_strategy_registry_does_not_mark_negative_backtest_as_promising():
@@ -363,6 +403,32 @@ def _backtest(
         equity=[],
         logs=[],
         output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
+    )
+
+
+def _alpha_validation(
+    *,
+    strategy_id: str,
+    review_day_count: int,
+    filled_order_count: int,
+    event_chain_count: int,
+) -> AlphaValidationPayload:
+    return AlphaValidationPayload(
+        strategy_id=strategy_id,
+        alpha_ready=False,
+        validation_level="collecting",
+        blockers=["filled_order_sample"],
+        review_day_count=review_day_count,
+        consecutive_positive_expectancy_days=1,
+        filled_order_count=filled_order_count,
+        closed_trade_count=0,
+        event_chain_count=event_chain_count,
+        has_real_market_backtest=True,
+        latest_expectancy=12.5,
+        average_expectancy=8.4,
+        max_drawdown=0.03,
+        score_pnl_inversion_count=0,
+        summary="fixture alpha validation",
     )
 
 
