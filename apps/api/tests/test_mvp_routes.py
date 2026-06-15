@@ -38,6 +38,7 @@ from app.services.strategy_lifecycle_approval import (
 )
 from app.services.lean_backtest import BacktestHistoryItem, BacktestResult, BacktestStatistics
 from app.services.paper_action_plan import PaperActionPlanItem, PaperActionPlanPayload
+from app.services.paper_strategy_reviews import PaperStrategyReviewItem, PaperStrategyReviewsPayload
 from app.services.paper_operations import (
     PaperOperationsHistoryItem,
     PaperOperationsHistoryPayload,
@@ -2876,6 +2877,35 @@ def test_mvp_paper_action_plan_execute_primary_route_queues_long_paper_action(mo
     assert payload["status"] == "queued"
     assert payload["action_code"] == "collect_post_limit_sample"
     assert len(calls) == 1
+
+
+def test_mvp_paper_strategy_reviews_route_returns_runtime_review_records(monkeypatch):
+    reviews = PaperStrategyReviewsPayload(
+        review_count=1,
+        items=[
+            PaperStrategyReviewItem(
+                event_id="paper_action:review_score_pnl_inversion:AAPL,NVDA:2:strategy_review",
+                action_code="review_score_pnl_inversion",
+                title="复盘评分背离",
+                detail="AAPL/NVDA 评分与盈亏反向。",
+                evidence=["inverted_tickers=AAPL,NVDA", "score_pnl_inversion_count=2"],
+                inverted_tickers=["AAPL", "NVDA"],
+                review_status="required",
+                created_at=datetime(2026, 6, 15, 1, 2, 3, tzinfo=timezone.utc),
+            )
+        ],
+        summary="Strategy reviews: 1 recorded; latest review_score_pnl_inversion covers AAPL,NVDA.",
+    )
+    monkeypatch.setattr(mvp, "get_paper_strategy_reviews", lambda session: reviews, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/strategy-reviews")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_count"] == 1
+    assert payload["items"][0]["action_code"] == "review_score_pnl_inversion"
+    assert payload["items"][0]["inverted_tickers"] == ["AAPL", "NVDA"]
 
 
 def test_mvp_paper_market_session_route_explains_effective_trading_day(monkeypatch):

@@ -704,6 +704,22 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     ],
     summary: "Paper simulation completed 5/5 days under bullish; latest expectancy is positive."
   };
+  const strategyReviews = {
+    review_count: 1,
+    items: [
+      {
+        event_id: "paper_action:review_score_pnl_inversion:AAPL,NVDA:2:strategy_review",
+        action_code: "review_score_pnl_inversion",
+        title: "复盘评分背离",
+        detail: "AAPL/NVDA 评分与盈亏反向。",
+        evidence: ["inverted_tickers=AAPL,NVDA", "score_pnl_inversion_count=2"],
+        inverted_tickers: ["AAPL", "NVDA"],
+        review_status: "required",
+        created_at: "2026-06-15T01:02:03Z"
+      }
+    ],
+    summary: "Strategy reviews: 1 recorded; latest review_score_pnl_inversion covers AAPL,NVDA."
+  };
   let summary = baseSummary;
   let dailyReport = blockedDailyReport;
   let ledger = emptyLedger;
@@ -826,6 +842,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
     await route.fulfill({ contentType: "application/json", json: actionPlan });
   });
+  await page.route("**/api/mvp/paper-trading/strategy-reviews", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: strategyReviews });
+  });
 
   await gotoDashboard(page);
   await page.getByRole("link", { name: "模拟盘" }).click();
@@ -873,6 +892,10 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     actionPlanPanel.getByText("Paper action plan primary action: apply_paper_risk_limit_recommendation")
   ).toBeVisible();
   await expect(actionPlanPanel.getByText("应用 Paper 限额建议")).toBeVisible();
+  const strategyReviewsPanel = page.getByRole("region", { name: "策略复盘记录" });
+  await expect(strategyReviewsPanel.getByText("Strategy reviews: 1 recorded")).toBeVisible();
+  await expect(strategyReviewsPanel.getByText("AAPL, NVDA")).toBeVisible();
+  await expect(strategyReviewsPanel.getByText("required")).toBeVisible();
   await actionPlanPanel.getByRole("button", { name: "执行首要动作" }).click();
   await expect(
     page.getByText("Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample.")

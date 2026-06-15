@@ -14,6 +14,7 @@ import {
   getPaperMarketSession,
   getPaperRuns,
   getPaperReviewTrend,
+  getPaperStrategyReviews,
   getPaperTradingSummary,
   getAlphaGateProgress,
   getAlphaValidationForecast,
@@ -40,6 +41,7 @@ import {
   type PaperRunPayload,
   type PaperSchedulerStatusPayload,
   type PaperSimulationPayload,
+  type PaperStrategyReviewsPayload,
   type PaperTradingSummaryPayload,
   type AlphaGateProgressPayload,
   type AlphaValidationForecastPayload,
@@ -183,6 +185,7 @@ export function PaperTradingWorkspace() {
   const [alphaGateProgress, setAlphaGateProgress] = useState<AlphaGateProgressPayload | null>(null);
   const [alphaForecast, setAlphaForecast] = useState<AlphaValidationForecastPayload | null>(null);
   const [actionPlan, setActionPlan] = useState<PaperActionPlanPayload | null>(null);
+  const [strategyReviews, setStrategyReviews] = useState<PaperStrategyReviewsPayload | null>(null);
   const [repairResult, setRepairResult] = useState<PaperOperationsRepairPayload | null>(null);
   const [simulationResult, setSimulationResult] = useState<PaperSimulationPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
@@ -208,6 +211,7 @@ export function PaperTradingWorkspace() {
       alphaGateProgressPayload,
       alphaForecastPayload,
       actionPlanPayload,
+      strategyReviewsPayload,
       runPayload,
       ledgerPayload
     ] = await Promise.all([
@@ -223,6 +227,7 @@ export function PaperTradingWorkspace() {
       getAlphaGateProgress(),
       getAlphaValidationForecast(),
       getPaperActionPlan(),
+      getPaperStrategyReviews(),
       getPaperRuns(),
       getPaperEventLedger()
     ]);
@@ -238,6 +243,7 @@ export function PaperTradingWorkspace() {
     setAlphaGateProgress(alphaGateProgressPayload);
     setAlphaForecast(alphaForecastPayload);
     setActionPlan(actionPlanPayload);
+    setStrategyReviews(strategyReviewsPayload);
     setRuns(runPayload.runs);
     setEventLedger(ledgerPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
@@ -259,6 +265,7 @@ export function PaperTradingWorkspace() {
       getAlphaGateProgress().then((payload) => active && setAlphaGateProgress(payload)),
       getAlphaValidationForecast().then((payload) => active && setAlphaForecast(payload)),
       getPaperActionPlan().then((payload) => active && setActionPlan(payload)),
+      getPaperStrategyReviews().then((payload) => active && setStrategyReviews(payload)),
       getPaperRuns().then((payload) => active && setRuns(payload.runs)),
       getPaperEventLedger().then((payload) => active && setEventLedger(payload))
     ];
@@ -293,6 +300,7 @@ export function PaperTradingWorkspace() {
         alphaGateProgressPayload,
         alphaForecastPayload,
         actionPlanPayload,
+        strategyReviewsPayload,
         runPayload,
         ledgerPayload
       ] =
@@ -308,6 +316,7 @@ export function PaperTradingWorkspace() {
         getAlphaGateProgress(),
         getAlphaValidationForecast(),
         getPaperActionPlan(),
+        getPaperStrategyReviews(),
         getPaperRuns(),
         getPaperEventLedger()
       ]);
@@ -323,6 +332,7 @@ export function PaperTradingWorkspace() {
       setAlphaGateProgress(alphaGateProgressPayload);
       setAlphaForecast(alphaForecastPayload);
       setActionPlan(actionPlanPayload);
+      setStrategyReviews(strategyReviewsPayload);
       setRuns(runPayload.runs);
       setEventLedger(ledgerPayload);
       setMessage("今日模拟已完成。");
@@ -1115,6 +1125,53 @@ export function PaperTradingWorkspace() {
               {!(actionPlan?.items ?? []).length ? (
                 <tr>
                   <td colSpan={3}>暂无行动项。</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel" aria-label="策略复盘记录">
+        <div className="panel-heading">
+          <div>
+            <h3>策略复盘记录</h3>
+            <p>{strategyReviews?.summary ?? "正在读取策略复盘记录。"}</p>
+          </div>
+          <span className={(strategyReviews?.review_count ?? 0) > 0 ? "status-pill warning" : "status-pill success"}>
+            {(strategyReviews?.review_count ?? 0) > 0 ? "需复盘" : "无待处理"}
+          </span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">时间</th>
+                <th scope="col">动作</th>
+                <th scope="col">状态</th>
+                <th scope="col">标的</th>
+                <th scope="col">证据</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(strategyReviews?.items ?? []).slice(0, 5).map((item) => (
+                <tr key={item.event_id}>
+                  <td>{formatTimestamp(item.created_at, "未记录")}</td>
+                  <td>
+                    <strong>{item.title}</strong>
+                    <p className="table-note">{item.action_code}</p>
+                  </td>
+                  <td>{item.review_status}</td>
+                  <td>{item.inverted_tickers.join(", ") || "未知"}</td>
+                  <td>
+                    {item.detail}
+                    <p className="table-note">{item.evidence.join(" / ") || "无"}</p>
+                  </td>
+                </tr>
+              ))}
+              {!(strategyReviews?.items ?? []).length ? (
+                <tr>
+                  <td colSpan={5}>暂无策略复盘审计记录。</td>
                 </tr>
               ) : null}
             </tbody>

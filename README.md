@@ -250,13 +250,15 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
 - Alpha validation now treats score/PnL inversion as a quality blocker: any ticker with inverted candidate score direction versus observed PnL adds `score_pnl_inversion_review`, exposes `score_pnl_inversion_count`, and blocks `paper_validated` until reviewed.
 - The paper action plan now turns `score_pnl_inversion_review` into a concrete `review_score_pnl_inversion` action, including inverted tickers such as AMZN in the evidence. Executing that primary action writes a `strategy_review` CoreEventLog audit event and returns `review_required` instead of placing trades or changing risk limits; the next plan consumes the recorded review event so the same score/PnL inversion is not repeatedly promoted as the primary action.
+- `GET /api/mvp/paper-trading/strategy-reviews` reads persisted `strategy_review` CoreEventLog audit events and the Paper Trading workspace displays those records next to the Action Plan, so score/PnL quarantine evidence is reviewable without querying the generic event ledger.
 - Daily candidate generation now consumes required `strategy_review` score/PnL inversion events and excludes those tickers from new buy candidates while the review remains unresolved; existing position exit handling remains active.
 - Alpha validation now counts only unreviewed score/PnL inversion tickers as open blockers, so a recorded `strategy_review` quarantine lets the system continue collecting clean paper samples without reintroducing the isolated ticker.
 - Paper Trading summary now defaults to the effective market trading day, matching Daily Report and Alpha gates, so non-trading-day manual reviews do not appear as the current paper review by default.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
 - Latest verified paper run: `0d8a4017-67c4-4a4c-8f09-d257cc74770c`, trading day `2026-06-12`, status `completed`, 7 candidates, 28 replayable core events, including 7 `trade_explanation` events.
 - Latest operations status: `ready`, no runtime blockers, event ledger ready.
-- Latest Alpha gate state: 5/10 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, closed-trade sample, and score/PnL inversion review when present.
+- Latest executed score/PnL inversion review recorded `paper_action:review_score_pnl_inversion:AAPL,AMZN,META,MSFT,NVDA:2:strategy_review`; after that runtime Alpha gate progress is 6/10 and `score_pnl_inversion_count=0`.
+- Latest Alpha gate state: 6/10 gates passed; still collecting review days, consecutive positive expectancy days, filled-order sample, and closed-trade sample.
 - Latest filtered Alpha snapshot: trading day `2026-06-12`, `validation_level=collecting`, blockers `review_day_sample`, `consecutive_positive_expectancy`, `filled_order_sample`, `closed_trade_sample`.
 - Latest paper risk review: hold `max_daily_orders` at 10; the latest post-limit sample completed without a new buy `max_daily_orders` rejection.
 - Current recommended action after the current-day snapshot is recorded: hold until the next scheduled paper run; live limits remain unchanged.
@@ -299,13 +301,15 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
 - Alpha 验证现在会把评分/盈亏反向视为质量阻断：任何 ticker 的候选评分方向与观测盈亏相反，都会加入 `score_pnl_inversion_review`，暴露 `score_pnl_inversion_count`，并在复盘前阻止进入 `paper_validated`。
 - Paper action plan 现在会把 `score_pnl_inversion_review` 转成具体的 `review_score_pnl_inversion` 行动项，并在证据里列出 AMZN 等评分反向标的。执行这个首要动作会写入一条 `strategy_review` CoreEventLog 审计事件，并返回 `review_required`，不会自动下单或改风控；下一轮计划会消费这条已记录复盘事件，避免同一评分/盈亏背离反复被提升为主动作。
+- `GET /api/mvp/paper-trading/strategy-reviews` 现在会读取已落库的 `strategy_review` CoreEventLog 审计事件，模拟盘工作台也会把这些记录展示在行动计划旁边，因此评分/盈亏隔离证据不需要再去通用事件账本里翻。
 - 每日候选生成现在会消费仍为 `required` 的 `strategy_review` 评分/盈亏背离事件，并在复盘未解除前把这些 ticker 从新的买入候选中排除；已有持仓的退出处理仍继续生效。
 - Alpha 验证现在只把尚未复盘隔离的评分/盈亏背离 ticker 计为开放阻断；已记录 `strategy_review` 隔离事件后，系统可以继续收集干净的 paper 样本，同时不重新引入被隔离的 ticker。
 - 模拟盘 summary 现在默认使用有效美股交易日口径，与 Daily Report 和 Alpha 门禁一致，因此非交易日手动复盘不会默认显示为当前 paper review。
 - 仅包含候选和 `TradeIntent` 的事件链会被视为可回放证据；repair 只用于缺失账本或损坏的风控/订单链。
 - 最新已验证 paper run：`0d8a4017-67c4-4a4c-8f09-d257cc74770c`，交易日 `2026-06-12`，状态 `completed`，7 个候选，28 条可回放 core events，其中包含 7 条 `trade_explanation` 事件。
 - 最新运行健康状态：`ready`，无运行阻断，事件账本可回放。
-- 最新 Alpha 门禁：5/10 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本、闭环交易样本，以及在出现背离时完成评分/盈亏反向复盘。
+- 最新已执行评分/盈亏背离复盘记录：`paper_action:review_score_pnl_inversion:AAPL,AMZN,META,MSFT,NVDA:2:strategy_review`；执行后运行态 Alpha gate 为 6/10，`score_pnl_inversion_count=0`。
+- 最新 Alpha 门禁：6/10 通过；仍需继续收集复盘天数、连续正期望天数、成交订单样本和闭环交易样本。
 - 最新过滤后的 Alpha 快照：交易日 `2026-06-12`，`validation_level=collecting`，阻断项为 `review_day_sample`、`consecutive_positive_expectancy`、`filled_order_sample`、`closed_trade_sample`。
 - 最新 Paper 风险评审：保持 `max_daily_orders=10`；最新限额后样本没有新的买入侧 `max_daily_orders` 拒单。
 - 当前推荐动作：当前日快照已记录后等待下一次定时 paper run；live 限额不变。

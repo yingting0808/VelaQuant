@@ -52,6 +52,7 @@ from app.services.paper_risk_limit_review import get_paper_risk_limit_review
 from app.services.paper_risk_settings import apply_paper_risk_limit_recommendation
 from app.services.paper_review_trend import get_paper_review_trend
 from app.services.paper_simulation import PaperSimulationRequest, run_paper_simulation_lab
+from app.services.paper_strategy_reviews import get_paper_strategy_reviews
 from app.services.portfolio import PositionInput, calculate_exposure
 from app.services.research_notebook import ResearchNoteCreate, save_research_result_as_note
 from app.services.runtime_settings import (
@@ -451,6 +452,11 @@ def paper_trading_execute_primary_action(
         return execute_paper_primary_action(session, provider).model_dump()
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/paper-trading/strategy-reviews")
+def paper_trading_strategy_reviews(session: Session = Depends(get_session)) -> dict:
+    return get_paper_strategy_reviews(session).model_dump(mode="json")
 
 
 @router.get("/paper-trading/runs")

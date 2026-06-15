@@ -1120,6 +1120,23 @@ export type PaperActionExecutionPayload = {
   summary: string;
 };
 
+export type PaperStrategyReviewItemPayload = {
+  event_id: string;
+  action_code: string;
+  title: string;
+  detail: string;
+  evidence: string[];
+  inverted_tickers: string[];
+  review_status: string;
+  created_at: string;
+};
+
+export type PaperStrategyReviewsPayload = {
+  review_count: number;
+  items: PaperStrategyReviewItemPayload[];
+  summary: string;
+};
+
 export type PaperRunPayload = {
   id: string;
   trading_day: string;
@@ -2044,6 +2061,12 @@ const fallbackPaperActionExecution: PaperActionExecutionPayload = {
   next_primary_action: "api_unavailable",
   result: null,
   summary: "后端 API 暂不可用，无法执行行动计划。"
+};
+
+const fallbackPaperStrategyReviews: PaperStrategyReviewsPayload = {
+  review_count: 0,
+  items: [],
+  summary: "后端 API 暂不可用，无法读取策略复盘记录。"
 };
 
 const fallbackPaperRuns: PaperRunsPayload = {
@@ -4774,6 +4797,32 @@ function isPaperActionExecutionPayload(value: unknown): value is PaperActionExec
   );
 }
 
+function isPaperStrategyReviewItemPayload(value: unknown): value is PaperStrategyReviewItemPayload {
+  return (
+    isRecord(value) &&
+    typeof value.event_id === "string" &&
+    typeof value.action_code === "string" &&
+    typeof value.title === "string" &&
+    typeof value.detail === "string" &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string") &&
+    Array.isArray(value.inverted_tickers) &&
+    value.inverted_tickers.every((item) => typeof item === "string") &&
+    typeof value.review_status === "string" &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isPaperStrategyReviewsPayload(value: unknown): value is PaperStrategyReviewsPayload {
+  return (
+    isRecord(value) &&
+    typeof value.review_count === "number" &&
+    Array.isArray(value.items) &&
+    value.items.every(isPaperStrategyReviewItemPayload) &&
+    typeof value.summary === "string"
+  );
+}
+
 function isPaperRunPayload(value: unknown): value is PaperRunPayload {
   return (
     isRecord(value) &&
@@ -5363,6 +5412,21 @@ export async function executePaperPrimaryAction(): Promise<PaperActionExecutionP
     return isPaperActionExecutionPayload(payload) ? payload : fallbackPaperActionExecution;
   } catch {
     return fallbackPaperActionExecution;
+  }
+}
+
+export async function getPaperStrategyReviews(): Promise<PaperStrategyReviewsPayload> {
+  try {
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/strategy-reviews`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackPaperStrategyReviews;
+    }
+    const payload: unknown = await response.json();
+    return isPaperStrategyReviewsPayload(payload) ? payload : fallbackPaperStrategyReviews;
+  } catch {
+    return fallbackPaperStrategyReviews;
   }
 }
 
