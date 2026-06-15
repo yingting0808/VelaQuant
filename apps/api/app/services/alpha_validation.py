@@ -68,6 +68,7 @@ def get_alpha_validation(
         if order.strategy_id == strategy_id
         and order.submitted_at.date().isoformat() <= as_of_trading_day
     ]
+    strategy_reviews = _strategy_expectancy_reviews(reviews, orders)
     event_chain_count = _event_chain_count_as_of(session, team_id, as_of_trading_day)
     score_pnl_inversion_count = _score_pnl_inversion_count_as_of(
         session,
@@ -76,13 +77,53 @@ def get_alpha_validation(
         as_of_trading_day=as_of_trading_day,
     )
     return build_alpha_validation(
-        reviews=reviews,
+        reviews=strategy_reviews,
         orders=orders,
         event_chain_count=event_chain_count,
         has_real_market_backtest=_has_real_market_backtest(strategy_id),
         strategy_id=strategy_id,
         score_pnl_inversion_count=score_pnl_inversion_count,
     )
+
+
+def _strategy_expectancy_reviews(reviews: list[PaperReview], orders: list[PaperOrder]) -> list[PaperReview]:
+    latest_reviews = _latest_review_per_trading_day(reviews)
+    closed_by_day: dict[str, list[float]] = {}
+    for order in orders:
+        if order.status != PaperOrderStatus.filled or order.side != PaperOrderSide.sell:
+            continue
+        timestamp = order.filled_at or order.submitted_at
+        day = timestamp.date().isoformat()
+        closed_by_day.setdefault(day, []).append(order.realized_pnl)
+
+    strategy_reviews: list[PaperReview] = []
+    for review in latest_reviews:
+        pnl_items = closed_by_day.get(review.trading_day, [])
+        wins = [item for item in pnl_items if item > 0]
+        losses = [item for item in pnl_items if item <= 0]
+        trade_count = len(pnl_items)
+        realized_pnl = round(sum(pnl_items), 2)
+        expectancy = round(realized_pnl / trade_count, 2) if trade_count else 0.0
+        strategy_reviews.append(
+            PaperReview(
+                account_id=review.account_id,
+                team_id=review.team_id,
+                trading_day=review.trading_day,
+                equity=review.equity,
+                cash=review.cash,
+                realized_pnl=realized_pnl,
+                unrealized_pnl=0.0,
+                trade_count=trade_count,
+                win_rate=round(len(wins) / trade_count, 4) if trade_count else 0.0,
+                average_win=round(sum(wins) / len(wins), 2) if wins else 0.0,
+                average_loss=round(sum(losses) / len(losses), 2) if losses else 0.0,
+                expectancy=expectancy,
+                readiness=review.readiness,
+                notes=f"strategy-level closed-trade expectancy derived from {trade_count} closed trades",
+                created_at=review.created_at,
+            )
+        )
+    return strategy_reviews
 
 
 def build_alpha_validation(

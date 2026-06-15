@@ -366,8 +366,8 @@ def _seed_alpha_ready_validation(session: Session) -> None:
     session.commit()
     session.refresh(run)
 
-    submitted_at = datetime(2026, 6, 5, tzinfo=timezone.utc)
     for index in range(34):
+        submitted_at = datetime(2026, 6, (index % 5) + 1, tzinfo=timezone.utc)
         correlation_id = str(uuid4())
         session.add(
             PaperOrder(

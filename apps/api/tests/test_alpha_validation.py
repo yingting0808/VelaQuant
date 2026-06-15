@@ -176,9 +176,11 @@ def test_alpha_validation_reads_runtime_database_facts(monkeypatch):
                 )
             )
         for index, order in enumerate(_orders(filled=34, closed=12)):
+            day = (index % 5) + 1
             order.team_id = team.id
             order.account_id = account.id
-            order.submitted_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
+            order.submitted_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
+            order.filled_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             if index < 160:
                 session.add(
@@ -200,6 +202,70 @@ def test_alpha_validation_reads_runtime_database_facts(monkeypatch):
         assert payload.review_day_count == 5
         assert payload.event_chain_count == 34
         assert "real_market_backtest" in payload.blockers
+
+
+def test_alpha_validation_uses_strategy_closed_trade_expectancy_not_account_review(monkeypatch):
+    monkeypatch.setattr("app.services.alpha_validation._has_real_market_backtest", lambda strategy_id: True)
+    with make_session() as session:
+        team = Team(name="Strategy Expectancy Isolation")
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+        account = PaperAccount(team_id=team.id, name="paper")
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        for day in range(1, 6):
+            trading_day = f"2026-06-0{day}"
+            session.add(
+                PaperReview(
+                    account_id=account.id,
+                    team_id=team.id,
+                    trading_day=trading_day,
+                    equity=100000 + day * 1000,
+                    cash=90000,
+                    realized_pnl=day * 100,
+                    unrealized_pnl=day * 50,
+                    trade_count=day,
+                    win_rate=0.8,
+                    average_win=100,
+                    average_loss=-20,
+                    expectancy=25.0,
+                    notes="account-level review is positive",
+                    created_at=datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                PaperOrder(
+                    account_id=account.id,
+                    team_id=team.id,
+                    strategy_id="moving_average_cross",
+                    ticker="AAPL",
+                    side=PaperOrderSide.sell,
+                    quantity=1,
+                    status=PaperOrderStatus.filled,
+                    fill_price=100,
+                    realized_pnl=-5.0,
+                    submitted_at=datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc),
+                    filled_at=datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.commit()
+
+        payload = get_alpha_validation(
+            session,
+            team_id=team.id,
+            strategy_id="moving_average_cross",
+            as_of_trading_day="2026-06-05",
+        )
+
+        assert payload.review_day_count == 5
+        assert payload.latest_expectancy == -5.0
+        assert payload.average_expectancy == -5.0
+        assert payload.consecutive_positive_expectancy_days == 0
+        assert payload.validation_level == "failed"
+        assert "latest_positive_expectancy" in payload.blockers
+        assert "average_positive_expectancy" in payload.blockers
 
 
 def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
@@ -231,9 +297,11 @@ def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
                 )
             )
         for index, order in enumerate(_orders(filled=34, closed=12)):
+            day = (index % 5) + 1
             order.team_id = team.id
             order.account_id = account.id
-            order.submitted_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
+            order.submitted_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
+            order.filled_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             if index < 160:
                 session.add(
@@ -296,9 +364,11 @@ def test_alpha_validation_reads_runtime_score_pnl_inversion_gate(monkeypatch):
         session.add(run)
         session.flush()
         for index, order in enumerate(_orders(filled=34, closed=12)):
+            day = (index % 5) + 1
             order.team_id = team.id
             order.account_id = account.id
-            order.submitted_at = datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc)
+            order.submitted_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
+            order.filled_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             session.add(
                 CoreEventLog(
@@ -384,9 +454,11 @@ def test_alpha_validation_excludes_after_hours_reviewed_score_pnl_inversion_from
         session.add(run)
         session.flush()
         for index, order in enumerate(_orders(filled=34, closed=12)):
+            day = (index % 5) + 1
             order.team_id = team.id
             order.account_id = account.id
-            order.submitted_at = datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc)
+            order.submitted_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
+            order.filled_at = datetime(2026, 6, day, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             session.add(
                 CoreEventLog(
@@ -581,7 +653,7 @@ def test_alpha_validation_ignores_future_trading_day_facts_for_readiness():
         assert payload.review_day_count == 1
         assert payload.filled_order_count == 0
         assert payload.event_chain_count == 0
-        assert payload.latest_expectancy == 0.2
+        assert payload.latest_expectancy == 0.0
 
 
 def test_alpha_validation_does_not_count_scheduler_decisions_as_trade_events():
