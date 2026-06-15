@@ -31,7 +31,7 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
   const [aiStatus, setAiStatus] = useState<AIStatusPayload | null>(null);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResultPayload | null>(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
@@ -53,8 +53,8 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
 
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem(COLLAPSED_STORAGE_KEY);
-    if (stored === "true") {
-      setIsCollapsed(true);
+    if (stored === "false") {
+      setIsCollapsed(false);
     }
   }, []);
 

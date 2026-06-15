@@ -34,7 +34,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) auto;
+  grid-template-columns: 232px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -304,9 +304,16 @@ tbody tr:last-child td {
 .ai-sidecar {
   background: #111827;
   border-left: 1px solid #263246;
+  bottom: 0;
+  box-shadow: -18px 0 36px rgba(15, 23, 42, 0.22);
   color: #ffffff;
+  overflow-y: auto;
   padding: 18px 16px;
-  width: 340px;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: min(360px, calc(100vw - 24px));
+  z-index: 30;
 }
 
 .sidecar-header {
@@ -363,20 +370,28 @@ tbody tr:last-child td {
 
 .ai-sidecar.collapsed {
   align-items: flex-start;
+  background: transparent;
+  border-left: 0;
+  bottom: 18px;
+  box-shadow: none;
   display: flex;
   justify-content: center;
-  padding: 14px 8px;
-  width: 58px;
+  overflow: visible;
+  padding: 0;
+  right: 18px;
+  top: auto;
+  width: auto;
 }
 
 .sidecar-rail-button {
-  border-radius: 8px;
-  display: grid;
+  border-radius: 999px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.24);
+  display: inline-flex;
   gap: 8px;
   justify-items: center;
-  min-height: 112px;
-  padding: 10px 6px;
-  width: 40px;
+  min-height: 44px;
+  padding: 10px 14px;
+  width: auto;
 }
 
 .sidecar-rail-button span {
@@ -561,15 +576,10 @@ tbody tr:last-child td {
   }
 
   .ai-sidecar {
-    border-left: 0;
-    border-top: 1px solid #263246;
-    grid-column: 1 / -1;
-    width: auto;
+    width: min(340px, calc(100vw - 24px));
   }
 
   .ai-sidecar.collapsed {
-    justify-content: flex-end;
-    padding: 10px 14px;
     width: auto;
   }
 

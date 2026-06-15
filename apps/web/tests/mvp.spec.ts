@@ -84,6 +84,14 @@ async function gotoDashboard(page: Page) {
   await page.waitForLoadState("networkidle");
 }
 
+async function openAiAssistant(page: Page) {
+  const expandButton = page.getByRole("button", { name: "展开 AI 助手" });
+  if (await expandButton.isVisible()) {
+    await expandButton.click();
+  }
+  await expect(page.getByRole("heading", { name: "AI 助手" })).toBeVisible();
+}
+
 test("dashboard renders portfolio, alerts, and AI sidecar", async ({ page }) => {
   await gotoDashboard(page);
 
@@ -97,8 +105,13 @@ test("dashboard renders portfolio, alerts, and AI sidecar", async ({ page }) => 
   await expect(page.getByRole("columnheader", { name: "权重" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "事件预警" })).toBeVisible();
   await expect(page.getByText("AAPL 10-Q filed")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "AI 助手" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "识别组合风险" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "展开 AI 助手" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "AI 助手" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "识别组合风险" })).not.toBeVisible();
+  const gridColumnCount = await page.locator(".app-shell").evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length
+  );
+  expect(gridColumnCount).toBe(2);
 });
 
 test("navigation links route to module workspaces", async ({ page }) => {
@@ -1847,6 +1860,7 @@ test("AI prompts return a visible research result after click", async ({ page })
   });
 
   await gotoDashboard(page);
+  await openAiAssistant(page);
   await expect(page.getByLabel("AI 助手").getByText("LLM 可用")).toBeVisible();
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
@@ -1907,6 +1921,7 @@ test("AI sidecar shows local workflow when LLM is not configured", async ({ page
   });
 
   await gotoDashboard(page);
+  await openAiAssistant(page);
 
   const sidecar = page.getByRole("complementary", { name: "AI 助手" });
   await expect(sidecar.getByText("本地规则")).toBeVisible();
@@ -1969,10 +1984,8 @@ test("AI sidecar collapses, expands, and keeps research actions usable", async (
 
   await page.goto("/paper-trading");
   const sidecar = page.getByRole("complementary", { name: "AI 助手" });
-  await expect(sidecar.getByRole("button", { name: "识别组合风险" })).toBeVisible();
-
-  await page.getByRole("button", { name: "收起 AI 助手" }).click();
   await expect(sidecar).toHaveClass(/collapsed/);
+  await expect(page.getByRole("button", { name: "展开 AI 助手" })).toBeVisible();
   await expect(sidecar.getByRole("button", { name: "识别组合风险" })).not.toBeVisible();
 
   await page.getByRole("button", { name: "展开 AI 助手" }).click();
@@ -1981,6 +1994,10 @@ test("AI sidecar collapses, expands, and keeps research actions usable", async (
 
   await expect(sidecar.getByText("AAPL: 收起展开后仍可用的研究结果。")).toBeVisible();
   expect(researchCallCount).toBe(1);
+
+  await page.getByRole("button", { name: "收起 AI 助手" }).click();
+  await expect(sidecar).toHaveClass(/collapsed/);
+  await expect(sidecar.getByRole("button", { name: "识别组合风险" })).not.toBeVisible();
 });
 
 test("AI prompts wait for slower LLM research responses", async ({ page }) => {
@@ -2007,6 +2024,7 @@ test("AI prompts wait for slower LLM research responses", async ({ page }) => {
   });
 
   await gotoDashboard(page);
+  await openAiAssistant(page);
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(page.getByText("AAPL: 延迟返回的 LLM 研究结果。")).toBeVisible({ timeout: 5000 });
@@ -2053,6 +2071,7 @@ test("AI research result can be saved as a note", async ({ page }) => {
   });
 
   await gotoDashboard(page);
+  await openAiAssistant(page);
   await page.getByRole("button", { name: "识别组合风险" }).click();
   await page.getByRole("button", { name: "保存为笔记" }).click();
 
@@ -2068,6 +2087,7 @@ test("AI prompts fall back when the research API fails", async ({ page }) => {
   });
 
   await gotoDashboard(page);
+  await openAiAssistant(page);
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(page.getByText(/本地 API 暂不可用/)).toBeVisible({ timeout: 4000 });
