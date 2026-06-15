@@ -889,6 +889,7 @@ def _auto_submit_exit_orders(
                 side="sell",
                 quantity=quantity,
                 strategy_id=DEFAULT_PAPER_STRATEGY_ID,
+                candidate_id=_latest_entry_candidate_id(session, account, position),
                 reason=(
                     f"Paper exit rule {exit_type} triggered for {position.ticker}: "
                     f"return {return_pct:.2%}, last price {position.last_price:.2f}, "
@@ -899,6 +900,21 @@ def _auto_submit_exit_orders(
             trading_day=trading_day,
             account_mode=account.mode,
         )
+
+
+def _latest_entry_candidate_id(session: Session, account: PaperAccount, position: PaperPosition) -> UUID | None:
+    order = session.exec(
+        select(PaperOrder)
+        .where(
+            PaperOrder.account_id == account.id,
+            PaperOrder.ticker == position.ticker,
+            PaperOrder.side == PaperOrderSide.buy,
+            PaperOrder.status == PaperOrderStatus.filled,
+            PaperOrder.candidate_id.is_not(None),
+        )
+        .order_by(PaperOrder.submitted_at.desc())
+    ).first()
+    return order.candidate_id if order is not None else None
 
 
 def _exit_order_quantity(position: PaperPosition) -> float:

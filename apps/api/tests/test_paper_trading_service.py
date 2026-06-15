@@ -1,6 +1,7 @@
 import json
 import pytest
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
@@ -631,6 +632,27 @@ def test_daily_run_auto_exits_profitable_open_position_before_review():
         assert summary.latest_review.expectancy == 50.0
         intent_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_intent")).all()
         assert any("Paper exit rule take_profit" in event.payload_json for event in intent_events)
+
+
+def test_daily_run_auto_exit_inherits_source_candidate_id():
+    with make_session() as session:
+        provider = FixtureProvider()
+        source_candidate_id = uuid4()
+        submit_paper_order(
+            session,
+            provider,
+            PaperOrderCreate(ticker="AAPL", side="buy", quantity=2, candidate_id=source_candidate_id),
+        )
+        provider.prices["AAPL"] = 125.0
+
+        run_daily_paper_trading_loop(session, provider)
+
+        sell_order = next(
+            order
+            for order in session.exec(select(PaperOrder).order_by(PaperOrder.submitted_at)).all()
+            if order.side == PaperOrderSide.sell
+        )
+        assert sell_order.candidate_id == source_candidate_id
 
 
 def test_daily_run_persists_core_order_state_events_for_run():

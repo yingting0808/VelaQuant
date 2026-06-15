@@ -230,6 +230,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
 - Daily paper candidates now persist and return `strategy_id`; manual buys launched from a candidate carry that same strategy id into the paper order payload, preserving candidate -> order -> Alpha attribution.
 - Paper orders now persist optional `candidate_id`; automatic candidate orders and candidate-launched manual buys carry the originating candidate id, so candidate rationale can be traced through order execution and later PnL review.
+- Automatic paper exit orders now inherit the latest linked entry candidate id, preserving candidate attribution through closed-trade realized PnL instead of stopping at the opening order.
 - Strategy attribution now prefers order-linked `candidate_id` when matching candidate scores to observed PnL, falling back to ticker-level matching only for older records without candidate linkage.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
@@ -290,6 +291,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
 - 每日 paper 候选现在会持久化并返回 `strategy_id`；从候选发起的手动模拟买入会把同一个策略 ID 带入 paper order payload，保留候选 -> 订单 -> Alpha 归因链。
 - Paper order 现在会持久化可选的 `candidate_id`；自动候选订单和从候选发起的手动模拟买入都会带上原始候选 ID，因此候选理由可以继续追踪到订单执行和后续盈亏复盘。
+- 自动 paper 退出订单现在会继承最近一次有关联的入场候选 ID，因此候选归因可以穿透到闭环交易的已实现盈亏，而不是停在开仓订单。
 - 策略归因现在会优先使用订单关联的 `candidate_id` 匹配候选评分与观测盈亏；只有老数据没有候选关联时才退回 ticker 级匹配。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
 - 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
