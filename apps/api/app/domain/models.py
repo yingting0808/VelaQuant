@@ -173,6 +173,8 @@ class AuditLog(SQLModel, table=True):
 
 class RuntimeConfiguration(SQLModel, table=True):
     id: str = Field(default="default", primary_key=True)
+    data_mode: str = "hybrid"
+    lean_backtest_timeout_seconds: float = 600.0
     openai_research_enabled: bool = True
     openai_base_url: str = "https://api.openai.com/v1"
     openai_research_model: str = "gpt-5.5"

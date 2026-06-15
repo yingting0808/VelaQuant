@@ -57,6 +57,7 @@ def test_settings_expose_data_provider_defaults(monkeypatch):
     monkeypatch.delenv("AI_STOCKS_SEC_USER_AGENT", raising=False)
     monkeypatch.delenv("AI_STOCKS_SEC_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("AI_STOCKS_STRATEGY_COMMAND_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("AI_STOCKS_LEAN_BACKTEST_TIMEOUT_SECONDS", raising=False)
 
     settings = Settings()
 
@@ -64,3 +65,4 @@ def test_settings_expose_data_provider_defaults(monkeypatch):
     assert settings.sec_timeout_seconds == 3.0
     assert "VelaQuant" in settings.sec_user_agent
     assert settings.strategy_command_timeout_seconds == 2.0
+    assert settings.lean_backtest_timeout_seconds == 600.0

@@ -116,9 +116,17 @@ def _run_id(strategy_id: str, started_at: str) -> str:
     return f"{compact}-{strategy_id}"
 
 
-def _tail_lines(stdout: str | None, stderr: str | None, limit: int | None = 120) -> list[str]:
+def _output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _tail_lines(stdout: str | bytes | None, stderr: str | bytes | None, limit: int | None = 120) -> list[str]:
     lines = []
-    for text in (stdout or "", stderr or ""):
+    for text in (_output_text(stdout), _output_text(stderr)):
         lines.extend(line.strip() for line in text.splitlines() if line.strip())
     if limit is None:
         return lines
@@ -270,7 +278,26 @@ def _prepare_runtime_workspace(
     workspace_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(strategy.project_path, project_dir, dirs_exist_ok=True)
     _write_project_parameters(project_dir / "config.json", parameters)
+    _write_lean_workspace_config(workspace_dir / "lean.json", workspace_dir / "Data")
     return workspace_dir
+
+
+def _write_lean_workspace_config(config_path: Path, data_dir: Path) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    if config_path.exists():
+        return
+    config_path.write_text(
+        json.dumps(
+            {
+                "data-folder": "Data",
+                "organization-id": "00000000000000000000000000000000",
+                "job-organization-id": "00000000000000000000000000000000",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_project_parameters(config_path: Path, parameters: BacktestParameters) -> None:
@@ -366,10 +393,19 @@ def run_lean_backtest(
         _save_result(result, runtime_root)
         return result
 
-    command = ["lean", "backtest", strategy.project_path.name, "--output", str(output_dir)]
+    lean_config = workspace_dir / "lean.json"
+    command = [
+        "lean",
+        "backtest",
+        strategy.project_path.name,
+        "--output",
+        str(output_dir),
+        "--lean-config",
+        str(lean_config),
+    ]
     try:
         completed = command_runner(command, workspace_dir, timeout_seconds)
-    except TimeoutExpired:
+    except TimeoutExpired as error:
         result = _empty_result(
             run_id=run_id,
             strategy_id=strategy.id,
@@ -378,7 +414,7 @@ def run_lean_backtest(
             completed_at=_utc_now(),
             message=f"LEAN backtest timed out after {timeout_seconds:.1f}s.",
             parameters=parameters,
-            logs=[],
+            logs=_tail_lines(getattr(error, "stdout", None) or getattr(error, "output", None), getattr(error, "stderr", None)),
             output_dir=output_dir,
         )
         _save_result(result, runtime_root)

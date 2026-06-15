@@ -11,6 +11,8 @@ import {
 type SaveState = "idle" | "saving" | "saved" | "failed";
 
 const defaultDraft: RuntimeSettingsUpdatePayload = {
+  data_mode: "hybrid",
+  lean_backtest_timeout_seconds: 600,
   openai_research_enabled: true,
   openai_research_model: "gpt-5.5",
   openai_base_url: "https://api.openai.com/v1",
@@ -19,6 +21,8 @@ const defaultDraft: RuntimeSettingsUpdatePayload = {
 
 function draftFromSettings(settings: RuntimeSettingsPayload): RuntimeSettingsUpdatePayload {
   return {
+    data_mode: settings.data_mode,
+    lean_backtest_timeout_seconds: settings.lean_backtest_timeout_seconds,
     openai_research_enabled: settings.openai_research_enabled,
     openai_research_model: settings.openai_research_model,
     openai_base_url: settings.openai_base_url,
@@ -66,6 +70,44 @@ export function RuntimeSettingsPanel() {
       </div>
 
       <form className="settings-form" onSubmit={handleSubmit}>
+        <label className="settings-field">
+          <span>数据模式</span>
+          <select
+            aria-label="数据模式"
+            value={draft.data_mode}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                data_mode: event.target.value
+              }))
+            }
+          >
+            <option value="hybrid">hybrid · OpenBB + SEC EDGAR + Mock fallback</option>
+            <option value="openbb_optional">openbb_optional · OpenBB + Mock fallback</option>
+            <option value="sec_edgar">sec_edgar · SEC EDGAR + OpenBB</option>
+            <option value="mock">mock · deterministic local data</option>
+          </select>
+        </label>
+
+        <label className="settings-field">
+          <span>LEAN 超时秒数</span>
+          <input
+            aria-label="LEAN 超时秒数"
+            inputMode="decimal"
+            min={30}
+            max={3600}
+            step={30}
+            type="number"
+            value={draft.lean_backtest_timeout_seconds}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                lean_backtest_timeout_seconds: Number(event.target.value)
+              }))
+            }
+          />
+        </label>
+
         <label className="settings-toggle">
           <input
             checked={draft.openai_research_enabled}
@@ -109,9 +151,9 @@ export function RuntimeSettingsPanel() {
         </label>
 
         <label className="settings-field">
-          <span>超时秒数</span>
+          <span>OpenAI 超时秒数</span>
           <input
-            aria-label="超时秒数"
+            aria-label="OpenAI 超时秒数"
             inputMode="decimal"
             min={1}
             max={120}
@@ -134,6 +176,32 @@ export function RuntimeSettingsPanel() {
           </div>
           <span className={settings?.openai_api_key_configured ? "state-ok" : "state-warn"}>
             {settings?.openai_api_key_configured ? "已配置" : "未配置"}
+          </span>
+        </article>
+
+        <article className="module-row settings-secret-row">
+          <div>
+            <strong>每日调度</strong>
+            <p>
+              {settings
+                ? `${settings.paper_scheduler_cron} · ${settings.paper_scheduler_timezone}`
+                : "加载中"}
+            </p>
+          </div>
+          <span className={settings?.paper_scheduler_enabled ? "state-ok" : "state-warn"}>
+            {settings?.paper_scheduler_enabled ? "已启用" : "未启用"}
+          </span>
+        </article>
+
+        <article className="module-row settings-secret-row">
+          <div>
+            <strong>Event Bus</strong>
+            <p>
+              {settings ? `${settings.event_bus_mode} · ${settings.redis_stream_name}` : "加载中"}
+            </p>
+          </div>
+          <span className={settings?.redis_configured ? "state-ok" : "state-warn"}>
+            {settings?.redis_configured ? "Redis 已配置" : "本地内存"}
           </span>
         </article>
 

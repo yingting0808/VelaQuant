@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 import pytest
 from datetime import datetime, timezone
 from uuid import uuid4
+from sqlmodel import Session
 
 from app.ai.schemas import ResearchResult, TradePlanDraft
 from app.api.routes import mvp
@@ -9,6 +10,8 @@ from app.data.providers.base import ProviderStatus
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers import registry
 from app.data.providers.registry import HybridMarketDataProvider
+from app.db.session import engine as db_engine
+from app.domain.models import RuntimeConfiguration
 from app.main import create_app
 from app.services import strategy_catalog
 from app.services.event_ledger import (
@@ -172,6 +175,14 @@ class EmptySecProvider:
         self.closed = True
 
 
+def _clear_runtime_settings() -> None:
+    with Session(db_engine) as session:
+        row = session.get(RuntimeConfiguration, "default")
+        if row is not None:
+            session.delete(row)
+            session.commit()
+
+
 def test_mvp_dashboard_route_returns_portfolio_alerts_and_ai_prompts():
     client = TestClient(create_app())
 
@@ -186,6 +197,7 @@ def test_mvp_dashboard_route_returns_portfolio_alerts_and_ai_prompts():
 
 def test_mvp_dashboard_route_includes_provider_and_strategy_status():
     client = TestClient(create_app())
+    _clear_runtime_settings()
 
     response = client.get("/api/mvp/dashboard")
 
@@ -211,6 +223,7 @@ def test_mvp_dashboard_route_openbb_optional_mode_uses_mock_quote_fallback(monke
 
 def test_mvp_data_sources_status_route_returns_statuses():
     client = TestClient(create_app())
+    _clear_runtime_settings()
 
     response = client.get("/api/mvp/data-sources/status")
 
@@ -218,6 +231,59 @@ def test_mvp_data_sources_status_route_returns_statuses():
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
     assert any(source["name"] == "Mock" for source in payload["data_sources"])
+
+
+def test_mvp_runtime_settings_drive_data_provider_and_backtest_timeout(monkeypatch):
+    observed: dict[str, float] = {}
+
+    def fake_run(
+        strategy_id: str,
+        parameter_overrides: dict[str, str] | None = None,
+        timeout_seconds: float = 0,
+    ) -> BacktestResult:
+        observed["timeout_seconds"] = timeout_seconds
+        return BacktestResult(
+            run_id="20260612T101500Z-moving_average_cross",
+            strategy_id=strategy_id,
+            status="success",
+            started_at="2026-06-12T10:15:00Z",
+            completed_at="2026-06-12T10:16:15Z",
+            duration_seconds=75.0,
+            message="Backtest completed.",
+            parameters=parameter_overrides or {},
+            statistics=BacktestStatistics(total_net_profit="12.34%", sharpe_ratio="0.72"),
+            equity=[],
+            logs=[],
+            output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
+        )
+
+    monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
+    client = TestClient(create_app())
+    _clear_runtime_settings()
+
+    try:
+        update_response = client.put(
+            "/api/mvp/runtime-settings",
+            json={
+                "data_mode": "openbb_optional",
+                "lean_backtest_timeout_seconds": 900,
+                "openai_research_enabled": True,
+                "openai_research_model": "gpt-5.5",
+                "openai_base_url": "https://api.openai.com/v1",
+                "openai_timeout_seconds": 20,
+            },
+        )
+        data_response = client.get("/api/mvp/data-sources/status")
+        backtest_response = client.post("/api/mvp/strategy-lab/backtests", json={"strategy_id": "moving_average_cross"})
+
+        assert update_response.status_code == 200
+        assert update_response.json()["data_mode"] == "openbb_optional"
+        assert data_response.status_code == 200
+        assert data_response.json()["provider_mode"] == "openbb_optional"
+        assert backtest_response.status_code == 200
+        assert observed["timeout_seconds"] == 900
+    finally:
+        _clear_runtime_settings()
 
 
 def test_mvp_ai_status_route_reports_research_llm_isolated_from_execution(monkeypatch):
@@ -1680,13 +1746,19 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
         output_directory="apps/api/.runtime/strategy-lab/backtests/20260612T101500Z-moving_average_cross",
     )
 
-    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
+    def fake_run(
+        strategy_id: str,
+        parameter_overrides: dict[str, str] | None = None,
+        timeout_seconds: float = 0,
+    ) -> BacktestResult:
         assert strategy_id == "moving_average_cross"
         assert parameter_overrides == {"symbol": "MSFT", "fast_period": "10", "slow_period": "30"}
+        assert timeout_seconds == 600.0
         return result
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
     client = TestClient(create_app())
+    _clear_runtime_settings()
 
     response = client.post(
         "/api/mvp/strategy-lab/backtests",
@@ -1755,7 +1827,11 @@ def test_mvp_strategy_lab_candidate_backtest_route_returns_ranked_candidates(mon
 
 
 def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
-    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
+    def fake_run(
+        strategy_id: str,
+        parameter_overrides: dict[str, str] | None = None,
+        timeout_seconds: float = 0,
+    ) -> BacktestResult:
         raise strategy_catalog.UnknownStrategyError("Unknown strategy_id: missing")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
@@ -1770,7 +1846,11 @@ def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
 
 
 def test_mvp_strategy_lab_backtest_route_rejects_invalid_parameters(monkeypatch):
-    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
+    def fake_run(
+        strategy_id: str,
+        parameter_overrides: dict[str, str] | None = None,
+        timeout_seconds: float = 0,
+    ) -> BacktestResult:
         raise mvp.BacktestParameterValidationError("Invalid ticker parameter symbol: BAD TICKER")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)
@@ -1786,7 +1866,11 @@ def test_mvp_strategy_lab_backtest_route_rejects_invalid_parameters(monkeypatch)
 
 
 def test_mvp_strategy_lab_backtest_route_does_not_mask_catalog_errors(monkeypatch):
-    def fake_run(strategy_id: str, parameter_overrides: dict[str, str] | None = None) -> BacktestResult:
+    def fake_run(
+        strategy_id: str,
+        parameter_overrides: dict[str, str] | None = None,
+        timeout_seconds: float = 0,
+    ) -> BacktestResult:
         raise ValueError("catalog broken")
 
     monkeypatch.setattr(mvp, "run_lean_backtest", fake_run)

@@ -780,7 +780,9 @@ tbody tr:last-child td {
   gap: 6px;
 }
 
-.settings-field input {
+.settings-field input,
+.settings-field select {
+  background: #ffffff;
   border: 1px solid #d7dee8;
   border-radius: 7px;
   color: #172033;

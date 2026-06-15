@@ -24,6 +24,8 @@ services:
     environment:
       AI_STOCKS_DATABASE_URL: postgresql+psycopg://ai_stocks:ai_stocks@postgres:5432/ai_stocks
       AI_STOCKS_CORS_ORIGIN: http://localhost:3000
+      AI_STOCKS_DATA_MODE: ${AI_STOCKS_DATA_MODE:-hybrid}
+      AI_STOCKS_LEAN_BACKTEST_TIMEOUT_SECONDS: ${AI_STOCKS_LEAN_BACKTEST_TIMEOUT_SECONDS:-600}
       AI_STOCKS_PAPER_SCHEDULER_ENABLED: "true"
       AI_STOCKS_PAPER_SCHEDULER_CRON: "30 6 * * *"
       AI_STOCKS_PAPER_SCHEDULER_TIMEZONE: Asia/Shanghai

@@ -178,6 +178,7 @@ def test_alpha_validation_reads_runtime_database_facts(monkeypatch):
         for index, order in enumerate(_orders(filled=34, closed=12)):
             order.team_id = team.id
             order.account_id = account.id
+            order.submitted_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             if index < 160:
                 session.add(
@@ -188,6 +189,7 @@ def test_alpha_validation_reads_runtime_database_facts(monkeypatch):
                         sequence=index + 1,
                         correlation_id=str(uuid4()),
                         payload_json="{}",
+                        published_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
                     )
                 )
         session.commit()
@@ -231,6 +233,7 @@ def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
         for index, order in enumerate(_orders(filled=34, closed=12)):
             order.team_id = team.id
             order.account_id = account.id
+            order.submitted_at = datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc)
             session.add(order)
             if index < 160:
                 session.add(
@@ -241,6 +244,7 @@ def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
                         sequence=index + 1,
                         correlation_id=str(uuid4()),
                         payload_json="{}",
+                        published_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
                     )
                 )
         session.commit()

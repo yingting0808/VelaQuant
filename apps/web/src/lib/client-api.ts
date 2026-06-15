@@ -51,6 +51,14 @@ export type AIStatusPayload = {
 
 export type RuntimeSettingsPayload = {
   source: string;
+  data_mode: string;
+  lean_backtest_timeout_seconds: number;
+  paper_scheduler_enabled: boolean;
+  paper_scheduler_cron: string;
+  paper_scheduler_timezone: string;
+  event_bus_mode: string;
+  redis_stream_name: string;
+  redis_configured: boolean;
   openai_research_enabled: boolean;
   openai_research_model: string;
   openai_base_url: string;
@@ -60,6 +68,8 @@ export type RuntimeSettingsPayload = {
 };
 
 export type RuntimeSettingsUpdatePayload = {
+  data_mode: string;
+  lean_backtest_timeout_seconds: number;
   openai_research_enabled: boolean;
   openai_research_model: string;
   openai_base_url: string;
@@ -1257,6 +1267,14 @@ const fallbackAIStatus: AIStatusPayload = {
 
 const fallbackRuntimeSettings: RuntimeSettingsPayload = {
   source: "fallback",
+  data_mode: "hybrid",
+  lean_backtest_timeout_seconds: 600,
+  paper_scheduler_enabled: false,
+  paper_scheduler_cron: "30 6 * * *",
+  paper_scheduler_timezone: "Asia/Shanghai",
+  event_bus_mode: "memory",
+  redis_stream_name: "trading:events",
+  redis_configured: false,
   openai_research_enabled: true,
   openai_research_model: "gpt-5.5",
   openai_base_url: "https://api.openai.com/v1",
@@ -2118,6 +2136,14 @@ function isRuntimeSettingsPayload(value: unknown): value is RuntimeSettingsPaylo
   return (
     isRecord(value) &&
     typeof value.source === "string" &&
+    typeof value.data_mode === "string" &&
+    typeof value.lean_backtest_timeout_seconds === "number" &&
+    typeof value.paper_scheduler_enabled === "boolean" &&
+    typeof value.paper_scheduler_cron === "string" &&
+    typeof value.paper_scheduler_timezone === "string" &&
+    typeof value.event_bus_mode === "string" &&
+    typeof value.redis_stream_name === "string" &&
+    typeof value.redis_configured === "boolean" &&
     typeof value.openai_research_enabled === "boolean" &&
     typeof value.openai_research_model === "string" &&
     typeof value.openai_base_url === "string" &&

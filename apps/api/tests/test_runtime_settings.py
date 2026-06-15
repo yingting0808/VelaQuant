@@ -18,6 +18,13 @@ def test_runtime_settings_default_to_environment_without_storing_secret(monkeypa
         payload = get_runtime_settings_payload(
             session,
             Settings(
+                data_mode="hybrid",
+                lean_backtest_timeout_seconds=600,
+                event_bus_mode="redis",
+                redis_stream_name="trading:events",
+                paper_scheduler_enabled=True,
+                paper_scheduler_cron="30 6 * * *",
+                paper_scheduler_timezone="Asia/Shanghai",
                 openai_research_enabled=True,
                 openai_api_key=None,
                 openai_research_model="gpt-5.5",
@@ -33,6 +40,14 @@ def test_runtime_settings_default_to_environment_without_storing_secret(monkeypa
     assert payload.openai_timeout_seconds == 20
     assert payload.openai_api_key_configured is False
     assert payload.openai_api_key_source is None
+    assert payload.data_mode == "hybrid"
+    assert payload.lean_backtest_timeout_seconds == 600
+    assert payload.paper_scheduler_enabled is True
+    assert payload.paper_scheduler_cron == "30 6 * * *"
+    assert payload.paper_scheduler_timezone == "Asia/Shanghai"
+    assert payload.event_bus_mode == "redis"
+    assert payload.redis_stream_name == "trading:events"
+    assert payload.redis_configured is True
 
 
 def test_runtime_settings_persist_non_secret_openai_overrides(monkeypatch):
@@ -44,6 +59,8 @@ def test_runtime_settings_persist_non_secret_openai_overrides(monkeypatch):
         payload = update_runtime_settings(
             session,
             RuntimeSettingsUpdate(
+                data_mode="openbb_optional",
+                lean_backtest_timeout_seconds=900,
                 openai_research_enabled=False,
                 openai_research_model="gpt-5.4",
                 openai_base_url="https://api.openai.example/v1",
@@ -60,7 +77,11 @@ def test_runtime_settings_persist_non_secret_openai_overrides(monkeypatch):
     assert payload.openai_timeout_seconds == 12.5
     assert payload.openai_api_key_configured is True
     assert payload.openai_api_key_source == "OPENAI_API_KEY"
+    assert payload.data_mode == "openbb_optional"
+    assert payload.lean_backtest_timeout_seconds == 900
     assert effective.openai_research_enabled is False
     assert effective.openai_research_model == "gpt-5.4"
     assert effective.openai_base_url == "https://api.openai.example/v1"
     assert effective.openai_timeout_seconds == 12.5
+    assert effective.data_mode == "openbb_optional"
+    assert effective.lean_backtest_timeout_seconds == 900

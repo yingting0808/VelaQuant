@@ -21,6 +21,7 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_paper_trading_mode_enum_values()
     _ensure_paper_run_trigger_enum_values()
+    _ensure_runtime_configuration_columns()
     _ensure_paper_account_strategy_columns()
     _ensure_paper_order_core_columns()
 
@@ -45,6 +46,25 @@ def _ensure_paper_run_trigger_enum_values() -> None:
 
 def _postgres_enum_value_statements(enum_name: str, values: list[str]) -> list[str]:
     return [f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'" for value in values]
+
+
+def _ensure_runtime_configuration_columns() -> None:
+    inspector = inspect(engine)
+    if "runtimeconfiguration" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("runtimeconfiguration")}
+    columns = {
+        "data_mode": "VARCHAR DEFAULT 'hybrid'",
+        "lean_backtest_timeout_seconds": "FLOAT DEFAULT 600.0",
+    }
+    missing = [(name, column_type) for name, column_type in columns.items() if name not in existing]
+    if not missing:
+        return
+
+    with engine.begin() as connection:
+        for name, column_type in missing:
+            connection.execute(text(f"ALTER TABLE runtimeconfiguration ADD COLUMN {name} {column_type}"))
 
 
 def _ensure_paper_account_strategy_columns() -> None:

@@ -203,8 +203,8 @@ class StrategyVersionRollbackBody(BaseModel):
     strategy_id: str = Field(default=DEFAULT_PAPER_STRATEGY_ID, min_length=1)
 
 
-def get_market_data_provider() -> Iterator[MarketDataProvider]:
-    provider = build_market_data_provider(get_settings())
+def get_market_data_provider(session: Session = Depends(get_session)) -> Iterator[MarketDataProvider]:
+    provider = build_market_data_provider(get_effective_settings(session, get_settings()))
     try:
         yield provider
     finally:
@@ -218,7 +218,7 @@ def dashboard(
     provider: MarketDataProvider = Depends(get_market_data_provider),
     session: Session = Depends(get_session),
 ) -> dict:
-    settings = get_settings()
+    settings = get_effective_settings(session, get_settings())
     portfolio = get_portfolio_payload(session, provider)
     alerts = generate_event_alerts(
         portfolio_tickers=[item.ticker for item in portfolio.positions],
@@ -247,8 +247,11 @@ def dashboard(
 
 
 @router.get("/data-sources/status")
-def data_sources_status(provider: MarketDataProvider = Depends(get_market_data_provider)) -> dict:
-    settings = get_settings()
+def data_sources_status(
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
+) -> dict:
+    settings = get_effective_settings(session, get_settings())
     return {
         "provider_mode": settings.data_mode,
         "data_sources": [status.model_dump() for status in provider.get_statuses()],
@@ -756,9 +759,14 @@ def strategy_lab_strategies() -> dict:
 
 
 @router.post("/strategy-lab/backtests")
-def strategy_lab_run_backtest(body: BacktestBody) -> dict:
+def strategy_lab_run_backtest(body: BacktestBody, session: Session = Depends(get_session)) -> dict:
     try:
-        result = run_lean_backtest(body.strategy_id, parameter_overrides=body.parameters)
+        effective_settings = get_effective_settings(session, get_settings())
+        result = run_lean_backtest(
+            body.strategy_id,
+            parameter_overrides=body.parameters,
+            timeout_seconds=effective_settings.lean_backtest_timeout_seconds,
+        )
     except UnknownStrategyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except BacktestParameterValidationError as error:
@@ -848,8 +856,9 @@ def market_fundamentals(
 def market_snapshot(
     ticker: str = Path(min_length=1),
     provider: MarketDataProvider = Depends(get_market_data_provider),
+    session: Session = Depends(get_session),
 ) -> dict:
-    settings = get_settings()
+    settings = get_effective_settings(session, get_settings())
     normalized = _normalize_path_ticker(ticker)
     snapshot = provider.get_market_snapshot(normalized)
     return {

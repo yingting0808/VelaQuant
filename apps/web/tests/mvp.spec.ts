@@ -1908,6 +1908,14 @@ test("settings renders data source status", async ({ page }) => {
   });
   let runtimeSettings = {
     source: "defaults",
+    data_mode: "hybrid",
+    lean_backtest_timeout_seconds: 600,
+    paper_scheduler_enabled: true,
+    paper_scheduler_cron: "30 6 * * *",
+    paper_scheduler_timezone: "Asia/Shanghai",
+    event_bus_mode: "redis",
+    redis_stream_name: "trading:events",
+    redis_configured: true,
     openai_research_enabled: true,
     openai_research_model: "gpt-5.5",
     openai_base_url: "https://api.openai.com/v1",
@@ -1928,12 +1936,13 @@ test("settings renders data source status", async ({ page }) => {
 
   await page.goto("/settings");
 
-  await expect(page.getByRole("heading", { name: "数据源状态" })).toBeVisible();
-  await expect(page.getByText("hybrid")).toBeVisible();
-  await expect(page.getByText("SEC EDGAR", { exact: true })).toBeVisible();
-  await expect(page.getByText("Deterministic local fallback data is available.")).toBeVisible();
-  await expect(page.getByText("SEC submissions adapter is configured.")).toBeVisible();
-  await expect(page.getByText("data.sec.gov")).toBeVisible();
+  const dataSourcePanel = page.getByLabel("数据源状态");
+  await expect(dataSourcePanel.getByRole("heading", { name: "数据源状态" })).toBeVisible();
+  await expect(dataSourcePanel.getByText("hybrid", { exact: true })).toBeVisible();
+  await expect(dataSourcePanel.getByText("SEC EDGAR", { exact: true })).toBeVisible();
+  await expect(dataSourcePanel.getByText("Deterministic local fallback data is available.")).toBeVisible();
+  await expect(dataSourcePanel.getByText("SEC submissions adapter is configured.")).toBeVisible();
+  await expect(dataSourcePanel.getByText("data.sec.gov")).toBeVisible();
   const aiStatusPanel = page.getByLabel("AI / LLM 状态");
   await expect(aiStatusPanel.getByRole("heading", { name: "AI / LLM 状态" })).toBeVisible();
   await expect(aiStatusPanel.getByText("LangGraph", { exact: true })).toBeVisible();
@@ -1944,12 +1953,22 @@ test("settings renders data source status", async ({ page }) => {
   await expect(runtimeSettingsPanel.getByRole("heading", { name: "运行配置" })).toBeVisible();
   await expect(runtimeSettingsPanel.getByText("API Key")).toBeVisible();
   await expect(runtimeSettingsPanel.getByText("未配置", { exact: true })).toBeVisible();
+  await expect(runtimeSettingsPanel.getByLabel("数据模式")).toHaveValue("hybrid");
+  await expect(runtimeSettingsPanel.getByLabel("LEAN 超时秒数")).toHaveValue("600");
+  await expect(runtimeSettingsPanel.getByText("每日调度")).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("30 6 * * * · Asia/Shanghai")).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("Event Bus")).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("redis · trading:events")).toBeVisible();
   await expect(runtimeSettingsPanel.getByLabel("模型")).toHaveValue("gpt-5.5");
+  await runtimeSettingsPanel.getByLabel("数据模式").selectOption("openbb_optional");
+  await runtimeSettingsPanel.getByLabel("LEAN 超时秒数").fill("900");
   await runtimeSettingsPanel.getByLabel("模型").fill("gpt-5.4");
   await runtimeSettingsPanel.getByLabel("Base URL").fill("https://api.openai.example/v1");
-  await runtimeSettingsPanel.getByLabel("超时秒数").fill("15");
+  await runtimeSettingsPanel.getByLabel("OpenAI 超时秒数").fill("15");
   await runtimeSettingsPanel.getByRole("button", { name: "保存设置" }).click();
   await expect(runtimeSettingsPanel.locator("form").getByText("已保存", { exact: true })).toBeVisible();
+  await expect(runtimeSettingsPanel.getByLabel("数据模式")).toHaveValue("openbb_optional");
+  await expect(runtimeSettingsPanel.getByLabel("LEAN 超时秒数")).toHaveValue("900");
 });
 
 test("strategy lab renders readiness status", async ({ page }) => {

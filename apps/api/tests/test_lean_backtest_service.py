@@ -310,6 +310,26 @@ def test_run_lean_backtest_success_parses_statistics_and_saves_latest(tmp_path: 
     assert read_backtest_history(runtime_root=runtime_root)[0].run_id == result.run_id
 
 
+def test_run_lean_backtest_timeout_keeps_partial_output_logs(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        raise TimeoutExpired(command, timeout, output="pulling lean image", stderr="still starting engine")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+        timeout_seconds=12.5,
+    )
+
+    assert result.status == "timeout"
+    assert result.message == "LEAN backtest timed out after 12.5s."
+    assert result.logs == ["pulling lean image", "still starting engine"]
+
+
 def test_run_lean_backtest_writes_overrides_to_runtime_config_without_mutating_source(tmp_path: Path):
     catalog = write_catalog(tmp_path)
     runtime_root = tmp_path / "runtime"
