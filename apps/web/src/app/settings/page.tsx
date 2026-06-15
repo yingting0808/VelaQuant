@@ -9,10 +9,10 @@ export default function SettingsPage() {
   return (
     <AppShell prompts={sampleDashboard.ai_prompts}>
       <div className="module-stack">
-        <ModuleView module="settings" />
         <RuntimeSettingsPanel />
         <DataSourceStatusPanel />
         <AIStatusPanel />
+        <ModuleView module="settings" />
       </div>
     </AppShell>
   );

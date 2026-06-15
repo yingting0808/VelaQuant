@@ -1768,10 +1768,10 @@ test("AI prompts return a visible research result after click", async ({ page })
   await page.route("**/api/mvp/research", async (route) => {
     await route.fulfill({
       contentType: "application/json",
-      json: {
-        ticker: "AAPL",
-        status: "complete",
-        summary: "AAPL: 模拟组合风险研究结果。",
+        json: {
+          ticker: "AAPL",
+        status: "complete_llm",
+          summary: "AAPL: 模拟组合风险研究结果。",
         bull_case: "服务收入韧性支持多头观点。",
         bear_case: "估值压缩仍是主要风险。",
         watch_items: ["复核 filing 趋势", "检查组合集中度"],
@@ -1789,10 +1789,41 @@ test("AI prompts return a visible research result after click", async ({ page })
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(page.getByText("AAPL: 模拟组合风险研究结果。")).toBeVisible();
+  await expect(page.getByText("LLM 已生成")).toBeVisible();
   await expect(page.getByText("必须经过人工审批。")).toBeVisible();
   await expect(page.getByText("多头观点", { exact: true })).toBeVisible();
   await expect(page.getByText("空头风险", { exact: true })).toBeVisible();
   await expect(page.getByText("风控提示", { exact: true })).toBeVisible();
+});
+
+test("AI prompts wait for slower LLM research responses", async ({ page }) => {
+  await page.route("**/api/mvp/research", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ticker: "AAPL",
+        status: "complete_llm",
+        summary: "AAPL: 延迟返回的 LLM 研究结果。",
+        bull_case: "真实 LLM 响应可以超过本地模板延迟。",
+        bear_case: "仍需人工复核。",
+        watch_items: ["检查响应延迟"],
+        evidence_count: 1,
+        trade_plan_draft: {
+          entry_condition: "人工复核确认。",
+          invalidation_condition: "证据失效。",
+          risk_notes: ["必须经过人工审批。"],
+          requires_human_review: true
+        }
+      }
+    });
+  });
+
+  await gotoDashboard(page);
+  await page.getByRole("button", { name: "识别组合风险" }).click();
+
+  await expect(page.getByText("AAPL: 延迟返回的 LLM 研究结果。")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("LLM 已生成")).toBeVisible();
 });
 
 test("AI research result can be saved as a note", async ({ page }) => {
@@ -1892,13 +1923,13 @@ test("settings renders data source status", async ({ page }) => {
           message: "LangGraph is used for research workflow orchestration only."
         },
         research_llm: {
-          provider: "openai_responses",
+          provider: "openai_responses_or_chat_completions",
           mode: "research_only",
           configured: true,
           available: true,
           model: "gpt-5.5",
           base_url: "https://api.openai.com/v1",
-          message: "OpenAI Responses research LLM is configured for research explanations only."
+          message: "OpenAI-compatible research LLM is configured for research explanations only."
         },
         execution_path: {
           ai_generates_trade_intent: false,
@@ -1945,6 +1976,9 @@ test("settings renders data source status", async ({ page }) => {
 
   await page.goto("/settings");
 
+  const firstSettingsSurface = page.locator(".module-stack > *").first();
+  await expect(firstSettingsSurface.getByRole("heading", { name: "运行配置" })).toBeVisible();
+
   const dataSourcePanel = page.getByLabel("数据源状态");
   await expect(dataSourcePanel.getByRole("heading", { name: "数据源状态" })).toBeVisible();
   await expect(dataSourcePanel.getByText("hybrid", { exact: true })).toBeVisible();
@@ -1955,7 +1989,7 @@ test("settings renders data source status", async ({ page }) => {
   const aiStatusPanel = page.getByLabel("AI / LLM 状态");
   await expect(aiStatusPanel.getByRole("heading", { name: "AI / LLM 状态" })).toBeVisible();
   await expect(aiStatusPanel.getByText("LangGraph", { exact: true })).toBeVisible();
-  await expect(aiStatusPanel.getByText("OpenAI Responses", { exact: true })).toBeVisible();
+  await expect(aiStatusPanel.getByText("OpenAI-compatible LLM", { exact: true })).toBeVisible();
   await expect(aiStatusPanel.getByText("gpt-5.5")).toBeVisible();
   await expect(aiStatusPanel.getByText("AI 不进入交易执行链", { exact: true })).toBeVisible();
   const runtimeSettingsPanel = page.getByLabel("运行配置");

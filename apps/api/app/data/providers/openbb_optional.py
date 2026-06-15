@@ -7,12 +7,37 @@ from typing import Any
 from app.data.providers.base import EvidenceItem, FundamentalSnapshot, PriceHistoryBar, ProviderStatus, Quote
 
 
+_OPENBB_WARMED = False
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _normalize_ticker(ticker: str) -> str:
     return ticker.strip().upper()
+
+
+def warm_openbb_optional_provider(
+    *,
+    module_finder: Callable[[str], object | None] = find_spec,
+    module_importer: Callable[[str], object] = import_module,
+    force: bool = False,
+) -> bool:
+    global _OPENBB_WARMED
+
+    if _OPENBB_WARMED and not force:
+        return True
+    if module_finder("openbb") is None:
+        _OPENBB_WARMED = False
+        return False
+    try:
+        module_importer("openbb")
+    except Exception:
+        _OPENBB_WARMED = False
+        return False
+    _OPENBB_WARMED = True
+    return True
 
 
 def _number(value: Any) -> float | None:

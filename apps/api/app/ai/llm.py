@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 import httpx
@@ -45,11 +46,22 @@ class OpenAIResponsesResearchClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        if self._http_client is not None:
-            response = self._http_client.post(f"{self.base_url}/responses", headers=headers, json=payload)
-        else:
-            with httpx.Client(timeout=self.timeout_seconds) as client:
-                response = client.post(f"{self.base_url}/responses", headers=headers, json=payload)
+        client_owner = self._http_client is None
+        client = self._http_client or httpx.Client(timeout=self.timeout_seconds)
+        try:
+            response = client.post(f"{self.base_url}/responses", headers=headers, json=payload)
+            if response.status_code in {404, 405}:
+                chat_response = client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=_chat_completions_payload(request, model=self.model),
+                )
+                chat_response.raise_for_status()
+                data = json.loads(extract_chat_completion_text(chat_response.json()))
+                return _research_result_from_llm_json(request, data)
+        finally:
+            if client_owner:
+                client.close()
         response.raise_for_status()
         output_text = extract_response_text(response.json())
         data = json.loads(output_text)
@@ -77,11 +89,11 @@ def build_openai_research_status(settings: Settings | None = None) -> OpenAIRese
     if not active_settings.openai_research_enabled:
         message = "OpenAI research LLM is disabled by configuration."
     elif configured:
-        message = "OpenAI Responses research LLM is configured for research explanations only."
+        message = "OpenAI-compatible research LLM is configured for research explanations only."
     else:
-        message = "OpenAI Responses research LLM is not configured; set AI_STOCKS_OPENAI_API_KEY or OPENAI_API_KEY."
+        message = "OpenAI-compatible research LLM is not configured; set AI_STOCKS_OPENAI_API_KEY or OPENAI_API_KEY."
     return OpenAIResearchStatus(
-        provider="openai_responses",
+        provider="openai_responses_or_chat_completions",
         mode="research_only",
         configured=configured,
         available=available,
@@ -108,30 +120,61 @@ def extract_response_text(payload: dict[str, Any]) -> str:
     raise ValueError("OpenAI response did not include output text.")
 
 
+def extract_chat_completion_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        raise ValueError("Chat completion did not include choices.")
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            joined = "".join(
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and isinstance(item.get("text"), str)
+            ).strip()
+            if joined:
+                return joined
+    raise ValueError("Chat completion did not include message content.")
+
+
 def _openai_api_key(settings: Settings) -> str | None:
     return settings.openai_api_key or os.getenv("OPENAI_API_KEY")
 
 
-def _responses_payload(request: ResearchRequest, *, model: str) -> dict[str, Any]:
-    user_payload = {
+def _research_system_prompt() -> str:
+    return (
+        "你是 VelaQuant 的投研解释助手。AI 只能输出投研解释、风险观察和人工复核草稿；"
+        "禁止输出可执行订单、TradeIntent、仓位指令、风控决策或绕过 Trading Core 的动作。"
+        "必须返回符合 schema 的 JSON。"
+    )
+
+
+def _research_user_payload(request: ResearchRequest) -> dict[str, Any]:
+    return {
         "ticker": request.ticker.strip().upper(),
         "question": request.question,
         "evidence": [item.model_dump() for item in request.evidence],
     }
+
+
+def _responses_payload(request: ResearchRequest, *, model: str) -> dict[str, Any]:
     return {
         "model": model,
         "input": [
             {
                 "role": "developer",
-                "content": (
-                    "你是 VelaQuant 的投研解释助手。AI 只能输出投研解释、风险观察和人工复核草稿；"
-                    "禁止输出可执行订单、TradeIntent、仓位指令、风控决策或绕过 Trading Core 的动作。"
-                    "必须返回符合 schema 的 JSON。"
-                ),
+                "content": _research_system_prompt(),
             },
             {
                 "role": "user",
-                "content": json.dumps(user_payload, ensure_ascii=False),
+                "content": json.dumps(_research_user_payload(request), ensure_ascii=False),
             },
         ],
         "text": {
@@ -166,6 +209,27 @@ def _responses_payload(request: ResearchRequest, *, model: str) -> dict[str, Any
     }
 
 
+def _chat_completions_payload(request: ResearchRequest, *, model: str) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    f"{_research_system_prompt()} 只返回一个 JSON object，字段必须包含 summary、bull_case、"
+                    "bear_case、watch_items、entry_condition、invalidation_condition、risk_notes。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(_research_user_payload(request), ensure_ascii=False),
+            },
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+    }
+
+
 def _research_result_from_llm_json(request: ResearchRequest, data: dict[str, Any]) -> ResearchResult:
     return ResearchResult(
         ticker=request.ticker.strip().upper(),
@@ -192,9 +256,21 @@ def _required_text(data: dict[str, Any], key: str) -> str:
 
 
 def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError("LLM response list field must be an array.")
-    items = [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        normalized = value.replace("\\r\\n", "\n").replace("\\n", "\n")
+        items = [
+            _clean_list_item(item)
+            for item in re.split(r"[\r\n]+|(?<=[.!?。；;])\s*(?=\d+[.)、]\s*)", normalized)
+            if _clean_list_item(item)
+        ]
+    elif isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+    else:
+        raise ValueError("LLM response list field must be an array or newline-delimited string.")
     if not items:
         raise ValueError("LLM response list field must not be empty.")
     return items
+
+
+def _clean_list_item(value: str) -> str:
+    return re.sub(r"^\s*(?:[-*]|\d+[.)、])\s*", "", value).strip()

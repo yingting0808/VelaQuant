@@ -1,4 +1,4 @@
-from app.data.providers.openbb_optional import OpenBBOptionalProvider
+from app.data.providers.openbb_optional import OpenBBOptionalProvider, warm_openbb_optional_provider
 import pandas as pd
 
 
@@ -192,6 +192,35 @@ def test_openbb_provider_reports_missing_package_without_client():
     assert quote.source == "openbb_yfinance"
     assert quote.is_fallback is False
     assert "not installed" in quote.message
+
+
+def test_warm_openbb_optional_provider_imports_openbb_once_when_available():
+    imports: list[str] = []
+
+    def module_finder(name: str):
+        return object() if name == "openbb" else None
+
+    def module_importer(name: str):
+        imports.append(name)
+        return object()
+
+    assert warm_openbb_optional_provider(module_finder=module_finder, module_importer=module_importer, force=True) is True
+    assert warm_openbb_optional_provider(module_finder=module_finder, module_importer=module_importer) is True
+    assert imports == ["openbb"]
+
+
+def test_warm_openbb_optional_provider_skips_when_openbb_missing():
+    imports: list[str] = []
+
+    assert (
+        warm_openbb_optional_provider(
+            module_finder=lambda _: None,
+            module_importer=lambda name: imports.append(name),
+            force=True,
+        )
+        is False
+    )
+    assert imports == []
 
 
 def test_openbb_provider_parses_quote_history_and_fundamentals():

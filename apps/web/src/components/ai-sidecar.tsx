@@ -11,6 +11,7 @@ type AiSidecarProps = {
 function formatStatus(status: string): string {
   const labels: Record<string, string> = {
     complete: "已完成",
+    complete_llm: "LLM 已生成",
     insufficient_evidence: "证据不足",
     offline_fallback: "离线兜底"
   };

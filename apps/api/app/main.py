@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.mvp import router as mvp_router
 from app.core.config import get_settings
+from app.data.providers.openbb_optional import warm_openbb_optional_provider
 from app.db.session import create_db_and_tables
 from app.services.paper_scheduler import shutdown_paper_scheduler, start_paper_scheduler
 
@@ -15,6 +16,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if settings.data_mode != "mock":
+            warm_openbb_optional_provider()
         start_paper_scheduler(settings)
         try:
             yield

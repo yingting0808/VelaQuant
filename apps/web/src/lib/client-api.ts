@@ -1254,13 +1254,13 @@ const fallbackAIStatus: AIStatusPayload = {
     message: "LangGraph 编排投研 workflow；后端 API 暂不可用，无法确认实时状态。"
   },
   research_llm: {
-    provider: "openai_responses",
+    provider: "openai_responses_or_chat_completions",
     mode: "research_only",
     configured: false,
     available: false,
     model: "gpt-5.5",
     base_url: "https://api.openai.com/v1",
-    message: "后端 API 暂不可用，无法确认 OpenAI Responses LLM 状态。"
+    message: "后端 API 暂不可用，无法确认 OpenAI-compatible LLM 状态。"
   },
   execution_path: {
     ai_generates_trade_intent: false,
@@ -2956,7 +2956,7 @@ export async function runResearchPrompt(question: string, ticker = "AAPL"): Prom
   const normalizedTicker = ticker.trim().toUpperCase() || "AAPL";
   const normalizedQuestion = question.trim() || "解释当前页面";
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), 1800);
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), 60_000);
 
   try {
     const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/research`, {

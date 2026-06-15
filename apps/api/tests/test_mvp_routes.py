@@ -296,7 +296,7 @@ def test_mvp_ai_status_route_reports_research_llm_isolated_from_execution(monkey
     assert response.status_code == 200
     payload = response.json()
     assert payload["langgraph"]["available"] is True
-    assert payload["research_llm"]["provider"] == "openai_responses"
+    assert payload["research_llm"]["provider"] == "openai_responses_or_chat_completions"
     assert payload["research_llm"]["available"] is False
     assert payload["execution_path"] == {
         "ai_generates_trade_intent": False,

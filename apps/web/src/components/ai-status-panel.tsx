@@ -30,7 +30,7 @@ export function AIStatusPanel() {
       <div className="panel-heading">
         <div>
           <h3>AI / LLM 状态</h3>
-          <p>区分 LangGraph workflow、OpenAI Responses 和交易执行边界</p>
+          <p>区分 LangGraph workflow、OpenAI-compatible LLM 和交易执行边界</p>
         </div>
         <span className={llm?.available ? "status-pill success" : "status-pill neutral"}>
           {llm?.available ? "LLM 可用" : "LLM 未配置"}
@@ -50,7 +50,7 @@ export function AIStatusPanel() {
 
         <article className="module-row">
           <div>
-            <strong>OpenAI Responses</strong>
+            <strong>OpenAI-compatible LLM</strong>
             <p>{llm?.message ?? "加载中"}</p>
           </div>
           <span className={llm?.available ? "state-ok" : "state-warn"}>
