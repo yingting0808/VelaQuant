@@ -4,11 +4,19 @@
 >
 > **30 秒结论：VelaQuant 有自己的 Trading Core。** 运行时订单链路由 VelaQuant 自研实现于 `apps/api/app/trading_core/`；LEAN/vectorbt、OpenBB、LangGraph 和 AI 模型只是外围的研究、数据、回测和解释工具，不替代 Trading Core。
 
-## Operations Guide / 系统操作说明
+## Manuals / 手册
 
-- 中文系统操作手册：[`docs/SYSTEM_OPERATIONS_GUIDE.md`](docs/SYSTEM_OPERATIONS_GUIDE.md)
-- Covers system structure, page-by-page operations, Trading Core runtime logic, paper-trading flow, AI assistant capabilities, and glossary.
-- 覆盖系统结构、各页面操作、Trading Core 运行逻辑、模拟盘流程、AI 助手能力和专业术语解释。
+- User manual: [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)
+- Operations and architecture guide: [`docs/SYSTEM_OPERATIONS_GUIDE.md`](docs/SYSTEM_OPERATIONS_GUIDE.md)
+
+中文入口：
+
+- 用户手册：[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)
+- 系统操作与架构说明：[`docs/SYSTEM_OPERATIONS_GUIDE.md`](docs/SYSTEM_OPERATIONS_GUIDE.md)
+
+The user manual explains Web UI pages, daily workflow, what each function helps users achieve, AI assistant capabilities, professional terms, implementation logic, and features still under development. The operations guide keeps the deeper runtime, Trading Core, Docker, API, and audit-oriented details.
+
+用户手册按 Web UI 功能写，说明每天做什么、能达到什么效果、每项功能怎么用、背后怎么运行，以及哪些能力还在研发中；系统操作与架构说明保留更深入的 Trading Core、Docker、API 和审计视角内容。
 
 ## GitHub Quick Proof / GitHub 首屏证据
 
