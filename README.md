@@ -228,7 +228,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy Registry now consumes registered runtime Alpha evidence for connected paper strategies, so Strategy Competition can see actual paper review days and filled-order counts instead of leaving connected catalog strategies at zero samples.
 - Strategy Competition marks positive catalog backtests as `connect_to_paper_runtime` work, while keeping negative or flat backtests in the lab and still blocking all catalog strategies from allocation until they are connected to the paper runtime and hot-swap path.
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
+- Daily paper candidates now persist and return `strategy_id`; manual buys launched from a candidate carry that same strategy id into the paper order payload, preserving candidate -> order -> Alpha attribution.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
+- The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
@@ -284,7 +286,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy Registry 现在会消费已注册 runtime 策略的 Alpha 证据，因此 Strategy Competition 可以看到已接入 paper 策略的真实复盘天数和成交订单数，不再把已接入的目录策略显示为 0 样本。
 - Strategy Competition 会把正收益目录回测标记为 `connect_to_paper_runtime` 工作项；负收益或持平回测继续留在 lab，且所有目录策略在接入 paper runtime 和热切换路径前仍禁止进入资金分配。
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
+- 每日 paper 候选现在会持久化并返回 `strategy_id`；从候选发起的手动模拟买入会把同一个策略 ID 带入 paper order payload，保留候选 -> 订单 -> Alpha 归因链。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
+- 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。

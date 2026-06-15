@@ -23,6 +23,7 @@ def create_db_and_tables() -> None:
     _ensure_paper_run_trigger_enum_values()
     _ensure_runtime_configuration_columns()
     _ensure_paper_account_strategy_columns()
+    _ensure_paper_candidate_strategy_columns()
     _ensure_paper_order_core_columns()
 
 
@@ -81,6 +82,21 @@ def _ensure_paper_account_strategy_columns() -> None:
     with engine.begin() as connection:
         connection.execute(
             text("ALTER TABLE paperaccount ADD COLUMN strategy_id VARCHAR DEFAULT 'deterministic_watchlist_v1'")
+        )
+
+
+def _ensure_paper_candidate_strategy_columns() -> None:
+    inspector = inspect(engine)
+    if "papercandidate" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("papercandidate")}
+    if "strategy_id" in existing:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE papercandidate ADD COLUMN strategy_id VARCHAR DEFAULT 'deterministic_watchlist_v1'")
         )
 
 

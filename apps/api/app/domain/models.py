@@ -200,6 +200,7 @@ class PaperAccount(SQLModel, table=True):
 class PaperCandidate(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="team.id", index=True)
+    strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
     ticker: str = Field(index=True)
     action: PaperOrderSide = Field(default=PaperOrderSide.buy, index=True)
     rank: int

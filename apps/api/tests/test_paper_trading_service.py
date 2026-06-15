@@ -246,6 +246,7 @@ def test_daily_run_creates_account_candidates_and_review():
         assert summary.account.cash < 100000.0
         assert summary.candidates
         assert summary.candidates[0].ticker == "NVDA"
+        assert summary.candidates[0].strategy_id == "deterministic_watchlist_v1"
         assert summary.candidates[0].action == "buy"
         assert summary.candidates[0].status == "ordered"
         assert summary.candidates[0].proposed_quantity > 0
@@ -323,6 +324,10 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
         session.commit()
 
         summary = run_daily_paper_trading_loop(session, TrendHistoryProvider())
+        moving_average_candidate = next(
+            (candidate for candidate in summary.candidates if candidate.strategy_id == "moving_average_cross"),
+            None,
+        )
         moving_average_order = next(
             (order for order in summary.orders if order.strategy_id == "moving_average_cross"),
             None,
@@ -330,6 +335,8 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
         market_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "market_event")).all()
         trade_intent_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_intent")).all()
 
+        assert moving_average_candidate is not None
+        assert moving_average_candidate.ticker == "AAPL"
         assert moving_average_order is not None
         assert moving_average_order.risk_status == "approved"
         assert any(

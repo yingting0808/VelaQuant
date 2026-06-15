@@ -724,6 +724,7 @@ export type PaperAccountPayload = {
 
 export type PaperCandidatePayload = {
   id: string;
+  strategy_id: string;
   ticker: string;
   action: string;
   rank: number;
@@ -1211,6 +1212,7 @@ export type PaperOrderInputPayload = {
   side: "buy" | "sell";
   quantity: number;
   order_type: "market";
+  strategy_id: string;
 };
 
 function getPublicApiBaseUrl(): string {

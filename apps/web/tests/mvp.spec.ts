@@ -150,6 +150,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   };
   const candidate = {
     id: "paper-candidate-nvda",
+    strategy_id: "deterministic_watchlist_v1",
     ticker: "NVDA",
     action: "buy",
     rank: 1,
@@ -743,7 +744,13 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.route("**/api/mvp/paper-trading/orders", async (route) => {
     expect(route.request().method()).toBe("POST");
     const payload = route.request().postDataJSON() as { quantity?: number; side?: string; ticker?: string };
-    expect(payload).toEqual({ order_type: "market", quantity: 40, side: "buy", ticker: "NVDA" });
+    expect(payload).toEqual({
+      order_type: "market",
+      quantity: 40,
+      side: "buy",
+      strategy_id: "deterministic_watchlist_v1",
+      ticker: "NVDA"
+    });
     summary = filledSummary;
     dailyReport = readyDailyReport;
     ledger = filledLedger;

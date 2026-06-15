@@ -103,6 +103,58 @@ def test_postgres_enum_migration_adds_runtime_mode_and_trigger_values():
     ]
 
 
+def test_create_db_and_tables_adds_strategy_id_to_existing_paper_candidate_table(tmp_path):
+    database_path = tmp_path / "legacy_candidate.db"
+    script = textwrap.dedent(
+        f"""
+        import sqlite3
+
+        connection = sqlite3.connect({str(database_path)!r})
+        connection.execute(
+            "CREATE TABLE papercandidate ("
+            "id CHAR(32) PRIMARY KEY, "
+            "team_id CHAR(32), "
+            "ticker VARCHAR, "
+            "action VARCHAR, "
+            "rank INTEGER, "
+            "confidence FLOAT, "
+            "thesis VARCHAR, "
+            "risk_notes VARCHAR, "
+            "evidence_summary VARCHAR, "
+            "proposed_quantity FLOAT, "
+            "status VARCHAR, "
+            "created_at TIMESTAMP)"
+        )
+        connection.commit()
+        connection.close()
+
+        from app.db.session import create_db_and_tables
+
+        create_db_and_tables()
+
+        connection = sqlite3.connect({str(database_path)!r})
+        columns = {{row[1] for row in connection.execute("PRAGMA table_info(papercandidate)")}}
+        if "strategy_id" not in columns:
+            raise SystemExit(f"strategy_id missing from papercandidate columns: {{sorted(columns)}}")
+        """
+    )
+    env = {
+        **os.environ,
+        "AI_STOCKS_DATABASE_URL": f"sqlite:///{database_path}",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        cwd=os.getcwd(),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
 def test_paper_run_and_core_event_log_can_be_persisted():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

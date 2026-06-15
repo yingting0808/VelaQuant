@@ -349,6 +349,7 @@ export function PaperTradingWorkspace() {
         order_type: "market",
         quantity: candidate.proposed_quantity,
         side: "buy",
+        strategy_id: candidate.strategy_id,
         ticker: candidate.ticker
       });
       if (!order) {
@@ -1476,6 +1477,7 @@ export function PaperTradingWorkspace() {
             <thead>
               <tr>
                 <th scope="col">Ticker</th>
+                <th scope="col">策略</th>
                 <th scope="col">动作</th>
                 <th className="numeric" scope="col">
                   置信度
@@ -1501,6 +1503,9 @@ export function PaperTradingWorkspace() {
                     <td>
                       <span className="ticker-chip">{candidate.ticker}</span>
                     </td>
+                    <td>
+                      <span className="status-pill neutral">{candidate.strategy_id}</span>
+                    </td>
                     <td>{candidate.action}</td>
                     <td className="numeric">{percentFormatter.format(candidate.confidence)}</td>
                     <td className="numeric">{formatNumber(candidate.proposed_quantity)}</td>
@@ -1524,7 +1529,7 @@ export function PaperTradingWorkspace() {
               })}
               {!candidates.length ? (
                 <tr>
-                  <td colSpan={6}>点击运行今日模拟生成候选。</td>
+                  <td colSpan={7}>点击运行今日模拟生成候选。</td>
                 </tr>
               ) : null}
             </tbody>

@@ -93,6 +93,7 @@ class PaperAccountPayload(BaseModel):
 
 class PaperCandidatePayload(BaseModel):
     id: UUID
+    strategy_id: str = DEFAULT_PAPER_STRATEGY_ID
     ticker: str
     action: str
     rank: int
@@ -758,6 +759,7 @@ def _generate_candidates(
             evidence_summary = _evidence_summary(ticker, evidence_count)
             candidate = PaperCandidate(
                 team_id=team_id,
+                strategy_id=binding.strategy_id,
                 ticker=ticker,
                 action=PaperOrderSide.buy,
                 rank=0,
@@ -846,7 +848,7 @@ def _auto_submit_candidate_orders(
                 ticker=candidate.ticker,
                 side=candidate.action.value,
                 quantity=candidate.proposed_quantity,
-                strategy_id=context.strategy_id if context is not None else DEFAULT_PAPER_STRATEGY_ID,
+                strategy_id=context.strategy_id if context is not None else candidate.strategy_id,
             ),
             run_id=run_id,
             core_context=context,
@@ -1696,6 +1698,7 @@ def _project_as_of_account(
 def _candidate_payload(candidate: PaperCandidate) -> PaperCandidatePayload:
     return PaperCandidatePayload(
         id=candidate.id,
+        strategy_id=candidate.strategy_id,
         ticker=candidate.ticker,
         action=candidate.action.value,
         rank=candidate.rank,
