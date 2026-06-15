@@ -218,6 +218,8 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with Mock, SEC EDGAR, and OpenBB available in the current Docker runtime.
 - `GET /api/mvp/ai/status` returns LangGraph research workflow availability and the OpenAI Responses research-LLM status. In the current Docker runtime the OpenAI Responses client is wired but not configured because no API key is present; `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
 - `GET/PUT /api/mvp/runtime-settings` backs the Web Settings page, where non-secret runtime parameters can be adjusted at runtime: data mode, LEAN backtest timeout, and OpenAI Research LLM model/base URL/timeout. API keys, scheduler startup, and Redis wiring still come from environment variables only.
+- `GET /api/mvp/strategy-lab/status` now distinguishes LEAN CLI availability from the cached QuantConnect LEAN engine image. Real LEAN backtests require `quantconnect/lean:latest` to be cached locally; vectorbt fallback remains research-only and is not Alpha evidence.
+- The latest real LEAN attempt entered the LEAN path but timed out while pulling `quantconnect/lean:latest`; no real LEAN backtest result is counted as Alpha evidence until the engine image is cached and a run completes.
 - `POST /api/mvp/research` returns deterministic LangGraph research output when no OpenAI key is configured, using SEC EDGAR/OpenBB/provider evidence where available and preserving `requires_human_review=true`.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
@@ -264,6 +266,8 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，并显示 Mock、SEC EDGAR、OpenBB 均可用。
 - `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI Responses 投研 LLM 状态。当前 Docker 运行态已经接入 OpenAI Responses client，但因为没有配置 API key，外部 LLM 处于未启用状态；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
 - `GET/PUT /api/mvp/runtime-settings` 支撑 Web 设置页，可在运行态调整非密钥类运行参数：数据模式、LEAN 回测超时，以及 OpenAI Research LLM 模型/Base URL/超时。API key、Scheduler 启动和 Redis 连接仍只从环境变量读取。
+- `GET /api/mvp/strategy-lab/status` 现在会区分 LEAN CLI 是否可用与 QuantConnect LEAN 引擎镜像是否已缓存。真实 LEAN 回测要求本地已缓存 `quantconnect/lean:latest`；vectorbt fallback 仍只作为研究 fallback，不作为 Alpha 证据。
+- 最新真实 LEAN 尝试已经进入 LEAN 路径，但在拉取 `quantconnect/lean:latest` 时超时；只有等引擎镜像缓存完成并跑出成功结果后，真实 LEAN 回测才会进入 Alpha 证据。
 - `POST /api/mvp/research` 在未配置 OpenAI key 时返回确定性的 LangGraph 投研输出，使用可用的 SEC EDGAR/OpenBB/provider 证据，并保持 `requires_human_review=true`。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。

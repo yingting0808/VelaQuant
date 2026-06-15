@@ -20,6 +20,8 @@ import {
   type PaperSimulationPayload,
   type PaperTradingSummaryPayload,
   type PositionPayload,
+  type RuntimeSettingsPayload,
+  type RuntimeSettingsUpdatePayload,
   type ShadowDailyReportPayload,
   type ShadowObservationHealthPayload,
   type ShadowObservationPayload,
@@ -1906,7 +1908,7 @@ test("settings renders data source status", async ({ page }) => {
       }
     });
   });
-  let runtimeSettings = {
+  let runtimeSettings: RuntimeSettingsPayload = {
     source: "defaults",
     data_mode: "hybrid",
     lean_backtest_timeout_seconds: 600,
@@ -1921,12 +1923,19 @@ test("settings renders data source status", async ({ page }) => {
     openai_base_url: "https://api.openai.com/v1",
     openai_timeout_seconds: 20,
     openai_api_key_configured: false,
-    openai_api_key_source: null
+    openai_api_key_source: null,
+    sec_user_agent: "VelaQuant research app contact@example.com"
   };
+  let lastRuntimeUpdate: Record<string, unknown> | null = null;
   await page.route("**/api/mvp/runtime-settings", async (route) => {
     if (route.request().method() === "PUT") {
-      const update = route.request().postDataJSON() as Partial<typeof runtimeSettings>;
+      const update = route.request().postDataJSON() as Partial<RuntimeSettingsUpdatePayload>;
+      lastRuntimeUpdate = update;
       runtimeSettings = { ...runtimeSettings, ...update, source: "database" };
+      if (typeof update.openai_api_key === "string" && update.openai_api_key.length > 0) {
+        runtimeSettings.openai_api_key_configured = true;
+        runtimeSettings.openai_api_key_source = "runtime_database";
+      }
     }
     await route.fulfill({
       contentType: "application/json",
@@ -1951,7 +1960,7 @@ test("settings renders data source status", async ({ page }) => {
   await expect(aiStatusPanel.getByText("AI 不进入交易执行链", { exact: true })).toBeVisible();
   const runtimeSettingsPanel = page.getByLabel("运行配置");
   await expect(runtimeSettingsPanel.getByRole("heading", { name: "运行配置" })).toBeVisible();
-  await expect(runtimeSettingsPanel.getByText("API Key")).toBeVisible();
+  await expect(runtimeSettingsPanel.getByText("API Key", { exact: true })).toBeVisible();
   await expect(runtimeSettingsPanel.getByText("未配置", { exact: true })).toBeVisible();
   await expect(runtimeSettingsPanel.getByLabel("数据模式")).toHaveValue("hybrid");
   await expect(runtimeSettingsPanel.getByLabel("LEAN 超时秒数")).toHaveValue("600");
@@ -1960,15 +1969,26 @@ test("settings renders data source status", async ({ page }) => {
   await expect(runtimeSettingsPanel.getByText("Event Bus")).toBeVisible();
   await expect(runtimeSettingsPanel.getByText("redis · trading:events")).toBeVisible();
   await expect(runtimeSettingsPanel.getByLabel("模型")).toHaveValue("gpt-5.5");
+  const openaiKeyInput = runtimeSettingsPanel.getByRole("textbox", { name: "OpenAI API Key" });
+  await expect(openaiKeyInput).toHaveValue("");
+  await expect(runtimeSettingsPanel.getByLabel("SEC User-Agent")).toHaveValue("VelaQuant research app contact@example.com");
   await runtimeSettingsPanel.getByLabel("数据模式").selectOption("openbb_optional");
   await runtimeSettingsPanel.getByLabel("LEAN 超时秒数").fill("900");
   await runtimeSettingsPanel.getByLabel("模型").fill("gpt-5.4");
   await runtimeSettingsPanel.getByLabel("Base URL").fill("https://api.openai.example/v1");
   await runtimeSettingsPanel.getByLabel("OpenAI 超时秒数").fill("15");
+  await openaiKeyInput.fill("sk-runtime-test");
+  await runtimeSettingsPanel.getByLabel("SEC User-Agent").fill("VelaQuant prod ops@example.com");
   await runtimeSettingsPanel.getByRole("button", { name: "保存设置" }).click();
   await expect(runtimeSettingsPanel.locator("form").getByText("已保存", { exact: true })).toBeVisible();
   await expect(runtimeSettingsPanel.getByLabel("数据模式")).toHaveValue("openbb_optional");
   await expect(runtimeSettingsPanel.getByLabel("LEAN 超时秒数")).toHaveValue("900");
+  await expect(runtimeSettingsPanel.getByText("runtime_database")).toBeVisible();
+  await expect(openaiKeyInput).toHaveValue("");
+  expect(lastRuntimeUpdate).toMatchObject({
+    openai_api_key: "sk-runtime-test",
+    sec_user_agent: "VelaQuant prod ops@example.com"
+  });
 });
 
 test("strategy lab renders readiness status", async ({ page }) => {

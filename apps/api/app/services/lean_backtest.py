@@ -508,7 +508,7 @@ def _run_vectorbt_fallback(
 
 
 def _lean_runtime_ready(readiness: StrategyLabStatus) -> bool:
-    lean_tool_names = {"Docker CLI", "Docker Compose", "Docker engine", "LEAN CLI"}
+    lean_tool_names = {"Docker CLI", "Docker Compose", "Docker engine", "LEAN Docker image", "LEAN CLI"}
     lean_tools = [tool for tool in readiness.tools if tool.name in lean_tool_names]
     if not lean_tools:
         return False

@@ -17,6 +17,7 @@ class RuntimeSettingsPayload(BaseModel):
 
     source: Literal["defaults", "database"]
     data_mode: str
+    sec_user_agent: str
     lean_backtest_timeout_seconds: float
     paper_scheduler_enabled: bool
     paper_scheduler_cron: str
@@ -36,16 +37,34 @@ class RuntimeSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     data_mode: DataMode | None = None
+    sec_user_agent: str | None = Field(default=None, min_length=12, max_length=200)
     lean_backtest_timeout_seconds: float | None = Field(default=None, ge=30, le=3600)
     openai_research_enabled: bool
     openai_research_model: str = Field(min_length=1, max_length=80)
     openai_base_url: str = Field(min_length=8, max_length=200)
     openai_timeout_seconds: float = Field(gt=0, le=120)
+    openai_api_key: str | None = Field(default=None, max_length=500)
+    clear_openai_api_key: bool = False
 
     @field_validator("openai_research_model", "openai_base_url")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("sec_user_agent")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+    @field_validator("openai_api_key")
+    @classmethod
+    def normalize_optional_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("openai_base_url")
     @classmethod
@@ -65,9 +84,11 @@ def get_runtime_settings_payload(
     return _payload_from_values(
         source=source,
         data_mode=row.data_mode if row else active_settings.data_mode,
+        sec_user_agent=row.sec_user_agent if row else active_settings.sec_user_agent,
         lean_backtest_timeout_seconds=(
             row.lean_backtest_timeout_seconds if row else active_settings.lean_backtest_timeout_seconds
         ),
+        openai_api_key=row.openai_api_key if row else None,
         openai_research_enabled=row.openai_research_enabled if row else active_settings.openai_research_enabled,
         openai_research_model=row.openai_research_model if row else active_settings.openai_research_model,
         openai_base_url=row.openai_base_url if row else active_settings.openai_base_url,
@@ -88,8 +109,14 @@ def update_runtime_settings(
 
     if update.data_mode is not None:
         row.data_mode = update.data_mode
+    if update.sec_user_agent is not None:
+        row.sec_user_agent = update.sec_user_agent
     if update.lean_backtest_timeout_seconds is not None:
         row.lean_backtest_timeout_seconds = update.lean_backtest_timeout_seconds
+    if update.clear_openai_api_key:
+        row.openai_api_key = None
+    elif update.openai_api_key is not None:
+        row.openai_api_key = update.openai_api_key
     row.openai_research_enabled = update.openai_research_enabled
     row.openai_research_model = update.openai_research_model
     row.openai_base_url = update.openai_base_url
@@ -110,7 +137,9 @@ def get_effective_settings(session: Session, settings: Settings | None = None) -
     return active_settings.model_copy(
         update={
             "data_mode": row.data_mode,
+            "sec_user_agent": row.sec_user_agent,
             "lean_backtest_timeout_seconds": row.lean_backtest_timeout_seconds,
+            "openai_api_key": row.openai_api_key or active_settings.openai_api_key,
             "openai_research_enabled": row.openai_research_enabled,
             "openai_research_model": row.openai_research_model,
             "openai_base_url": row.openai_base_url,
@@ -123,17 +152,20 @@ def _payload_from_values(
     *,
     source: Literal["defaults", "database"],
     data_mode: str,
+    sec_user_agent: str,
     lean_backtest_timeout_seconds: float,
+    openai_api_key: str | None,
     openai_research_enabled: bool,
     openai_research_model: str,
     openai_base_url: str,
     openai_timeout_seconds: float,
     settings: Settings,
 ) -> RuntimeSettingsPayload:
-    api_key_source = _openai_api_key_source(settings)
+    api_key_source = _openai_api_key_source(settings, runtime_api_key=openai_api_key)
     return RuntimeSettingsPayload(
         source=source,
         data_mode=data_mode,
+        sec_user_agent=sec_user_agent,
         lean_backtest_timeout_seconds=lean_backtest_timeout_seconds,
         paper_scheduler_enabled=settings.paper_scheduler_enabled,
         paper_scheduler_cron=settings.paper_scheduler_cron,
@@ -150,7 +182,9 @@ def _payload_from_values(
     )
 
 
-def _openai_api_key_source(settings: Settings) -> str | None:
+def _openai_api_key_source(settings: Settings, *, runtime_api_key: str | None = None) -> str | None:
+    if runtime_api_key:
+        return "runtime_database"
     if settings.openai_api_key:
         return "AI_STOCKS_OPENAI_API_KEY"
     if os.getenv("OPENAI_API_KEY"):

@@ -56,7 +56,9 @@ def _ensure_runtime_configuration_columns() -> None:
     existing = {column["name"] for column in inspector.get_columns("runtimeconfiguration")}
     columns = {
         "data_mode": "VARCHAR DEFAULT 'hybrid'",
+        "sec_user_agent": "VARCHAR DEFAULT 'VelaQuant research app contact@example.com'",
         "lean_backtest_timeout_seconds": "FLOAT DEFAULT 600.0",
+        "openai_api_key": "VARCHAR",
     }
     missing = [(name, column_type) for name, column_type in columns.items() if name not in existing]
     if not missing:

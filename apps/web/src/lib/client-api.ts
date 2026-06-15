@@ -52,6 +52,7 @@ export type AIStatusPayload = {
 export type RuntimeSettingsPayload = {
   source: string;
   data_mode: string;
+  sec_user_agent: string;
   lean_backtest_timeout_seconds: number;
   paper_scheduler_enabled: boolean;
   paper_scheduler_cron: string;
@@ -69,11 +70,14 @@ export type RuntimeSettingsPayload = {
 
 export type RuntimeSettingsUpdatePayload = {
   data_mode: string;
+  sec_user_agent: string;
   lean_backtest_timeout_seconds: number;
   openai_research_enabled: boolean;
   openai_research_model: string;
   openai_base_url: string;
   openai_timeout_seconds: number;
+  openai_api_key?: string;
+  clear_openai_api_key?: boolean;
 };
 
 export type StrategyToolStatusPayload = {
@@ -1268,6 +1272,7 @@ const fallbackAIStatus: AIStatusPayload = {
 const fallbackRuntimeSettings: RuntimeSettingsPayload = {
   source: "fallback",
   data_mode: "hybrid",
+  sec_user_agent: "VelaQuant research app contact@example.com",
   lean_backtest_timeout_seconds: 600,
   paper_scheduler_enabled: false,
   paper_scheduler_cron: "30 6 * * *",
@@ -2137,6 +2142,7 @@ function isRuntimeSettingsPayload(value: unknown): value is RuntimeSettingsPaylo
     isRecord(value) &&
     typeof value.source === "string" &&
     typeof value.data_mode === "string" &&
+    typeof value.sec_user_agent === "string" &&
     typeof value.lean_backtest_timeout_seconds === "number" &&
     typeof value.paper_scheduler_enabled === "boolean" &&
     typeof value.paper_scheduler_cron === "string" &&

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 CommandRunner = Callable[[list[str], float], CompletedProcess[str]]
 ModuleVersionChecker = Callable[[str], str | None]
+LEAN_ENGINE_IMAGE = "quantconnect/lean:latest"
 
 
 class StrategyToolStatus(BaseModel):
@@ -59,20 +60,56 @@ def get_strategy_lab_status(
             timeout,
         ),
         _check_tool("Docker engine", ["docker", "info"], command_runner, timeout),
+        _check_lean_engine_image(command_runner, timeout),
         _check_tool("LEAN CLI", ["lean", "--version"], command_runner, timeout),
         _check_python_module("vectorbt", "vectorbt", module_version_checker),
     ]
     lean_ready = all(tool.available for tool in tools if tool.name != "vectorbt")
     vectorbt_ready = next(tool.available for tool in tools if tool.name == "vectorbt")
-    ready = lean_ready or vectorbt_ready
+    ready = lean_ready
     summary = (
         "Docker and LEAN are ready for local backtest preparation."
         if lean_ready
-        else "vectorbt research fallback is ready; unavailable LEAN tools will be bypassed."
+        else "QuantConnect LEAN engine image is not cached; real LEAN backtests are unavailable."
+        if _lean_image_missing(tools)
+        else "vectorbt research fallback is ready, but real LEAN backtests are unavailable."
         if vectorbt_ready
         else "Strategy Lab is partially configured; review unavailable tools before running LEAN backtests."
     )
     return StrategyLabStatus(can_run_backtests=ready, summary=summary, tools=tools)
+
+
+def _lean_cli_available(tools: list[StrategyToolStatus]) -> bool:
+    return any(tool.name == "LEAN CLI" and tool.available for tool in tools)
+
+
+def _lean_image_missing(tools: list[StrategyToolStatus]) -> bool:
+    return any(tool.name == "LEAN Docker image" and not tool.available for tool in tools)
+
+
+def _check_lean_engine_image(command_runner: CommandRunner, timeout: float) -> StrategyToolStatus:
+    result = _check_tool(
+        "LEAN Docker image",
+        ["docker", "image", "inspect", LEAN_ENGINE_IMAGE],
+        command_runner,
+        timeout,
+    )
+    if result.available:
+        return StrategyToolStatus(
+            name=result.name,
+            available=True,
+            version=LEAN_ENGINE_IMAGE,
+            message=f"{LEAN_ENGINE_IMAGE} is cached locally.",
+        )
+    return StrategyToolStatus(
+        name=result.name,
+        available=False,
+        version=None,
+        message=(
+            f"{LEAN_ENGINE_IMAGE} is not cached locally; run "
+            f"`docker pull {LEAN_ENGINE_IMAGE}` before real LEAN backtests."
+        ),
+    )
 
 
 def _check_any_tool(

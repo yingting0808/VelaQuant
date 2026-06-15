@@ -12,6 +12,7 @@ type SaveState = "idle" | "saving" | "saved" | "failed";
 
 const defaultDraft: RuntimeSettingsUpdatePayload = {
   data_mode: "hybrid",
+  sec_user_agent: "VelaQuant research app contact@example.com",
   lean_backtest_timeout_seconds: 600,
   openai_research_enabled: true,
   openai_research_model: "gpt-5.5",
@@ -22,6 +23,7 @@ const defaultDraft: RuntimeSettingsUpdatePayload = {
 function draftFromSettings(settings: RuntimeSettingsPayload): RuntimeSettingsUpdatePayload {
   return {
     data_mode: settings.data_mode,
+    sec_user_agent: settings.sec_user_agent,
     lean_backtest_timeout_seconds: settings.lean_backtest_timeout_seconds,
     openai_research_enabled: settings.openai_research_enabled,
     openai_research_model: settings.openai_research_model,
@@ -33,6 +35,8 @@ function draftFromSettings(settings: RuntimeSettingsPayload): RuntimeSettingsUpd
 export function RuntimeSettingsPanel() {
   const [settings, setSettings] = useState<RuntimeSettingsPayload | null>(null);
   const [draft, setDraft] = useState<RuntimeSettingsUpdatePayload>(defaultDraft);
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [clearOpenaiApiKey, setClearOpenaiApiKey] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
   useEffect(() => {
@@ -51,9 +55,16 @@ export function RuntimeSettingsPanel() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveState("saving");
-    const payload = await updateRuntimeSettings(draft);
+    const trimmedOpenaiApiKey = openaiApiKey.trim();
+    const payload = await updateRuntimeSettings({
+      ...draft,
+      clear_openai_api_key: clearOpenaiApiKey,
+      ...(trimmedOpenaiApiKey ? { openai_api_key: trimmedOpenaiApiKey } : {})
+    });
     setSettings(payload);
     setDraft(draftFromSettings(payload));
+    setOpenaiApiKey("");
+    setClearOpenaiApiKey(false);
     setSaveState(payload.source === "fallback" ? "failed" : "saved");
   }
 
@@ -123,6 +134,28 @@ export function RuntimeSettingsPanel() {
         </label>
 
         <label className="settings-field">
+          <span>OpenAI API Key</span>
+          <input
+            aria-label="OpenAI API Key"
+            autoComplete="new-password"
+            placeholder={settings?.openai_api_key_configured ? "已配置，留空则不变" : "sk-..."}
+            type="password"
+            value={openaiApiKey}
+            onChange={(event) => setOpenaiApiKey(event.target.value)}
+          />
+        </label>
+
+        <label className="settings-toggle">
+          <input
+            checked={clearOpenaiApiKey}
+            disabled={!settings?.openai_api_key_configured}
+            onChange={(event) => setClearOpenaiApiKey(event.target.checked)}
+            type="checkbox"
+          />
+          <span>清除已保存 OpenAI API Key</span>
+        </label>
+
+        <label className="settings-field">
           <span>模型</span>
           <input
             aria-label="模型"
@@ -164,6 +197,20 @@ export function RuntimeSettingsPanel() {
               setDraft((current) => ({
                 ...current,
                 openai_timeout_seconds: Number(event.target.value)
+              }))
+            }
+          />
+        </label>
+
+        <label className="settings-field">
+          <span>SEC User-Agent</span>
+          <input
+            aria-label="SEC User-Agent"
+            value={draft.sec_user_agent}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                sec_user_agent: event.target.value
               }))
             }
           />

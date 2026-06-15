@@ -64,5 +64,5 @@ def test_settings_expose_data_provider_defaults(monkeypatch):
     assert settings.data_mode == "hybrid"
     assert settings.sec_timeout_seconds == 3.0
     assert "VelaQuant" in settings.sec_user_agent
-    assert settings.strategy_command_timeout_seconds == 2.0
+    assert settings.strategy_command_timeout_seconds == 5.0
     assert settings.lean_backtest_timeout_seconds == 600.0
