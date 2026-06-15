@@ -315,6 +315,10 @@ tbody tr:last-child td {
   margin-bottom: 18px;
 }
 
+.sidecar-header > div:nth-child(2) {
+  min-width: 0;
+}
+
 .sidecar-icon {
   background: #243147;
 }
@@ -326,6 +330,18 @@ tbody tr:last-child td {
 .sidecar-header p {
   color: #aeb8c7;
   font-size: 0.82rem;
+}
+
+.sidecar-status {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sidecar-status-detail {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: -6px 0 14px;
 }
 
 .prompt-list {

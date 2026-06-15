@@ -1788,6 +1788,32 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
 });
 
 test("AI prompts return a visible research result after click", async ({ page }) => {
+  await page.route("**/api/mvp/ai/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        langgraph: {
+          available: true,
+          mode: "research_workflow",
+          message: "LangGraph is used for research workflow orchestration only."
+        },
+        research_llm: {
+          provider: "openai_responses_or_chat_completions",
+          mode: "research_only",
+          configured: true,
+          available: true,
+          model: "gpt-5.5",
+          base_url: "https://api.openai.com/v1",
+          message: "OpenAI-compatible research LLM is configured for research explanations only."
+        },
+        execution_path: {
+          ai_generates_trade_intent: false,
+          ai_influences_risk: false,
+          ai_calls_execution: false
+        }
+      }
+    });
+  });
   await page.route("**/api/mvp/research", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -1809,6 +1835,7 @@ test("AI prompts return a visible research result after click", async ({ page })
   });
 
   await gotoDashboard(page);
+  await expect(page.getByLabel("AI 助手").getByText("LLM 可用")).toBeVisible();
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(page.getByText("AAPL: 模拟组合风险研究结果。")).toBeVisible();
@@ -1817,6 +1844,65 @@ test("AI prompts return a visible research result after click", async ({ page })
   await expect(page.getByText("多头观点", { exact: true })).toBeVisible();
   await expect(page.getByText("空头风险", { exact: true })).toBeVisible();
   await expect(page.getByText("风控提示", { exact: true })).toBeVisible();
+});
+
+test("AI sidecar shows local workflow when LLM is not configured", async ({ page }) => {
+  await page.route("**/api/mvp/ai/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        langgraph: {
+          available: true,
+          mode: "research_workflow",
+          message: "LangGraph is used for research workflow orchestration only."
+        },
+        research_llm: {
+          provider: "openai_responses_or_chat_completions",
+          mode: "research_only",
+          configured: false,
+          available: false,
+          model: "gpt-5.5",
+          base_url: "https://api.openai.com/v1",
+          message: "OpenAI-compatible research LLM is not configured; set AI_STOCKS_OPENAI_API_KEY or OPENAI_API_KEY."
+        },
+        execution_path: {
+          ai_generates_trade_intent: false,
+          ai_influences_risk: false,
+          ai_calls_execution: false
+        }
+      }
+    });
+  });
+  await page.route("**/api/mvp/research", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ticker: "AAPL",
+        status: "complete",
+        summary: "AAPL: 本地规则研究结果。",
+        bull_case: "已有证据支持继续观察。",
+        bear_case: "估值仍需人工复核。",
+        watch_items: ["复核 filing 趋势"],
+        evidence_count: 2,
+        trade_plan_draft: {
+          entry_condition: "人工复核确认。",
+          invalidation_condition: "证据失效。",
+          risk_notes: ["这不是可直接执行的订单建议。"],
+          requires_human_review: true
+        }
+      }
+    });
+  });
+
+  await gotoDashboard(page);
+
+  const sidecar = page.getByLabel("AI 助手");
+  await expect(sidecar.getByText("本地规则")).toBeVisible();
+  await expect(sidecar.getByText("配置 OpenAI 后才会显示 LLM 已生成。")).toBeVisible();
+  await page.getByRole("button", { name: "识别组合风险" }).click();
+
+  await expect(sidecar.getByText("AAPL: 本地规则研究结果。")).toBeVisible();
+  await expect(sidecar.locator(".sidecar-status")).toHaveText("本地规则");
 });
 
 test("AI prompts wait for slower LLM research responses", async ({ page }) => {

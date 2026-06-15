@@ -1,8 +1,14 @@
 "use client";
 
 import { Bot, ChevronRight, Save, Sparkles } from "lucide-react";
-import { useState } from "react";
-import { runResearchPrompt, saveResearchResultAsNote, type ResearchResultPayload } from "@/lib/client-api";
+import { useEffect, useState } from "react";
+import {
+  getAIStatus,
+  runResearchPrompt,
+  saveResearchResultAsNote,
+  type AIStatusPayload,
+  type ResearchResultPayload
+} from "@/lib/client-api";
 
 type AiSidecarProps = {
   prompts: string[];
@@ -10,7 +16,7 @@ type AiSidecarProps = {
 
 function formatStatus(status: string): string {
   const labels: Record<string, string> = {
-    complete: "已完成",
+    complete: "本地规则",
     complete_llm: "LLM 已生成",
     insufficient_evidence: "证据不足",
     offline_fallback: "离线兜底"
@@ -20,12 +26,27 @@ function formatStatus(status: string): string {
 }
 
 export function AiSidecar({ prompts }: AiSidecarProps) {
+  const [aiStatus, setAiStatus] = useState<AIStatusPayload | null>(null);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResultPayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const llmAvailable = aiStatus?.research_llm.available ?? false;
+  const llmConfigured = aiStatus?.research_llm.configured ?? false;
+
+  useEffect(() => {
+    let active = true;
+    getAIStatus().then((payload) => {
+      if (active) {
+        setAiStatus(payload);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handlePromptClick(prompt: string) {
     setActivePrompt(prompt);
@@ -65,7 +86,15 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
           <h2>AI 助手</h2>
           <p>当前页面上下文</p>
         </div>
+        <span className={llmAvailable ? "status-pill success sidecar-status" : "status-pill neutral sidecar-status"}>
+          {aiStatus ? (llmAvailable ? "LLM 可用" : "本地规则") : "检测中"}
+        </span>
       </div>
+      {aiStatus && !llmAvailable ? (
+        <p className="sidecar-status-detail">
+          {llmConfigured ? "LLM 当前不可用，结果会退回本地规则研究。" : "配置 OpenAI 后才会显示 LLM 已生成。"}
+        </p>
+      ) : null}
 
       <div className="prompt-list">
         {prompts.map((prompt) => (
