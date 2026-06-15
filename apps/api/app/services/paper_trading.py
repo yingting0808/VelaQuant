@@ -1138,6 +1138,7 @@ def _trade_explanation_event(
     return TradeExplanationEvent(
         ticker=candidate.ticker,
         strategy_id=strategy_id,
+        candidate_id=candidate.id,
         decision=item.recommendation if item is not None else _candidate_decision(candidate),
         explanation=candidate.thesis,
         evidence=evidence,

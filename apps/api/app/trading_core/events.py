@@ -76,6 +76,7 @@ class TradeExplanationEvent(BaseModel):
 
     ticker: str = Field(min_length=1)
     strategy_id: str = Field(min_length=1)
+    candidate_id: UUID | None = None
     decision: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
     evidence: list[str] = Field(default_factory=list)

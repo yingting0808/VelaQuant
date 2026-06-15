@@ -295,6 +295,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
           trade_explanation: {
             ticker: "NVDA",
             strategy_id: "deterministic_watchlist_v1",
+            candidate_id: "paper-candidate-nvda",
             decision: "candidate",
             explanation: "NVDA promoted by real backtest evidence.",
             evidence: ["positive expectancy", "source=openbb_yfinance", "base_score=0.85", "final_score=1034.97"],
@@ -986,6 +987,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("链路警告 无")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("候选解释")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("candidate · deterministic_watchlist_v1")).toBeVisible();
+  await expect(page.getByRole("region", { name: "事件账本" }).getByText("候选 ID paper-candidate-nvda")).toBeVisible();
   await expect(
     page.getByRole("region", { name: "事件账本" }).getByText("NVDA promoted by real backtest evidence.")
   ).toBeVisible();

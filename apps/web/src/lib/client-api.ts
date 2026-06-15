@@ -1166,6 +1166,7 @@ export type EventLedgerTopicCountPayload = {
 export type EventLedgerTradeExplanationPayload = {
   ticker: string | null;
   strategy_id: string | null;
+  candidate_id: string | null;
   decision: string | null;
   explanation: string | null;
   evidence: string[];
@@ -4861,6 +4862,7 @@ function isEventLedgerTradeExplanation(value: unknown): value is EventLedgerTrad
     isRecord(value) &&
     (typeof value.ticker === "string" || value.ticker === null) &&
     (typeof value.strategy_id === "string" || value.strategy_id === null) &&
+    (typeof value.candidate_id === "string" || value.candidate_id === null) &&
     (typeof value.decision === "string" || value.decision === null) &&
     (typeof value.explanation === "string" || value.explanation === null) &&
     Array.isArray(value.evidence) &&

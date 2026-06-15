@@ -1457,6 +1457,7 @@ export function PaperTradingWorkspace() {
               {tradeExplanation.decision ?? "decision_unknown"} ·{" "}
               {tradeExplanation.strategy_id ?? "strategy_unknown"}
             </p>
+            {tradeExplanation.candidate_id ? <p>候选 ID {tradeExplanation.candidate_id}</p> : null}
             <p>{tradeExplanation.explanation ?? "暂无解释摘要"}</p>
             {candidateRankingScore ? <p>排序分数 {candidateRankingScore}</p> : null}
             <p>证据 {tradeExplanation.evidence.join(" / ") || "无"}</p>

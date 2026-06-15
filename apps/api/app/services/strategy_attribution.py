@@ -279,6 +279,11 @@ def _ticker_diagnostics(
     warnings: list[str],
 ) -> list[TickerSignalAttribution]:
     rows: dict[str, dict[str, float | int | list[float]]] = {}
+    candidate_score_items_by_ticker: dict[str, list[tuple[float, str | None]]] = {}
+    linked_candidate_ids_by_ticker: dict[str, set[str]] = {}
+    for order in orders:
+        if order.candidate_id is not None:
+            linked_candidate_ids_by_ticker.setdefault(order.ticker, set()).add(str(order.candidate_id))
     for event in events:
         if event.topic not in {"market_event", "trade_intent", "trade_explanation"}:
             continue
@@ -299,9 +304,7 @@ def _ticker_diagnostics(
         elif event.topic == "trade_explanation":
             score = _candidate_score(payload)
             if score is not None:
-                candidate_scores = row["candidate_scores"]
-                if isinstance(candidate_scores, list):
-                    candidate_scores.append(score)
+                candidate_score_items_by_ticker.setdefault(ticker, []).append((score, _payload_candidate_id(payload)))
 
     positions_by_ticker = {position.ticker: position for position in positions}
     for order in orders:
@@ -320,7 +323,11 @@ def _ticker_diagnostics(
     for ticker in sorted(rows):
         row = rows[ticker]
         confidences = row["confidences"] if isinstance(row["confidences"], list) else []
-        candidate_scores = row["candidate_scores"] if isinstance(row["candidate_scores"], list) else []
+        candidate_scores = _candidate_scores_for_ticker(
+            ticker,
+            candidate_score_items_by_ticker,
+            linked_candidate_ids_by_ticker,
+        )
         filled_order_count = int(row["filled_order_count"])
         false_positive_count = int(row["false_positive_count"])
         realized = round(float(row["realized_pnl"]), 2)
@@ -373,7 +380,6 @@ def _ticker_row(rows: dict[str, dict[str, float | int | list[float]]], ticker: s
             "realized_pnl": 0.0,
             "unrealized_pnl": 0.0,
             "confidences": [],
-            "candidate_scores": [],
         }
     return rows[ticker]
 
@@ -390,6 +396,29 @@ def _payload_ticker(payload: dict | None) -> str | None:
         if isinstance(nested_ticker, str) and nested_ticker.strip():
             return nested_ticker.strip().upper()
     return None
+
+
+def _payload_candidate_id(payload: dict | None) -> str | None:
+    if payload is None:
+        return None
+    candidate_id = payload.get("candidate_id")
+    if isinstance(candidate_id, str) and candidate_id.strip():
+        return candidate_id.strip()
+    return None
+
+
+def _candidate_scores_for_ticker(
+    ticker: str,
+    score_items_by_ticker: dict[str, list[tuple[float, str | None]]],
+    linked_candidate_ids_by_ticker: dict[str, set[str]],
+) -> list[float]:
+    score_items = score_items_by_ticker.get(ticker, [])
+    linked_candidate_ids = linked_candidate_ids_by_ticker.get(ticker, set())
+    if linked_candidate_ids:
+        matched_scores = [score for score, candidate_id in score_items if candidate_id in linked_candidate_ids]
+        if matched_scores:
+            return matched_scores
+    return [score for score, _candidate_id in score_items]
 
 
 def _candidate_score(payload: dict | None) -> float | None:

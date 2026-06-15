@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -113,10 +114,12 @@ def _filled_sell(
     account: PaperAccount,
     ticker: str = "NVDA",
     realized_pnl: float = -12,
+    candidate_id: UUID | None = None,
 ) -> PaperOrder:
     order = PaperOrder(
         account_id=account.id,
         team_id=account.team_id,
+        candidate_id=candidate_id,
         ticker=ticker,
         side=PaperOrderSide.sell,
         quantity=1,
@@ -346,6 +349,43 @@ def test_strategy_attribution_links_candidate_scores_to_ticker_pnl():
         assert diagnostics["NVDA"].average_candidate_score == 1034.97
         assert diagnostics["NVDA"].latest_candidate_score == 1034.97
         assert diagnostics["NVDA"].observed_pnl == 18
+
+
+def test_strategy_attribution_prefers_order_candidate_score_over_later_same_ticker_candidate():
+    with make_session() as session:
+        account = _account(session)
+        linked_candidate_id = uuid4()
+        later_unfilled_candidate_id = uuid4()
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            1,
+            {
+                "ticker": "NVDA",
+                "candidate_id": str(linked_candidate_id),
+                "evidence": ["final_score=1200.00"],
+            },
+        )
+        _core_event(
+            session,
+            account,
+            "trade_explanation",
+            2,
+            {
+                "ticker": "NVDA",
+                "candidate_id": str(later_unfilled_candidate_id),
+                "evidence": ["final_score=-900.00"],
+            },
+        )
+        _filled_sell(session, account, "NVDA", realized_pnl=18, candidate_id=linked_candidate_id)
+
+        attribution = attribute_current_paper_strategy(session)
+        diagnostics = {item.ticker: item for item in attribution.ticker_diagnostics}
+
+        assert diagnostics["NVDA"].candidate_score_count == 1
+        assert diagnostics["NVDA"].latest_candidate_score == 1200.0
+        assert diagnostics["NVDA"].score_pnl_alignment == "aligned"
 
 
 def test_strategy_attribution_orders_tickers_by_observed_pnl_impact_before_score():

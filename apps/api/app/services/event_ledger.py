@@ -22,6 +22,7 @@ class EventLedgerTradeExplanation(BaseModel):
 
     ticker: str | None = None
     strategy_id: str | None = None
+    candidate_id: str | None = None
     decision: str | None = None
     explanation: str | None = None
     evidence: list[str] = Field(default_factory=list)
@@ -339,6 +340,7 @@ def _chain_trade_explanation(events: list[CoreEventLog]) -> EventLedgerTradeExpl
         return EventLedgerTradeExplanation(
             ticker=_optional_str(payload.get("ticker")),
             strategy_id=_optional_str(payload.get("strategy_id")),
+            candidate_id=_optional_str(payload.get("candidate_id")),
             decision=_optional_str(payload.get("decision")),
             explanation=_optional_str(payload.get("explanation")),
             evidence=[item for item in evidence if isinstance(item, str)] if isinstance(evidence, list) else [],

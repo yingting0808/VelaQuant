@@ -183,6 +183,7 @@ def test_event_ledger_replay_exposes_trade_explanation_for_candidate_review():
             causation_id="intent",
             payload_json=(
                 '{"ticker":"AAPL","strategy_id":"deterministic_watchlist_v1",'
+                '"candidate_id":"candidate-aapl",'
                 '"decision":"candidate","explanation":"AAPL promoted by real backtest evidence.",'
                 '"evidence":["positive expectancy","source=openbb_yfinance"],'
                 '"backtest":{"run_id":"bt-aapl","total_net_profit":"38.60%",'
@@ -198,6 +199,7 @@ def test_event_ledger_replay_exposes_trade_explanation_for_candidate_review():
         assert chain.trade_explanation is not None
         assert chain.trade_explanation.ticker == "AAPL"
         assert chain.trade_explanation.strategy_id == "deterministic_watchlist_v1"
+        assert chain.trade_explanation.candidate_id == "candidate-aapl"
         assert chain.trade_explanation.decision == "candidate"
         assert chain.trade_explanation.explanation == "AAPL promoted by real backtest evidence."
         assert chain.trade_explanation.evidence == ["positive expectancy", "source=openbb_yfinance"]
