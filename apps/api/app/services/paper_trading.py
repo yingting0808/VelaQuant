@@ -38,6 +38,7 @@ from app.services.strategy_control import (
     assert_strategy_execution_allowed,
     get_strategy_execution_binding,
 )
+from app.services.strategy_registry import MOVING_AVERAGE_CROSS_STRATEGY_ID
 from app.services.strategy_candidate_backtest import (
     StrategyCandidateBacktestItem,
     run_strategy_candidate_backtests,
@@ -64,6 +65,9 @@ DEFAULT_EXIT_TAKE_PROFIT_PCT = 0.10
 DEFAULT_EXIT_STOP_LOSS_PCT = -0.05
 MANUAL_OVERRIDE_STRATEGY_SUFFIX = ":manual_override"
 RUNNING_LOCK_STALE_AFTER_MINUTES = 180
+PAPER_RUNTIME_STRATEGY_IDS = (DEFAULT_PAPER_STRATEGY_ID, MOVING_AVERAGE_CROSS_STRATEGY_ID)
+MOVING_AVERAGE_FAST_PERIOD = 20
+MOVING_AVERAGE_SLOW_PERIOD = 50
 
 
 @dataclass(frozen=True)
@@ -696,14 +700,17 @@ def _generate_candidates(
     }
     blocked_tickers = _score_pnl_review_blocked_tickers(session, team_id)
     all_tickers = sorted((portfolio_tickers | watchlist_tickers) - blocked_tickers)
-    assert_strategy_execution_allowed(session, DEFAULT_PAPER_STRATEGY_ID, requested_mode="paper")
-    binding = get_strategy_execution_binding(
-        session,
-        team_id,
-        DEFAULT_PAPER_STRATEGY_ID,
-        notional=min(DEFAULT_CANDIDATE_NOTIONAL, max(account.cash * 0.02, 0)),
-    )
-    strategy_engine = binding.strategy_engine
+    bindings = []
+    for strategy_id in PAPER_RUNTIME_STRATEGY_IDS:
+        assert_strategy_execution_allowed(session, strategy_id, requested_mode="paper")
+        bindings.append(
+            get_strategy_execution_binding(
+                session,
+                team_id,
+                strategy_id,
+                notional=min(DEFAULT_CANDIDATE_NOTIONAL, max(account.cash * 0.02, 0)),
+            )
+        )
     portfolio_state = _paper_portfolio_state(session, account, trading_day=trading_day)
     event_bus = _build_trading_event_bus()
     ranked: list[tuple[float, str, PaperCandidate, CoreEventContext]] = []
@@ -718,78 +725,83 @@ def _generate_candidates(
         evidence_count = len(evidence)
         diversification_bonus = 0.15 if ticker not in portfolio_tickers else 0.0
         base_score = _candidate_score(evidence_count, diversification_bonus)
-        score = base_score
-        event = _market_event_from_evidence(
-            ticker=ticker,
-            quote_price=float(quote.price),
-            evidence_count=evidence_count,
-            diversification_bonus=diversification_bonus,
-        )
-        market_envelope = event_bus.publish(TradingEventTopic.market_event, event)
-        strategy_input_envelope = event_bus.publish(
-            TradingEventTopic.strategy_input,
-            StrategyInputEvent(market_event=event, portfolio=portfolio_state),
-            causation_id=market_envelope.event_id,
-            correlation_id=market_envelope.correlation_id,
-        )
-        strategy_result = strategy_engine.generate_intents(event, portfolio_state)
-        intents = strategy_result.intents
-        if not intents:
-            continue
-        intent = intents[0]
-        trade_intent_envelope = event_bus.publish(
-            TradingEventTopic.trade_intent,
-            intent,
-            causation_id=strategy_input_envelope.event_id,
-            correlation_id=strategy_input_envelope.correlation_id,
-        )
-        proposed_quantity = max(1, int(intent.notional // quote.price))
-        evidence_summary = _evidence_summary(ticker, evidence_count)
-        candidate = PaperCandidate(
-            team_id=team_id,
-            ticker=ticker,
-            action=PaperOrderSide.buy,
-            rank=0,
-            confidence=event.confidence,
-            thesis=f"{intent.reason} {evidence_summary}，按小额名义本金先进入模拟观察。",
-            risk_notes="风险：行情波动、估值压缩、证据过期；模拟结果不能直接代表实盘。",
-            evidence_summary=evidence_summary,
-            proposed_quantity=float(proposed_quantity),
-            created_at=candidate_created_at,
-        )
-        backtest_item = backtest_items.get(ticker)
-        if backtest_item is not None:
-            _apply_backtest_evidence(candidate, backtest_item)
-            score = _candidate_score_with_backtest(score, backtest_item)
-        event_bus.publish(
-            TradingEventTopic.trade_explanation,
-            _trade_explanation_event(
-                candidate,
-                backtest_item,
+        for binding in bindings:
+            event = _market_event_for_strategy(
                 strategy_id=binding.strategy_id,
+                ticker=ticker,
+                quote_price=float(quote.price),
                 evidence_count=evidence_count,
-                quote_source=quote.source,
                 diversification_bonus=diversification_bonus,
-                base_score=base_score,
-                final_score=score,
-            ),
-            causation_id=trade_intent_envelope.event_id,
-            correlation_id=trade_intent_envelope.correlation_id,
-        )
-        ranked.append(
-            (
-                score,
-                ticker,
-                candidate,
-                CoreEventContext(
-                    correlation_id=trade_intent_envelope.correlation_id,
-                    trade_intent_event_id=trade_intent_envelope.event_id,
-                    trade_intent_sequence=trade_intent_envelope.sequence,
-                    intent=intent,
-                    strategy_id=binding.strategy_id,
-                ),
+                provider=provider,
             )
-        )
+            if event is None:
+                continue
+            market_envelope = event_bus.publish(TradingEventTopic.market_event, event)
+            strategy_input_envelope = event_bus.publish(
+                TradingEventTopic.strategy_input,
+                StrategyInputEvent(market_event=event, portfolio=portfolio_state),
+                causation_id=market_envelope.event_id,
+                correlation_id=market_envelope.correlation_id,
+            )
+            strategy_result = binding.strategy_engine.generate_intents(event, portfolio_state)
+            intents = strategy_result.intents
+            if not intents:
+                continue
+            intent = intents[0]
+            trade_intent_envelope = event_bus.publish(
+                TradingEventTopic.trade_intent,
+                intent,
+                causation_id=strategy_input_envelope.event_id,
+                correlation_id=strategy_input_envelope.correlation_id,
+            )
+            proposed_quantity = max(1, int(intent.notional // quote.price))
+            evidence_summary = _evidence_summary(ticker, evidence_count)
+            candidate = PaperCandidate(
+                team_id=team_id,
+                ticker=ticker,
+                action=PaperOrderSide.buy,
+                rank=0,
+                confidence=event.confidence,
+                thesis=f"{intent.reason} {evidence_summary}，按小额名义本金先进入模拟观察。",
+                risk_notes="风险：行情波动、估值压缩、证据过期；模拟结果不能直接代表实盘。",
+                evidence_summary=evidence_summary,
+                proposed_quantity=float(proposed_quantity),
+                created_at=candidate_created_at,
+            )
+            score = base_score
+            backtest_item = backtest_items.get(ticker)
+            if backtest_item is not None:
+                _apply_backtest_evidence(candidate, backtest_item)
+                score = _candidate_score_with_backtest(score, backtest_item)
+            event_bus.publish(
+                TradingEventTopic.trade_explanation,
+                _trade_explanation_event(
+                    candidate,
+                    backtest_item,
+                    strategy_id=binding.strategy_id,
+                    evidence_count=evidence_count,
+                    quote_source=quote.source,
+                    diversification_bonus=diversification_bonus,
+                    base_score=base_score,
+                    final_score=score,
+                ),
+                causation_id=trade_intent_envelope.event_id,
+                correlation_id=trade_intent_envelope.correlation_id,
+            )
+            ranked.append(
+                (
+                    score,
+                    ticker,
+                    candidate,
+                    CoreEventContext(
+                        correlation_id=trade_intent_envelope.correlation_id,
+                        trade_intent_event_id=trade_intent_envelope.event_id,
+                        trade_intent_sequence=trade_intent_envelope.sequence,
+                        intent=intent,
+                        strategy_id=binding.strategy_id,
+                    ),
+                )
+            )
 
     contexts: dict[UUID, CoreEventContext] = {}
     for index, (_score, _ticker, candidate, context) in enumerate(
@@ -1201,6 +1213,73 @@ def _market_event_from_evidence(
             "evidence_count": evidence_count,
             "quote_price": round(quote_price, 6),
             "diversification_bonus": round(diversification_bonus, 4),
+        },
+    )
+
+
+def _market_event_for_strategy(
+    *,
+    strategy_id: str,
+    ticker: str,
+    quote_price: float,
+    evidence_count: int,
+    diversification_bonus: float,
+    provider: MarketDataProvider,
+) -> MarketEvent | None:
+    if strategy_id == MOVING_AVERAGE_CROSS_STRATEGY_ID:
+        return _market_event_from_moving_average_cross(
+            ticker=ticker,
+            quote_price=quote_price,
+            provider=provider,
+        )
+    return _market_event_from_evidence(
+        ticker=ticker,
+        quote_price=quote_price,
+        evidence_count=evidence_count,
+        diversification_bonus=diversification_bonus,
+    )
+
+
+def _market_event_from_moving_average_cross(
+    *,
+    ticker: str,
+    quote_price: float,
+    provider: MarketDataProvider,
+) -> MarketEvent | None:
+    bars = provider.get_price_history(ticker, interval="1d")
+    closes = [
+        float(bar.close)
+        for bar in bars
+        if bar.close is not None and not isinstance(bar.close, bool) and float(bar.close) > 0
+    ]
+    if len(closes) < MOVING_AVERAGE_SLOW_PERIOD:
+        return None
+
+    fast_sma = sum(closes[-MOVING_AVERAGE_FAST_PERIOD:]) / MOVING_AVERAGE_FAST_PERIOD
+    slow_sma = sum(closes[-MOVING_AVERAGE_SLOW_PERIOD:]) / MOVING_AVERAGE_SLOW_PERIOD
+    is_bullish = fast_sma > slow_sma
+    source = next((bar.source for bar in reversed(bars) if bar.source), "unknown")
+    return MarketEvent(
+        source=EventSource.market_data,
+        event_type=MarketEventType.price_move,
+        ticker=ticker,
+        occurred_at=utc_now(),
+        summary=(
+            f"{ticker} 20日均线 {fast_sma:.2f} "
+            f"{'高于' if is_bullish else '未高于'} 50日均线 {slow_sma:.2f}。"
+        ),
+        sentiment=Sentiment.positive if is_bullish else Sentiment.neutral,
+        confidence=0.82 if is_bullish else 0.55,
+        impact_score=0.68 if is_bullish else 0.45,
+        metadata={
+            "strategy_id": MOVING_AVERAGE_CROSS_STRATEGY_ID,
+            "quote_price": round(quote_price, 6),
+            "fast_period": MOVING_AVERAGE_FAST_PERIOD,
+            "slow_period": MOVING_AVERAGE_SLOW_PERIOD,
+            "fast_sma": round(fast_sma, 6),
+            "slow_sma": round(slow_sma, 6),
+            "history_bar_count": len(closes),
+            "price_source": source,
         },
     )
 

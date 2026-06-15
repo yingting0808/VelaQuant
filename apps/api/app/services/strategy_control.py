@@ -1,7 +1,8 @@
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from app.domain.models import StrategyLifecycleState
 from app.services.strategy_lifecycle import get_strategy_lifecycle
 from app.services.strategy_registry import (
     DEFAULT_PAPER_STRATEGY_ID,
@@ -11,6 +12,7 @@ from app.services.strategy_registry import (
     StrategyExecutionBinding,
     StrategyExecutionMode,
     get_registered_strategy_execution_binding,
+    is_registered_execution_strategy,
 )
 
 
@@ -22,7 +24,7 @@ def get_strategy_execution_binding(
     notional: float | None = None,
 ) -> StrategyExecutionBinding:
     normalized = _normalize_strategy_id(strategy_id)
-    if normalized != DEFAULT_PAPER_STRATEGY_ID:
+    if not is_registered_execution_strategy(normalized):
         raise ValueError(f"Strategy is not registered for execution: {normalized}")
     return get_registered_strategy_execution_binding(
         session,
@@ -39,29 +41,42 @@ def assert_strategy_execution_allowed(
     requested_mode: str,
 ) -> None:
     normalized_strategy_id = _normalize_strategy_id(strategy_id)
-    if normalized_strategy_id != DEFAULT_PAPER_STRATEGY_ID:
+    if not is_registered_execution_strategy(normalized_strategy_id):
         raise ValueError(f"Strategy is not registered for execution: {normalized_strategy_id}")
-
-    lifecycle = get_strategy_lifecycle(session)
-    if lifecycle.strategy_id != normalized_strategy_id:
-        raise ValueError(f"Strategy is not registered for lifecycle control: {normalized_strategy_id}")
-
-    if lifecycle.current_stage == "killed":
-        raise ValueError(f"Strategy {normalized_strategy_id} is killed; execution is blocked.")
-
-    if lifecycle.can_kill or lifecycle.recommended_stage == "killed":
-        raise ValueError(f"Lifecycle marks strategy {normalized_strategy_id} for kill review; execution is blocked.")
 
     normalized_mode = _normalize_execution_mode(requested_mode)
     if normalized_mode == StrategyExecutionMode.live:
         raise ValueError("Live broker execution is disabled; no live approval or broker adapter is enabled.")
 
-    allowed_modes = _allowed_modes_for_stage(lifecycle.current_stage)
+    stage = _current_lifecycle_stage(session, normalized_strategy_id)
+    if stage == "killed":
+        raise ValueError(f"Strategy {normalized_strategy_id} is killed; execution is blocked.")
+
+    if _lifecycle_marks_default_strategy_for_kill(session, normalized_strategy_id):
+        raise ValueError(f"Lifecycle marks strategy {normalized_strategy_id} for kill review; execution is blocked.")
+
+    allowed_modes = _allowed_modes_for_stage(stage)
     if normalized_mode not in allowed_modes:
         raise ValueError(
             f"Lifecycle does not allow execution mode {requested_mode} "
-            f"for strategy {normalized_strategy_id} in stage {lifecycle.current_stage}."
+            f"for strategy {normalized_strategy_id} in stage {stage}."
         )
+
+
+def _current_lifecycle_stage(session: Session, strategy_id: str) -> str:
+    if strategy_id == DEFAULT_PAPER_STRATEGY_ID:
+        return get_strategy_lifecycle(session).current_stage
+    state = session.exec(select(StrategyLifecycleState).where(StrategyLifecycleState.strategy_id == strategy_id)).first()
+    return state.current_stage if state is not None else "paper"
+
+
+def _lifecycle_marks_default_strategy_for_kill(session: Session, strategy_id: str) -> bool:
+    if strategy_id != DEFAULT_PAPER_STRATEGY_ID:
+        return False
+    lifecycle = get_strategy_lifecycle(session)
+    if lifecycle.strategy_id != strategy_id:
+        raise ValueError(f"Strategy is not registered for lifecycle control: {strategy_id}")
+    return lifecycle.can_kill or lifecycle.recommended_stage == "killed"
 
 
 def _allowed_modes_for_stage(stage: str) -> set[StrategyExecutionMode]:
@@ -96,4 +111,3 @@ def _normalize_strategy_id(value: str) -> str:
     if not normalized:
         raise ValueError("strategy_id must not be empty")
     return normalized
-

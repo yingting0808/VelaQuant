@@ -130,11 +130,15 @@ def test_strategy_registry_scores_catalog_strategy_from_real_market_backtest_his
     catalog_entry = next(item for item in payload.entries if item.strategy_id == "moving_average_cross")
     assert catalog_entry.backtest_status == "success"
     assert catalog_entry.ranking_score > 0
+    assert catalog_entry.source == "paper_core"
+    assert catalog_entry.execution_mode == "paper"
+    assert catalog_entry.status == "active"
     assert catalog_entry.readiness == "backtest_promising"
-    assert catalog_entry.promotion_gate == "connect_to_paper_runtime"
+    assert catalog_entry.promotion_gate == "collect_paper_runtime_samples"
     assert catalog_entry.primary_regime == "backtest_real_market"
     assert catalog_entry.signal_quality_score == 0.48
-    assert catalog_entry.notes == "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"
+    assert catalog_entry.supports_hot_swap is True
+    assert catalog_entry.notes == "真实市场回测为正；已接入 paper runtime，需收集独立模拟盘样本，不能直接实盘。"
 
 
 def test_strategy_registry_does_not_mark_negative_backtest_as_promising():

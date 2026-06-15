@@ -14,7 +14,7 @@ from app.services.strategy_attribution import StrategyAttributionPayload, attrib
 from app.services.strategy_catalog import StrategyDefinition, load_enabled_strategies
 from app.services.strategy_evaluation import StrategyEvaluationPayload, evaluate_current_paper_strategy
 from app.services.strategy_versions import DEFAULT_STRATEGY_VERSION, get_active_strategy_version
-from app.trading_core.strategy import DeterministicWatchlistStrategy
+from app.trading_core.strategy import DeterministicWatchlistStrategy, MovingAverageCrossStrategy
 from app.trading_core.strategy_engine import StrategyEngine
 
 
@@ -22,6 +22,8 @@ DEFAULT_PAPER_STRATEGY_ID = "deterministic_watchlist_v1"
 DEFAULT_PAPER_STRATEGY_NAME = "Deterministic Watchlist Strategy"
 DEFAULT_PAPER_STRATEGY_VERSION = "v1"
 DEFAULT_PAPER_STRATEGY_NOTIONAL = 2000.0
+MOVING_AVERAGE_CROSS_STRATEGY_ID = "moving_average_cross"
+MOVING_AVERAGE_CROSS_STRATEGY_NAME = "MovingAverageCross"
 STRATEGY_REGISTRY_MISSING_CAPABILITIES = [
 ]
 
@@ -100,9 +102,24 @@ def get_registered_strategy_execution_binding(
     notional: float | None = None,
 ) -> StrategyExecutionBinding:
     normalized = _normalize_strategy_id(strategy_id)
-    if normalized != DEFAULT_PAPER_STRATEGY_ID:
-        raise ValueError(f"Strategy is not registered for execution: {normalized}")
+    if normalized == DEFAULT_PAPER_STRATEGY_ID:
+        return _deterministic_watchlist_binding(session, team_id, notional=notional)
+    if normalized == MOVING_AVERAGE_CROSS_STRATEGY_ID:
+        return _moving_average_cross_binding(session, team_id, notional=notional)
+    raise ValueError(f"Strategy is not registered for execution: {normalized}")
 
+
+def is_registered_execution_strategy(strategy_id: str) -> bool:
+    normalized = _normalize_strategy_id(strategy_id)
+    return normalized in {DEFAULT_PAPER_STRATEGY_ID, MOVING_AVERAGE_CROSS_STRATEGY_ID}
+
+
+def _deterministic_watchlist_binding(
+    session: Session,
+    team_id: UUID,
+    *,
+    notional: float | None,
+) -> StrategyExecutionBinding:
     watchlist = _execution_universe(session, team_id)
     active_version = get_active_strategy_version(session, DEFAULT_PAPER_STRATEGY_ID)
     version_parameters = _strategy_version_parameters(active_version.parameters_json)
@@ -117,6 +134,31 @@ def get_registered_strategy_execution_binding(
         version=active_version.version or DEFAULT_STRATEGY_VERSION,
         execution_mode=StrategyExecutionMode.paper,
         strategy_engine=StrategyEngine(strategy_id=DEFAULT_PAPER_STRATEGY_ID, strategy=strategy),
+        supports_live=False,
+        supports_hot_swap=True,
+    )
+
+
+def _moving_average_cross_binding(
+    session: Session,
+    team_id: UUID,
+    *,
+    notional: float | None,
+) -> StrategyExecutionBinding:
+    universe = _execution_universe(session, team_id)
+    active_version = get_active_strategy_version(session, MOVING_AVERAGE_CROSS_STRATEGY_ID)
+    version_parameters = _strategy_version_parameters(active_version.parameters_json)
+    version_notional = _active_strategy_notional(version_parameters)
+    effective_notional = notional if notional is not None else version_notional
+    if effective_notional < 0:
+        raise ValueError("Strategy execution notional override must not be negative")
+    strategy = MovingAverageCrossStrategy(universe=universe, notional=effective_notional)
+    return StrategyExecutionBinding(
+        strategy_id=MOVING_AVERAGE_CROSS_STRATEGY_ID,
+        name=MOVING_AVERAGE_CROSS_STRATEGY_NAME,
+        version=active_version.version or DEFAULT_STRATEGY_VERSION,
+        execution_mode=StrategyExecutionMode.paper,
+        strategy_engine=StrategyEngine(strategy_id=MOVING_AVERAGE_CROSS_STRATEGY_ID, strategy=strategy),
         supports_live=False,
         supports_hot_swap=True,
     )
@@ -188,17 +230,24 @@ def _catalog_entry(
     ranking_score = _catalog_ranking_score(backtest)
     has_real_backtest = backtest is not None and backtest.status == "success" and backtest.uses_real_market_data
     has_success_backtest = backtest is not None and backtest.status == "success"
+    is_connected_runtime_strategy = strategy.id == MOVING_AVERAGE_CROSS_STRATEGY_ID and ranking_score > 0 and has_real_backtest
     return StrategyRegistryEntry(
         strategy_id=strategy.id,
         name=strategy.name,
         version="catalog",
-        source="lean_catalog",
-        execution_mode="backtest",
-        status="available",
+        source="paper_core" if is_connected_runtime_strategy else "lean_catalog",
+        execution_mode="paper" if is_connected_runtime_strategy else "backtest",
+        status="active" if is_connected_runtime_strategy else "available",
         rank=0,
         ranking_score=ranking_score,
         readiness="backtest_promising" if ranking_score > 0 and has_real_backtest else "backtest_only",
-        promotion_gate="connect_to_paper_runtime" if ranking_score > 0 and has_real_backtest else "not_connected_to_paper_runtime",
+        promotion_gate=(
+            "collect_paper_runtime_samples"
+            if is_connected_runtime_strategy
+            else "connect_to_paper_runtime"
+            if ranking_score > 0 and has_real_backtest
+            else "not_connected_to_paper_runtime"
+        ),
         sample_size=0,
         filled_order_count=0,
         observed_pnl=0,
@@ -206,9 +255,11 @@ def _catalog_entry(
         signal_quality_score=_backtest_win_rate(backtest),
         backtest_status=backtest.status if backtest is not None else None,
         supports_live=False,
-        supports_hot_swap=False,
+        supports_hot_swap=is_connected_runtime_strategy,
         notes=(
-            "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"
+            "真实市场回测为正；已接入 paper runtime，需收集独立模拟盘样本，不能直接实盘。"
+            if is_connected_runtime_strategy
+            else "真实市场回测为正；下一步只能接入 paper runtime 继续验证，不能直接进入执行。"
             if ranking_score > 0 and has_real_backtest
             else "LEAN 目录策略可回测，但尚未接入 paper runtime 和生命周期控制。"
         ),

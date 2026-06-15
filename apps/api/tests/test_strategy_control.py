@@ -33,8 +33,37 @@ def test_registered_paper_strategy_loads_execution_binding():
         assert binding.execution_mode == StrategyExecutionMode.paper
         assert binding.strategy_engine.strategy_id == "deterministic_watchlist_v1"
         assert not hasattr(binding, "strategy")
+    assert binding.supports_live is False
+    assert binding.supports_hot_swap is True
+
+
+def test_moving_average_cross_loads_paper_runtime_binding():
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+
+        binding = get_strategy_execution_binding(session, workspace.team.id, "moving_average_cross", notional=900)
+        result = binding.strategy_engine.generate_intents(
+            MarketEvent(
+                source=EventSource.market_data,
+                event_type=MarketEventType.price_move,
+                ticker="AAPL",
+                occurred_at=datetime.now(timezone.utc),
+                summary="AAPL fast average is above slow average.",
+                sentiment=Sentiment.positive,
+                confidence=0.88,
+                impact_score=0.72,
+                metadata={"fast_sma": 192.4, "slow_sma": 181.2},
+            ),
+            PortfolioState(cash=100000, equity=100000),
+        )
+
+        assert isinstance(binding, StrategyExecutionBinding)
+        assert binding.strategy_id == "moving_average_cross"
+        assert binding.execution_mode == StrategyExecutionMode.paper
+        assert binding.strategy_engine.strategy_id == "moving_average_cross"
         assert binding.supports_live is False
         assert binding.supports_hot_swap is True
+        assert result.intents[0].notional == 900
 
 
 def test_execution_binding_uses_active_strategy_version_parameters():
@@ -167,6 +196,12 @@ def test_lifecycle_rejects_live_execution_when_strategy_is_in_paper_stage():
     with make_session() as session:
         with pytest.raises(ValueError, match="Live broker execution is disabled"):
             assert_strategy_execution_allowed(session, "deterministic_watchlist_v1", requested_mode="live")
+
+
+def test_moving_average_cross_rejects_live_execution():
+    with make_session() as session:
+        with pytest.raises(ValueError, match="Live broker execution is disabled"):
+            assert_strategy_execution_allowed(session, "moving_average_cross", requested_mode="live")
 
 
 def test_live_broker_execution_is_disabled_even_if_lifecycle_stage_is_live():

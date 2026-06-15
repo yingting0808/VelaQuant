@@ -79,3 +79,54 @@ class DeterministicWatchlistStrategy:
                 source_event_id=event.event_id,
             )
         ]
+
+
+class MovingAverageCrossStrategy:
+    def __init__(
+        self,
+        universe: list[str],
+        notional: float,
+        min_confidence: float = 0.6,
+        min_impact_score: float = 0.5,
+    ) -> None:
+        self.universe = {ticker.strip().upper() for ticker in universe if ticker.strip()}
+        self.notional = notional
+        self.min_confidence = min_confidence
+        self.min_impact_score = min_impact_score
+
+    def generate_intents(self, event: MarketEvent, portfolio: PortfolioState) -> list[TradeIntent]:
+        if event.ticker not in self.universe:
+            return []
+        if event.confidence < self.min_confidence or event.impact_score < self.min_impact_score:
+            return []
+        if portfolio.cash <= 0:
+            return []
+
+        fast_sma = _float_metadata(event, "fast_sma")
+        slow_sma = _float_metadata(event, "slow_sma")
+        if fast_sma is None or slow_sma is None or fast_sma <= slow_sma:
+            return []
+
+        notional = min(self.notional, portfolio.cash)
+        return [
+            TradeIntent(
+                intent_id=uuid5(NAMESPACE_URL, f"{event.event_id}:{event.ticker}:ma_cross:{notional:.2f}"),
+                ticker=event.ticker,
+                side=TradeIntentSide.buy,
+                notional=notional,
+                reason=(
+                    f"{event.ticker} moving-average cross event: "
+                    f"fast_sma={fast_sma:.2f} > slow_sma={slow_sma:.2f}; {event.summary}"
+                ),
+                source_event_id=event.event_id,
+            )
+        ]
+
+
+def _float_metadata(event: MarketEvent, key: str) -> float | None:
+    value = event.metadata.get(key)
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None

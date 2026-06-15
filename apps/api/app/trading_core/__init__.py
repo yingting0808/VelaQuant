@@ -19,7 +19,7 @@ from app.trading_core.execution import (
 )
 from app.trading_core.portfolio import PortfolioPosition, PortfolioState
 from app.trading_core.risk import RiskDecision, RiskDecisionStatus, RiskEngine, RiskLimits
-from app.trading_core.strategy import DeterministicWatchlistStrategy, TradeIntent, TradeIntentSide
+from app.trading_core.strategy import DeterministicWatchlistStrategy, MovingAverageCrossStrategy, TradeIntent, TradeIntentSide
 from app.trading_core.strategy_engine import StrategyEngine, StrategyEngineResult
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "MarketEvent",
     "MarketEventType",
     "MockExecutionAdapter",
+    "MovingAverageCrossStrategy",
     "OrderState",
     "OrderStateEvent",
     "PortfolioPosition",

@@ -34,7 +34,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 340px;
+  grid-template-columns: 232px minmax(0, 1fr) auto;
   min-height: 100vh;
 }
 
@@ -306,6 +306,7 @@ tbody tr:last-child td {
   border-left: 1px solid #263246;
   color: #ffffff;
   padding: 18px 16px;
+  width: 340px;
 }
 
 .sidecar-header {
@@ -335,6 +336,53 @@ tbody tr:last-child td {
 .sidecar-status {
   margin-left: auto;
   white-space: nowrap;
+}
+
+.sidecar-toggle,
+.sidecar-rail-button {
+  align-items: center;
+  background: #1d2738;
+  border: 1px solid #344256;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.sidecar-toggle {
+  border-radius: 7px;
+  flex: 0 0 auto;
+  height: 34px;
+  width: 34px;
+}
+
+.sidecar-toggle:hover,
+.sidecar-rail-button:hover {
+  background: #263246;
+}
+
+.ai-sidecar.collapsed {
+  align-items: flex-start;
+  display: flex;
+  justify-content: center;
+  padding: 14px 8px;
+  width: 58px;
+}
+
+.sidecar-rail-button {
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-height: 112px;
+  padding: 10px 6px;
+  width: 40px;
+}
+
+.sidecar-rail-button span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
 }
 
 .sidecar-status-detail {
@@ -516,6 +564,20 @@ tbody tr:last-child td {
     border-left: 0;
     border-top: 1px solid #263246;
     grid-column: 1 / -1;
+    width: auto;
+  }
+
+  .ai-sidecar.collapsed {
+    justify-content: flex-end;
+    padding: 10px 14px;
+    width: auto;
+  }
+
+  .sidecar-rail-button {
+    align-items: center;
+    display: inline-flex;
+    min-height: 38px;
+    width: auto;
   }
 }
 

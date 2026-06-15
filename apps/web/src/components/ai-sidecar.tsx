@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, ChevronRight, Save, Sparkles } from "lucide-react";
+import { Bot, ChevronRight, PanelRightClose, PanelRightOpen, Save, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   getAIStatus,
@@ -13,6 +13,8 @@ import {
 type AiSidecarProps = {
   prompts: string[];
 };
+
+const COLLAPSED_STORAGE_KEY = "velaquant.aiSidecarCollapsed";
 
 function formatStatus(status: string): string {
   const labels: Record<string, string> = {
@@ -29,6 +31,7 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
   const [aiStatus, setAiStatus] = useState<AIStatusPayload | null>(null);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResultPayload | null>(null);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
@@ -47,6 +50,21 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const stored = globalThis.localStorage?.getItem(COLLAPSED_STORAGE_KEY);
+    if (stored === "true") {
+      setIsCollapsed(true);
+    }
+  }, []);
+
+  function handleToggleCollapsed() {
+    setIsCollapsed((current) => {
+      const next = !current;
+      globalThis.localStorage?.setItem(COLLAPSED_STORAGE_KEY, String(next));
+      return next;
+    });
+  }
 
   async function handlePromptClick(prompt: string) {
     setActivePrompt(prompt);
@@ -76,6 +94,25 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
     setIsSaving(false);
   }
 
+  if (isCollapsed) {
+    return (
+      <aside className="ai-sidecar collapsed" aria-label="AI 助手">
+        <button
+          aria-expanded="false"
+          aria-label="展开 AI 助手"
+          className="sidecar-rail-button"
+          onClick={handleToggleCollapsed}
+          title="展开 AI 助手"
+          type="button"
+        >
+          <Bot size={18} aria-hidden="true" />
+          <span>AI</span>
+          <PanelRightOpen size={16} aria-hidden="true" />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="ai-sidecar" aria-label="AI 助手">
       <div className="sidecar-header">
@@ -89,6 +126,16 @@ export function AiSidecar({ prompts }: AiSidecarProps) {
         <span className={llmAvailable ? "status-pill success sidecar-status" : "status-pill neutral sidecar-status"}>
           {aiStatus ? (llmAvailable ? "LLM 可用" : "本地规则") : "检测中"}
         </span>
+        <button
+          aria-expanded="true"
+          aria-label="收起 AI 助手"
+          className="sidecar-toggle"
+          onClick={handleToggleCollapsed}
+          title="收起 AI 助手"
+          type="button"
+        >
+          <PanelRightClose size={16} aria-hidden="true" />
+        </button>
       </div>
       {aiStatus && !llmAvailable ? (
         <p className="sidecar-status-detail">

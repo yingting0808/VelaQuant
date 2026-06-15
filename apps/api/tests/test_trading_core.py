@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.trading_core as trading_core
+import app.trading_core.strategy as trading_strategy
 from app.services.strategy_registry import StrategyExecutionBinding, StrategyExecutionMode
 from app.trading_core.engine import TradingEngine
 from app.trading_core.event_bus import InMemoryEventBus, RedisStreamEventBus, TradingEventTopic
@@ -12,7 +13,11 @@ from app.trading_core.execution import ExecutionEngine, ExecutionReport, Executi
 from app.trading_core.portfolio import PortfolioPosition, PortfolioState
 from app.trading_core.risk import RiskDecisionStatus, RiskEngine, RiskLimits
 from app.trading_core.strategy_engine import StrategyEngine
-from app.trading_core.strategy import DeterministicWatchlistStrategy, TradeIntent, TradeIntentSide
+from app.trading_core.strategy import (
+    DeterministicWatchlistStrategy,
+    TradeIntent,
+    TradeIntentSide,
+)
 
 
 def _strategy_binding(notional: float = 1500) -> StrategyExecutionBinding:
@@ -142,6 +147,45 @@ def test_strategy_converts_structured_event_to_trade_intent_deterministically():
     assert first[0].ticker == "NVDA"
     assert first[0].side == TradeIntentSide.buy
     assert first[0].notional == 1500
+
+
+def test_moving_average_cross_strategy_uses_precomputed_sma_metadata():
+    strategy_cls = getattr(trading_strategy, "MovingAverageCrossStrategy", None)
+    assert strategy_cls is not None
+    strategy = strategy_cls(universe=["AAPL"], notional=1800)
+    portfolio = PortfolioState(cash=100000, equity=100000)
+    event = _event().model_copy(
+        update={
+            "ticker": "AAPL",
+            "event_type": MarketEventType.price_move,
+            "summary": "AAPL fast average crossed above slow average.",
+            "metadata": {"fast_sma": 192.4, "slow_sma": 181.2},
+        }
+    )
+
+    intents = strategy.generate_intents(event, portfolio)
+
+    assert len(intents) == 1
+    assert intents[0].ticker == "AAPL"
+    assert intents[0].side == TradeIntentSide.buy
+    assert intents[0].notional == 1800
+    assert "fast_sma=192.40" in intents[0].reason
+    assert "slow_sma=181.20" in intents[0].reason
+
+
+def test_moving_average_cross_strategy_waits_without_bullish_sma_metadata():
+    strategy_cls = getattr(trading_strategy, "MovingAverageCrossStrategy", None)
+    assert strategy_cls is not None
+    strategy = strategy_cls(universe=["AAPL"], notional=1800)
+    portfolio = PortfolioState(cash=100000, equity=100000)
+    event = _event().model_copy(
+        update={
+            "ticker": "AAPL",
+            "metadata": {"fast_sma": 175.0, "slow_sma": 181.2},
+        }
+    )
+
+    assert strategy.generate_intents(event, portfolio) == []
 
 
 def test_strategy_engine_generates_intents_for_registered_strategy_id():

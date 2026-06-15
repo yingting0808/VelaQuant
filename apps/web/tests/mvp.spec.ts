@@ -1896,13 +1896,79 @@ test("AI sidecar shows local workflow when LLM is not configured", async ({ page
 
   await gotoDashboard(page);
 
-  const sidecar = page.getByLabel("AI 助手");
+  const sidecar = page.getByRole("complementary", { name: "AI 助手" });
   await expect(sidecar.getByText("本地规则")).toBeVisible();
   await expect(sidecar.getByText("配置 OpenAI 后才会显示 LLM 已生成。")).toBeVisible();
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(sidecar.getByText("AAPL: 本地规则研究结果。")).toBeVisible();
   await expect(sidecar.locator(".sidecar-status")).toHaveText("本地规则");
+});
+
+test("AI sidecar collapses, expands, and keeps research actions usable", async ({ page }) => {
+  let researchCallCount = 0;
+  await page.route("**/api/mvp/ai/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        langgraph: {
+          available: true,
+          mode: "research_workflow",
+          message: "LangGraph is used for research workflow orchestration only."
+        },
+        research_llm: {
+          provider: "openai_responses_or_chat_completions",
+          mode: "research_only",
+          configured: false,
+          available: false,
+          model: "gpt-5.5",
+          base_url: "https://api.openai.com/v1",
+          message: "OpenAI-compatible research LLM is not configured."
+        },
+        execution_path: {
+          ai_generates_trade_intent: false,
+          ai_influences_risk: false,
+          ai_calls_execution: false
+        }
+      }
+    });
+  });
+  await page.route("**/api/mvp/research", async (route) => {
+    researchCallCount += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        ticker: "AAPL",
+        status: "complete",
+        summary: "AAPL: 收起展开后仍可用的研究结果。",
+        bull_case: "服务收入韧性支持多头观点。",
+        bear_case: "估值压缩仍是主要风险。",
+        watch_items: ["复核 filing 趋势"],
+        evidence_count: 2,
+        trade_plan_draft: {
+          entry_condition: "人工复核确认。",
+          invalidation_condition: "证据失效。",
+          risk_notes: ["这不是可直接执行的订单建议。"],
+          requires_human_review: true
+        }
+      }
+    });
+  });
+
+  await page.goto("/paper-trading");
+  const sidecar = page.getByRole("complementary", { name: "AI 助手" });
+  await expect(sidecar.getByRole("button", { name: "识别组合风险" })).toBeVisible();
+
+  await page.getByRole("button", { name: "收起 AI 助手" }).click();
+  await expect(sidecar).toHaveClass(/collapsed/);
+  await expect(sidecar.getByRole("button", { name: "识别组合风险" })).not.toBeVisible();
+
+  await page.getByRole("button", { name: "展开 AI 助手" }).click();
+  await expect(sidecar).not.toHaveClass(/collapsed/);
+  await sidecar.getByRole("button", { name: "识别组合风险" }).click();
+
+  await expect(sidecar.getByText("AAPL: 收起展开后仍可用的研究结果。")).toBeVisible();
+  expect(researchCallCount).toBe(1);
 });
 
 test("AI prompts wait for slower LLM research responses", async ({ page }) => {
@@ -1932,7 +1998,7 @@ test("AI prompts wait for slower LLM research responses", async ({ page }) => {
   await page.getByRole("button", { name: "识别组合风险" }).click();
 
   await expect(page.getByText("AAPL: 延迟返回的 LLM 研究结果。")).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText("LLM 已生成")).toBeVisible();
+  await expect(page.getByText("LLM 已生成", { exact: true })).toBeVisible();
 });
 
 test("AI research result can be saved as a note", async ({ page }) => {

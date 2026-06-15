@@ -1,6 +1,6 @@
 import json
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.data.providers.base import (
@@ -280,6 +280,65 @@ def test_daily_run_creates_account_candidates_and_review():
         assert competition_snapshots[0].trading_day == summary.latest_review.trading_day
         assert competition_snapshots[0].strategy_count >= 1
         assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
+
+
+def test_daily_run_routes_moving_average_cross_through_paper_runtime():
+    class TrendHistoryProvider(FixtureProvider):
+        def get_price_history(
+            self,
+            ticker: str,
+            start_date: str | None = None,
+            end_date: str | None = None,
+            interval: str = "1d",
+        ) -> list[PriceHistoryBar]:
+            normalized = ticker.strip().upper()
+            if normalized != "AAPL":
+                return []
+            closes = [100.0 for _ in range(40)] + [120.0 + day for day in range(20)]
+            return [
+                PriceHistoryBar(
+                    ticker=normalized,
+                    date=(datetime(2026, 1, 1) + timedelta(days=index)).date().isoformat(),
+                    open=close - 1,
+                    high=close + 1,
+                    low=close - 2,
+                    close=close,
+                    volume=1_000_000,
+                    source="fixture_history",
+                )
+                for index, close in enumerate(closes)
+            ]
+
+    with make_session() as session:
+        workspace = get_or_create_default_workspace(session)
+        session.add(
+            PaperRiskSetting(
+                team_id=workspace.team.id,
+                max_daily_orders=5,
+                source="multi_strategy_runtime_test",
+            )
+        )
+        session.commit()
+
+        summary = run_daily_paper_trading_loop(session, TrendHistoryProvider())
+        moving_average_order = next(
+            (order for order in summary.orders if order.strategy_id == "moving_average_cross"),
+            None,
+        )
+        market_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "market_event")).all()
+        trade_intent_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_intent")).all()
+
+        assert moving_average_order is not None
+        assert moving_average_order.risk_status == "approved"
+        assert any(
+            json.loads(event.payload_json).get("intent_id") == moving_average_order.core_intent_id
+            for event in trade_intent_events
+        )
+        assert any(
+            (metadata := json.loads(event.payload_json).get("metadata", {})).get("strategy_id") == "moving_average_cross"
+            and metadata.get("fast_sma") > metadata.get("slow_sma")
+            for event in market_events
+        )
 
 
 def test_daily_run_uses_active_paper_risk_order_capacity_for_candidate_collection():
