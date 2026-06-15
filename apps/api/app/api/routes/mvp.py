@@ -765,13 +765,18 @@ def strategy_lab_strategies() -> dict:
 
 
 @router.post("/strategy-lab/backtests")
-def strategy_lab_run_backtest(body: BacktestBody, session: Session = Depends(get_session)) -> dict:
+def strategy_lab_run_backtest(
+    body: BacktestBody,
+    session: Session = Depends(get_session),
+    provider: MarketDataProvider = Depends(get_market_data_provider),
+) -> dict:
     try:
         effective_settings = get_effective_settings(session, get_settings())
         result = run_lean_backtest(
             body.strategy_id,
             parameter_overrides=body.parameters,
             timeout_seconds=effective_settings.lean_backtest_timeout_seconds,
+            market_data_provider=provider,
         )
     except UnknownStrategyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

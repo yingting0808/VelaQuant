@@ -39,10 +39,12 @@ services:
       AI_STOCKS_OPENAI_BASE_URL: ${AI_STOCKS_OPENAI_BASE_URL:-https://api.openai.com/v1}
       AI_STOCKS_OPENAI_RESEARCH_MODEL: ${AI_STOCKS_OPENAI_RESEARCH_MODEL:-gpt-5.5}
       AI_STOCKS_OPENAI_TIMEOUT_SECONDS: ${AI_STOCKS_OPENAI_TIMEOUT_SECONDS:-20}
+      AI_STOCKS_DOCKER_HOST_REPO_PATH: /run/desktop/mnt/host/d/Documents/AI美股
     ports:
       - "8000:8000"
     volumes:
       - .:/workspace
+      - .:/run/desktop/mnt/host/d/Documents/AI美股
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - postgres

@@ -1,9 +1,11 @@
 import json
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 
 from app.data.providers.base import PriceHistoryBar
+from app.services import lean_backtest
 from app.services.lean_backtest import (
     BacktestResult,
     read_backtest_history,
@@ -310,6 +312,43 @@ def test_run_lean_backtest_success_parses_statistics_and_saves_latest(tmp_path: 
     assert read_backtest_history(runtime_root=runtime_root)[0].run_id == result.run_id
 
 
+def test_run_lean_backtest_uses_docker_host_visible_runtime_root(monkeypatch, tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    api_root = repo_root / "apps" / "api"
+    catalog = write_catalog(api_root)
+    runtime_root = api_root / ".runtime" / "strategy-lab"
+    docker_host_repo = tmp_path / "docker-host-repo"
+    docker_host_api_root = docker_host_repo / "apps" / "api"
+
+    monkeypatch.setenv("AI_STOCKS_DOCKER_HOST_REPO_PATH", str(docker_host_repo))
+    monkeypatch.setattr(lean_backtest, "API_ROOT", api_root)
+
+    captured: dict[str, str | None] = {}
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        captured["cwd"] = str(cwd)
+        captured["output"] = command[4]
+        captured["lean_config"] = command[-1]
+        captured["tmpdir"] = os.environ.get("TMPDIR")
+        write_result_json(Path(command[4]))
+        return CompletedProcess(command, 0, stdout="TRACE:: host path backtest", stderr="")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=runtime_root,
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.status == "success"
+    assert Path(str(captured["cwd"])).is_relative_to(docker_host_api_root)
+    assert Path(str(captured["output"])).is_relative_to(docker_host_api_root)
+    assert Path(str(captured["output"])).is_relative_to(Path(str(captured["cwd"])))
+    assert Path(str(captured["lean_config"])).is_relative_to(docker_host_api_root)
+    assert Path(str(captured["tmpdir"])).is_relative_to(docker_host_api_root)
+
+
 def test_run_lean_backtest_timeout_keeps_partial_output_logs(tmp_path: Path):
     catalog = write_catalog(tmp_path)
 
@@ -367,6 +406,79 @@ def test_run_lean_backtest_writes_overrides_to_runtime_config_without_mutating_s
     assert result.status == "success"
     assert result.parameters["symbol"] == "MSFT"
     assert json.loads(source_config.read_text(encoding="utf-8"))["parameters"]["symbol"] == "AAPL"
+
+
+def test_run_lean_backtest_seeds_openbb_custom_data_for_lean(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        seeded = cwd / "Data" / "custom" / "openbb" / "aapl.csv"
+        assert seeded.exists()
+        lines = seeded.read_text(encoding="utf-8").splitlines()
+        assert lines[0] == "date,open,high,low,close,volume"
+        assert lines[1].startswith("2020-01-01,100.000000,101.000000,99.000000,100.000000,1000000")
+        write_result_json(Path(command[4]))
+        return CompletedProcess(command, 0, stdout="TRACE:: seeded OpenBB data", stderr="")
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+        market_data_provider=RealHistoryProvider(),
+    )
+
+    assert result.status == "success"
+    assert result.engine == "lean"
+    assert result.data_source == "openbb_yfinance"
+    assert result.data_quality == "real_market_data"
+    assert result.uses_real_market_data is True
+
+
+def test_run_lean_backtest_fills_missing_statistics_from_lean_logs(tmp_path: Path):
+    catalog = write_catalog(tmp_path)
+
+    def runner(command: list[str], cwd: Path, timeout: float) -> CompletedProcess[str]:
+        output_dir = Path(command[4])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "statistics": {
+                        "Compounding Annual Return": "71.078%",
+                        "Sharpe Ratio": "2.114",
+                        "Drawdown": "20.300%",
+                        "Win Rate": "100%",
+                    },
+                    "charts": {},
+                    "orders": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "STATISTICS:: Total Orders 3",
+                    "STATISTICS:: Net Profit 71.330%",
+                ]
+            ),
+            stderr="",
+        )
+
+    result = run_lean_backtest(
+        "moving_average_cross",
+        catalog_path=catalog,
+        runtime_root=tmp_path / "runtime",
+        command_runner=runner,
+        status_provider=ready_status,
+    )
+
+    assert result.statistics.total_net_profit == "71.330%"
+    assert result.statistics.total_trades == "3"
 
 
 def test_run_lean_backtest_rejects_invalid_ticker_parameter(tmp_path: Path):

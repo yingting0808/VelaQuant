@@ -1,6 +1,30 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from AlgorithmImports import *
+
+
+class OpenBBDailyBar(PythonData):
+    def GetSource(self, config, date, isLiveMode):
+        symbol = config.Symbol.Value.lower()
+        path = f"{Globals.DataFolder}/custom/openbb/{symbol}.csv"
+        return SubscriptionDataSource(path, SubscriptionTransportMedium.LocalFile, FileFormat.Csv)
+
+    def Reader(self, config, line, date, isLiveMode):
+        if not line or line.startswith("date"):
+            return None
+
+        fields = line.split(",")
+        bar = OpenBBDailyBar()
+        bar.Symbol = config.Symbol
+        bar.Time = datetime.strptime(fields[0], "%Y-%m-%d")
+        bar.EndTime = bar.Time + timedelta(days=1)
+        bar.Value = float(fields[4])
+        bar["open"] = float(fields[1])
+        bar["high"] = float(fields[2])
+        bar["low"] = float(fields[3])
+        bar["close"] = float(fields[4])
+        bar["volume"] = float(fields[5])
+        return bar
 
 
 class MovingAverageCrossAlgorithm(QCAlgorithm):
@@ -16,13 +40,17 @@ class MovingAverageCrossAlgorithm(QCAlgorithm):
         self.SetEndDate(end_date.year, end_date.month, end_date.day)
         self.SetCash(cash)
 
-        self.symbol = self.AddEquity(symbol_value, Resolution.Daily).Symbol
+        self.symbol = self.AddData(OpenBBDailyBar, symbol_value, Resolution.Daily).Symbol
+        self.SetBenchmark(self.symbol)
         self.fast = self.SMA(self.symbol, fast_period, Resolution.Daily)
         self.slow = self.SMA(self.symbol, slow_period, Resolution.Daily)
         self.previous_fast_above_slow = None
         self.SetWarmUp(slow_period, Resolution.Daily)
 
     def OnData(self, data):
+        if not data.ContainsKey(self.symbol):
+            return
+
         if self.IsWarmingUp or not self.fast.IsReady or not self.slow.IsReady:
             return
 

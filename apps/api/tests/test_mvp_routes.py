@@ -241,6 +241,7 @@ def test_mvp_runtime_settings_drive_data_provider_and_backtest_timeout(monkeypat
         strategy_id: str,
         parameter_overrides: dict[str, str] | None = None,
         timeout_seconds: float = 0,
+        market_data_provider: object | None = None,
     ) -> BacktestResult:
         observed["timeout_seconds"] = timeout_seconds
         return BacktestResult(
@@ -1751,6 +1752,7 @@ def test_mvp_strategy_lab_backtest_route_returns_structured_result(monkeypatch):
         strategy_id: str,
         parameter_overrides: dict[str, str] | None = None,
         timeout_seconds: float = 0,
+        market_data_provider: object | None = None,
     ) -> BacktestResult:
         assert strategy_id == "moving_average_cross"
         assert parameter_overrides == {"symbol": "MSFT", "fast_period": "10", "slow_period": "30"}
@@ -1832,6 +1834,7 @@ def test_mvp_strategy_lab_backtest_route_rejects_unknown_strategy(monkeypatch):
         strategy_id: str,
         parameter_overrides: dict[str, str] | None = None,
         timeout_seconds: float = 0,
+        market_data_provider: object | None = None,
     ) -> BacktestResult:
         raise strategy_catalog.UnknownStrategyError("Unknown strategy_id: missing")
 
@@ -1851,6 +1854,7 @@ def test_mvp_strategy_lab_backtest_route_rejects_invalid_parameters(monkeypatch)
         strategy_id: str,
         parameter_overrides: dict[str, str] | None = None,
         timeout_seconds: float = 0,
+        market_data_provider: object | None = None,
     ) -> BacktestResult:
         raise mvp.BacktestParameterValidationError("Invalid ticker parameter symbol: BAD TICKER")
 

@@ -218,9 +218,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with Mock, SEC EDGAR, and OpenBB available in the current Docker runtime.
 - `GET /api/mvp/ai/status` returns LangGraph research workflow availability and OpenAI-compatible research-LLM status. In the current Docker runtime, the runtime database has an API key configured, `model=mimo-v2.5-pro`, `base_url=https://token-plan-cn.xiaomimimo.com/v1`, and `timeout=60s`; `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
 - `GET/PUT /api/mvp/runtime-settings` backs the Web Settings page, where runtime operators can adjust data mode, SEC EDGAR User-Agent, LEAN backtest timeout, OpenAI Research LLM model/base URL/timeout, and save or clear an OpenAI API key. Stored API keys are used by the backend but are never returned in API responses; scheduler startup and Redis wiring still come from environment variables.
-- `GET /api/mvp/strategy-lab/status` now distinguishes LEAN CLI availability from the cached QuantConnect LEAN engine image. Real LEAN backtests require `quantconnect/lean:latest` to be cached locally; vectorbt fallback remains research-only and is not Alpha evidence.
-- `POST /api/mvp/strategy-lab/backtests` is runtime-verified to use OpenBB/yfinance real historical bars through the vectorbt research fallback when the LEAN engine image is unavailable. Latest verified run `20260615T020048443423Z-moving_average_cross` returned `data_source=openbb_yfinance`, `data_quality=real_market_data`, and `uses_real_market_data=true`.
-- The latest real LEAN attempt entered the LEAN path but timed out while pulling `quantconnect/lean:latest`; no real LEAN backtest result is counted as Alpha evidence until the engine image is cached and a run completes.
+- `GET /api/mvp/strategy-lab/status` now reports Docker CLI, Docker Compose, Docker engine, LEAN CLI, cached `quantconnect/lean:latest`, and vectorbt readiness. The current Docker runtime has the QuantConnect LEAN engine image cached locally.
+- `POST /api/mvp/strategy-lab/backtests` is runtime-verified on the LEAN engine with OpenBB/yfinance real historical bars injected as LEAN `PythonData` custom data. Latest verified LEAN run `20260615T051211211740Z-moving_average_cross` returned `data_source=openbb_yfinance`, `data_quality=real_market_data`, `uses_real_market_data=true`, `total_net_profit=71.330%`, `sharpe_ratio=2.114`, `drawdown=20.300%`, and `total_trades=3`.
+- `deterministic_watchlist_v1` still uses vectorbt for active-strategy historical replay; latest verified vectorbt/OpenBB run `20260615T050310967734Z-deterministic_watchlist_v1` returned `data_quality=real_market_data`, `total_net_profit=38.60%`, `sharpe_ratio=1.45`, `drawdown=17.91%`, and `total_trades=8`. vectorbt remains research/backtest only and does not replace the runtime Trading Core.
 - `POST /api/mvp/research` is runtime-verified to return `status=complete_llm` through the OpenAI-compatible Chat Completions fallback when the configured provider does not expose `/responses`; without a key or after provider failure, the same endpoint returns deterministic LangGraph research output and preserves `requires_human_review=true`.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
 - `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
@@ -269,9 +269,9 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，并显示 Mock、SEC EDGAR、OpenBB 均可用。
 - `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI-compatible 投研 LLM 状态。当前 Docker 运行态已在 runtime database 配置 API key，`model=mimo-v2.5-pro`，`base_url=https://token-plan-cn.xiaomimimo.com/v1`，`timeout=60s`；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
 - `GET/PUT /api/mvp/runtime-settings` 支撑 Web 设置页，运行人员可在运行态调整数据模式、SEC EDGAR User-Agent、LEAN 回测超时、OpenAI Research LLM 模型/Base URL/超时，并保存或清除 OpenAI API key。已保存的 API key 只供后端使用，不会在 API 响应中回显；Scheduler 启动和 Redis 连接仍从环境变量读取。
-- `GET /api/mvp/strategy-lab/status` 现在会区分 LEAN CLI 是否可用与 QuantConnect LEAN 引擎镜像是否已缓存。真实 LEAN 回测要求本地已缓存 `quantconnect/lean:latest`；vectorbt fallback 仍只作为研究 fallback，不作为 Alpha 证据。
-- `POST /api/mvp/strategy-lab/backtests` 已在运行态验证：当 LEAN 引擎镜像不可用时，vectorbt research fallback 可以通过 OpenBB/yfinance 使用真实历史 K 线。最新验证 run `20260615T020048443423Z-moving_average_cross` 返回 `data_source=openbb_yfinance`、`data_quality=real_market_data`、`uses_real_market_data=true`。
-- 最新真实 LEAN 尝试已经进入 LEAN 路径，但在拉取 `quantconnect/lean:latest` 时超时；只有等引擎镜像缓存完成并跑出成功结果后，真实 LEAN 回测才会进入 Alpha 证据。
+- `GET /api/mvp/strategy-lab/status` 现在会展示 Docker CLI、Docker Compose、Docker engine、LEAN CLI、本地缓存的 `quantconnect/lean:latest` 和 vectorbt 就绪状态。当前 Docker 运行态已缓存 QuantConnect LEAN 引擎镜像。
+- `POST /api/mvp/strategy-lab/backtests` 已在 LEAN 引擎运行态验证：系统会把 OpenBB/yfinance 真实历史 K 线注入为 LEAN `PythonData` custom data。最新验证 LEAN run `20260615T051211211740Z-moving_average_cross` 返回 `data_source=openbb_yfinance`、`data_quality=real_market_data`、`uses_real_market_data=true`、`total_net_profit=71.330%`、`sharpe_ratio=2.114`、`drawdown=20.300%`、`total_trades=3`。
+- `deterministic_watchlist_v1` 仍使用 vectorbt 做 active strategy 历史 replay；最新验证 vectorbt/OpenBB run `20260615T050310967734Z-deterministic_watchlist_v1` 返回 `data_quality=real_market_data`、`total_net_profit=38.60%`、`sharpe_ratio=1.45`、`drawdown=17.91%`、`total_trades=8`。vectorbt 仍只属于研究/回测层，不替代运行时 Trading Core。
 - `POST /api/mvp/research` 已在运行态验证：当配置的供应商不暴露 `/responses` 时，可通过 OpenAI-compatible Chat Completions fallback 返回 `status=complete_llm`；未配置 key 或供应商失败时，同一接口会回退到确定性的 LangGraph 投研输出，并保持 `requires_human_review=true`。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
 - `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
@@ -540,6 +540,10 @@ Start the full stack:
 ```powershell
 docker compose up --build
 ```
+
+Current Windows workstation note: Docker Desktop WSL data was moved from `%LOCALAPPDATA%\Docker\wsl` to `D:\Docker\DockerDesktopWSL\wsl`; the original path is a junction to the D: drive location so Docker Desktop can keep using its normal path.
+
+当前 Windows 工作站备注：Docker Desktop WSL 数据已从 `%LOCALAPPDATA%\Docker\wsl` 迁移到 `D:\Docker\DockerDesktopWSL\wsl`；原路径保留为指向 D 盘位置的 junction，因此 Docker Desktop 仍可按默认路径运行。
 
 Check API health:
 

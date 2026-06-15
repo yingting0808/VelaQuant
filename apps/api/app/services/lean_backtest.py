@@ -1,7 +1,9 @@
 import json
+import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -16,6 +18,7 @@ from app.services.strategy_lab import StrategyLabStatus, get_strategy_lab_status
 
 API_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNTIME_ROOT = API_ROOT / ".runtime" / "strategy-lab"
+DOCKER_HOST_REPO_PATH_ENV = "AI_STOCKS_DOCKER_HOST_REPO_PATH"
 
 BacktestState = Literal["success", "unavailable", "failed", "timeout", "malformed_result"]
 BacktestEngine = Literal["lean", "vectorbt"]
@@ -106,6 +109,20 @@ def default_command_runner(command: list[str], cwd: Path, timeout: float) -> Com
     )
 
 
+@contextmanager
+def _temporary_process_env(updates: dict[str, str]):
+    previous = {key: os.environ.get(key) for key in updates}
+    os.environ.update(updates)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
@@ -143,6 +160,30 @@ def _runtime_workspace_directory(runtime_root: Path, run_id: str) -> Path:
     return runtime_root / "workspaces" / run_id
 
 
+def _lean_workspace_output_directory(workspace_dir: Path, run_id: str) -> Path:
+    return workspace_dir / "backtests" / run_id
+
+
+def _repo_root() -> Path:
+    return API_ROOT.parents[1]
+
+
+def _docker_host_visible_path(path: Path) -> Path:
+    docker_host_repo = os.environ.get(DOCKER_HOST_REPO_PATH_ENV, "").strip()
+    if not docker_host_repo:
+        return path
+
+    try:
+        relative_path = path.resolve().relative_to(_repo_root().resolve())
+    except ValueError:
+        return path
+    return Path(docker_host_repo).expanduser() / relative_path
+
+
+def _lean_tmp_directory(runtime_root: Path) -> Path:
+    return runtime_root / "tmp"
+
+
 def _latest_path(runtime_root: Path) -> Path:
     return runtime_root / "latest-backtest.json"
 
@@ -155,7 +196,11 @@ def _safe_output_path(output_dir: Path) -> str:
     try:
         return output_dir.relative_to(API_ROOT).as_posix()
     except ValueError:
-        return output_dir.name
+        host_api_root = _docker_host_visible_path(API_ROOT)
+        try:
+            return output_dir.relative_to(host_api_root).as_posix()
+        except ValueError:
+            return output_dir.name
 
 
 def _empty_result(
@@ -282,6 +327,51 @@ def _prepare_runtime_workspace(
     return workspace_dir
 
 
+def _seed_openbb_custom_data(
+    *,
+    strategy: StrategyDefinition,
+    workspace_dir: Path,
+    parameters: BacktestParameters,
+    market_data_provider: object | None,
+) -> str | None:
+    if strategy.id != "moving_average_cross" or market_data_provider is None:
+        return None
+
+    get_price_history = getattr(market_data_provider, "get_price_history", None)
+    if not callable(get_price_history):
+        return None
+
+    symbol = parameters["symbol"].upper()
+    bars = get_price_history(
+        symbol,
+        start_date=parameters["start_date"],
+        end_date=parameters["end_date"],
+        interval="1d",
+    )
+    if not bars:
+        return None
+
+    output_dir = workspace_dir / "Data" / "custom" / "openbb"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{symbol.lower()}.csv"
+    lines = ["date,open,high,low,close,volume"]
+    for bar in sorted(bars, key=lambda item: str(getattr(item, "date", ""))):
+        lines.append(
+            ",".join(
+                [
+                    str(getattr(bar, "date")),
+                    f"{float(getattr(bar, 'open')):.6f}",
+                    f"{float(getattr(bar, 'high')):.6f}",
+                    f"{float(getattr(bar, 'low')):.6f}",
+                    f"{float(getattr(bar, 'close')):.6f}",
+                    str(int(float(getattr(bar, "volume")))),
+                ]
+            )
+        )
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(getattr(bars[0], "source", None) or "openbb")
+
+
 def _write_lean_workspace_config(config_path: Path, data_dir: Path) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     if config_path.exists():
@@ -327,7 +417,8 @@ def run_lean_backtest(
     parameters = _normalize_backtest_parameters(strategy, parameter_overrides)
     started_at = _utc_now()
     run_id = _run_id(strategy.id, started_at)
-    output_dir = _runtime_output_directory(runtime_root, run_id)
+    effective_runtime_root = _docker_host_visible_path(runtime_root)
+    output_dir = _runtime_output_directory(effective_runtime_root, run_id)
 
     readiness = status_provider()
     if strategy.id == "deterministic_watchlist_v1":
@@ -338,7 +429,7 @@ def run_lean_backtest(
             parameters=parameters,
             output_dir=output_dir,
             readiness=readiness,
-            runtime_root=runtime_root,
+            runtime_root=effective_runtime_root,
             market_data_provider=market_data_provider,
         )
         return result
@@ -352,7 +443,7 @@ def run_lean_backtest(
                 parameters=parameters,
                 output_dir=output_dir,
                 readiness=readiness,
-                runtime_root=runtime_root,
+                runtime_root=effective_runtime_root,
                 market_data_provider=market_data_provider,
             )
 
@@ -367,7 +458,7 @@ def run_lean_backtest(
             logs=[tool.message for tool in readiness.tools if not tool.available],
             output_dir=output_dir,
         )
-        _save_result(result, runtime_root)
+        _save_result(result, effective_runtime_root)
         return result
 
     try:
@@ -375,7 +466,13 @@ def run_lean_backtest(
             strategy=strategy,
             run_id=run_id,
             parameters=parameters,
-            runtime_root=runtime_root,
+            runtime_root=effective_runtime_root,
+        )
+        seeded_data_source = _seed_openbb_custom_data(
+            strategy=strategy,
+            workspace_dir=workspace_dir,
+            parameters=parameters,
+            market_data_provider=market_data_provider,
         )
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
         message = str(error) or error.__class__.__name__
@@ -390,10 +487,11 @@ def run_lean_backtest(
             logs=[message],
             output_dir=output_dir,
         )
-        _save_result(result, runtime_root)
+        _save_result(result, effective_runtime_root)
         return result
 
     lean_config = workspace_dir / "lean.json"
+    output_dir = _lean_workspace_output_directory(workspace_dir, run_id)
     command = [
         "lean",
         "backtest",
@@ -404,7 +502,10 @@ def run_lean_backtest(
         str(lean_config),
     ]
     try:
-        completed = command_runner(command, workspace_dir, timeout_seconds)
+        tmp_dir = _lean_tmp_directory(effective_runtime_root)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        with _temporary_process_env({"TMPDIR": str(tmp_dir), "TMP": str(tmp_dir), "TEMP": str(tmp_dir)}):
+            completed = command_runner(command, workspace_dir, timeout_seconds)
     except TimeoutExpired as error:
         result = _empty_result(
             run_id=run_id,
@@ -417,7 +518,7 @@ def run_lean_backtest(
             logs=_tail_lines(getattr(error, "stdout", None) or getattr(error, "output", None), getattr(error, "stderr", None)),
             output_dir=output_dir,
         )
-        _save_result(result, runtime_root)
+        _save_result(result, effective_runtime_root)
         return result
     except OSError as error:
         message = str(error) or error.__class__.__name__
@@ -432,7 +533,7 @@ def run_lean_backtest(
             logs=[message],
             output_dir=output_dir,
         )
-        _save_result(result, runtime_root)
+        _save_result(result, effective_runtime_root)
         return result
 
     logs = _tail_lines(completed.stdout, completed.stderr)
@@ -445,7 +546,7 @@ def run_lean_backtest(
                 parameters=parameters,
                 output_dir=output_dir,
                 readiness=readiness,
-                runtime_root=runtime_root,
+                runtime_root=effective_runtime_root,
                 market_data_provider=market_data_provider,
                 extra_logs=[
                     f"LEAN backtest returned exit code {completed.returncode}; vectorbt fallback executed.",
@@ -463,11 +564,16 @@ def run_lean_backtest(
             logs=logs,
             output_dir=output_dir,
         )
-        _save_result(result, runtime_root)
+        _save_result(result, effective_runtime_root)
         return result
 
     parsed = _parse_backtest_output(strategy, run_id, started_at, output_dir, logs, parameters)
-    _save_result(parsed, runtime_root)
+    if parsed.status == "success" and seeded_data_source is not None:
+        parsed.data_source = seeded_data_source
+        parsed.data_quality = "real_market_data"
+        parsed.uses_real_market_data = True
+        parsed.logs.append(f"Seeded LEAN custom data from {seeded_data_source}.")
+    _save_result(parsed, effective_runtime_root)
     return parsed
 
 
@@ -554,7 +660,7 @@ def _parse_backtest_output(
             output_dir=output_dir,
         )
 
-    statistics = _extract_statistics(payload)
+    statistics = _extract_statistics(payload, logs)
     equity = _extract_equity(payload)
     completed_at = _utc_now()
     started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
@@ -588,19 +694,48 @@ def _find_result_json(output_dir: Path) -> Path | None:
     return None
 
 
-def _extract_statistics(payload: dict) -> BacktestStatistics:
+def _extract_statistics(payload: dict, logs: list[str] | None = None) -> BacktestStatistics:
     raw = payload.get("statistics") or payload.get("Statistics") or {}
     if not isinstance(raw, dict):
         raw = {}
     orders = payload.get("orders") or payload.get("Orders") or {}
+    log_stats = _extract_log_statistics(logs or [])
     return BacktestStatistics(
-        total_net_profit=_stat(raw, "Total Net Profit"),
-        compounding_annual_return=_stat(raw, "Compounding Annual Return"),
-        sharpe_ratio=_stat(raw, "Sharpe Ratio"),
-        drawdown=_stat(raw, "Drawdown"),
-        win_rate=_stat(raw, "Win Rate"),
-        total_trades=_stat(raw, "Total Trades") or _order_count(orders),
+        total_net_profit=_stat(raw, "Total Net Profit") or log_stats.get("Total Net Profit") or log_stats.get("Net Profit"),
+        compounding_annual_return=_stat(raw, "Compounding Annual Return")
+        or log_stats.get("Compounding Annual Return"),
+        sharpe_ratio=_stat(raw, "Sharpe Ratio") or log_stats.get("Sharpe Ratio"),
+        drawdown=_stat(raw, "Drawdown") or log_stats.get("Drawdown"),
+        win_rate=_stat(raw, "Win Rate") or log_stats.get("Win Rate"),
+        total_trades=_stat(raw, "Total Trades")
+        or log_stats.get("Total Trades")
+        or log_stats.get("Total Orders")
+        or _order_count(orders),
     )
+
+
+def _extract_log_statistics(logs: list[str]) -> dict[str, str]:
+    names = (
+        "Total Net Profit",
+        "Net Profit",
+        "Compounding Annual Return",
+        "Sharpe Ratio",
+        "Drawdown",
+        "Win Rate",
+        "Total Trades",
+        "Total Orders",
+    )
+    statistics: dict[str, str] = {}
+    for line in logs:
+        if "STATISTICS::" not in line:
+            continue
+        payload = line.split("STATISTICS::", 1)[1].strip()
+        for name in names:
+            prefix = f"{name} "
+            if payload.startswith(prefix):
+                statistics[name] = payload[len(prefix) :].strip()
+                break
+    return statistics
 
 
 def _stat(raw: dict, name: str) -> str | None:
