@@ -218,6 +218,7 @@ class PaperOrder(SQLModel, table=True):
     account_id: UUID = Field(foreign_key="paperaccount.id", index=True)
     team_id: UUID = Field(foreign_key="team.id", index=True)
     strategy_id: str = Field(default="deterministic_watchlist_v1", index=True)
+    candidate_id: Optional[UUID] = Field(default=None, foreign_key="papercandidate.id", index=True)
     ticker: str = Field(index=True)
     side: PaperOrderSide = Field(index=True)
     order_type: str = "market"

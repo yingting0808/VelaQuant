@@ -739,6 +739,8 @@ export type PaperCandidatePayload = {
 
 export type PaperOrderPayload = {
   id: string;
+  strategy_id: string;
+  candidate_id: string | null;
   ticker: string;
   side: string;
   order_type: string;
@@ -1213,6 +1215,7 @@ export type PaperOrderInputPayload = {
   quantity: number;
   order_type: "market";
   strategy_id: string;
+  candidate_id?: string | null;
 };
 
 function getPublicApiBaseUrl(): string {
@@ -4409,6 +4412,7 @@ function isPaperCandidatePayload(value: unknown): value is PaperCandidatePayload
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
+    typeof value.strategy_id === "string" &&
     typeof value.ticker === "string" &&
     typeof value.action === "string" &&
     typeof value.rank === "number" &&
@@ -4426,6 +4430,8 @@ function isPaperOrderPayload(value: unknown): value is PaperOrderPayload {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
+    typeof value.strategy_id === "string" &&
+    (typeof value.candidate_id === "string" || value.candidate_id === null) &&
     typeof value.ticker === "string" &&
     typeof value.side === "string" &&
     typeof value.order_type === "string" &&

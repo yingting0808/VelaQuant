@@ -252,6 +252,9 @@ def test_daily_run_creates_account_candidates_and_review():
         assert summary.candidates[0].proposed_quantity > 0
         assert "证据" in summary.candidates[0].thesis
         assert summary.orders
+        ordered_candidate = next(candidate for candidate in summary.candidates if candidate.status == "ordered")
+        ordered_order = next(order for order in summary.orders if order.ticker == ordered_candidate.ticker)
+        assert ordered_order.candidate_id == ordered_candidate.id
         assert summary.orders[0].risk_status == "approved"
         assert [item["state"] for item in summary.orders[0].state_history] == [
             "new",

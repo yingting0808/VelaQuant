@@ -112,6 +112,7 @@ class PaperOrderCreate(BaseModel):
     quantity: float = Field(gt=0)
     order_type: Literal["market"] = "market"
     strategy_id: str = Field(default=DEFAULT_PAPER_STRATEGY_ID, min_length=1)
+    candidate_id: UUID | None = None
     reason: str | None = None
 
     @field_validator("ticker")
@@ -134,6 +135,7 @@ class PaperOrderCreate(BaseModel):
 class PaperOrderPayload(BaseModel):
     id: UUID
     strategy_id: str = DEFAULT_PAPER_STRATEGY_ID
+    candidate_id: UUID | None = None
     ticker: str
     side: str
     order_type: str
@@ -429,6 +431,7 @@ def submit_paper_order(
         account_id=account.id,
         team_id=workspace.team.id,
         strategy_id=order_strategy_id,
+        candidate_id=data.candidate_id,
         ticker=data.ticker,
         side=side,
         order_type=data.order_type,
@@ -849,6 +852,7 @@ def _auto_submit_candidate_orders(
                 side=candidate.action.value,
                 quantity=candidate.proposed_quantity,
                 strategy_id=context.strategy_id if context is not None else candidate.strategy_id,
+                candidate_id=candidate.id,
             ),
             run_id=run_id,
             core_context=context,
@@ -1346,6 +1350,7 @@ def _new_paper_order(
         account_id=account.id,
         team_id=team_id,
         strategy_id=strategy_id or data.strategy_id,
+        candidate_id=data.candidate_id,
         ticker=data.ticker,
         side=side,
         order_type=data.order_type,
@@ -1394,6 +1399,7 @@ def _persist_manual_strategy_events(
             "registered_strategy_id": data.strategy_id,
             "order_strategy_id": order_strategy_id,
             "order_origin": order_origin,
+            "candidate_id": str(data.candidate_id) if data.candidate_id is not None else None,
             "quantity": data.quantity,
             "order_type": data.order_type,
             "reason": data.reason,
@@ -1720,6 +1726,7 @@ def _order_payload(order: PaperOrder) -> PaperOrderPayload:
     return PaperOrderPayload(
         id=order.id,
         strategy_id=order.strategy_id,
+        candidate_id=order.candidate_id,
         ticker=order.ticker,
         side=order.side.value,
         order_type=order.order_type,

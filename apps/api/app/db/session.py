@@ -106,8 +106,10 @@ def _ensure_paper_order_core_columns() -> None:
         return
 
     existing = {column["name"] for column in inspector.get_columns("paperorder")}
+    candidate_id_column_type = "UUID" if engine.dialect.name == "postgresql" else "CHAR(32)"
     columns = {
         "strategy_id": "VARCHAR DEFAULT 'deterministic_watchlist_v1'",
+        "candidate_id": candidate_id_column_type,
         "core_order_id": "VARCHAR",
         "core_intent_id": "VARCHAR",
         "risk_status": "VARCHAR",

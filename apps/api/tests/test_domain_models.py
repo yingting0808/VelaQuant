@@ -155,6 +155,66 @@ def test_create_db_and_tables_adds_strategy_id_to_existing_paper_candidate_table
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_create_db_and_tables_adds_candidate_id_to_existing_paper_order_table(tmp_path):
+    database_path = tmp_path / "legacy_order.db"
+    script = textwrap.dedent(
+        f"""
+        import sqlite3
+
+        connection = sqlite3.connect({str(database_path)!r})
+        connection.execute(
+            "CREATE TABLE paperorder ("
+            "id CHAR(32) PRIMARY KEY, "
+            "account_id CHAR(32), "
+            "team_id CHAR(32), "
+            "strategy_id VARCHAR, "
+            "ticker VARCHAR, "
+            "side VARCHAR, "
+            "order_type VARCHAR, "
+            "quantity FLOAT, "
+            "status VARCHAR, "
+            "fill_price FLOAT, "
+            "realized_pnl FLOAT, "
+            "rejection_reason VARCHAR, "
+            "core_order_id VARCHAR, "
+            "core_intent_id VARCHAR, "
+            "risk_status VARCHAR, "
+            "risk_code VARCHAR, "
+            "risk_reason VARCHAR, "
+            "state_history_json TEXT, "
+            "submitted_at TIMESTAMP, "
+            "filled_at TIMESTAMP)"
+        )
+        connection.commit()
+        connection.close()
+
+        from app.db.session import create_db_and_tables
+
+        create_db_and_tables()
+
+        connection = sqlite3.connect({str(database_path)!r})
+        columns = {{row[1] for row in connection.execute("PRAGMA table_info(paperorder)")}}
+        if "candidate_id" not in columns:
+            raise SystemExit(f"candidate_id missing from paperorder columns: {{sorted(columns)}}")
+        """
+    )
+    env = {
+        **os.environ,
+        "AI_STOCKS_DATABASE_URL": f"sqlite:///{database_path}",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        cwd=os.getcwd(),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
 def test_paper_run_and_core_event_log_can_be_persisted():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

@@ -346,6 +346,7 @@ export function PaperTradingWorkspace() {
     setMessage(`正在模拟买入 ${candidate.ticker}。`);
     try {
       const order = await submitPaperOrder({
+        candidate_id: candidate.id,
         order_type: "market",
         quantity: candidate.proposed_quantity,
         side: "buy",
