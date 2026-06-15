@@ -4,6 +4,12 @@
 >
 > **30 秒结论：VelaQuant 有自己的 Trading Core。** 运行时订单链路由 VelaQuant 自研实现于 `apps/api/app/trading_core/`；LEAN/vectorbt、OpenBB、LangGraph 和 AI 模型只是外围的研究、数据、回测和解释工具，不替代 Trading Core。
 
+## Operations Guide / 系统操作说明
+
+- 中文系统操作手册：[`docs/SYSTEM_OPERATIONS_GUIDE.md`](docs/SYSTEM_OPERATIONS_GUIDE.md)
+- Covers system structure, page-by-page operations, Trading Core runtime logic, paper-trading flow, AI assistant capabilities, and glossary.
+- 覆盖系统结构、各页面操作、Trading Core 运行逻辑、模拟盘流程、AI 助手能力和专业术语解释。
+
 ## GitHub Quick Proof / GitHub 首屏证据
 
 **VelaQuant has its own event-driven Trading Core. It is not a LEAN, OpenBB, LangGraph, vectorbt, or frontend wrapper.**
@@ -196,7 +202,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
 - `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with Mock, SEC EDGAR, and OpenBB available in the current Docker runtime.
-- `GET /api/mvp/ai/status` returns LangGraph research workflow availability and OpenAI-compatible research-LLM status. In the current Docker runtime checked on 2026-06-15, no runtime or environment API key is configured (`configured=false`, `available=false`), so the research assistant uses deterministic LangGraph research output until a key is saved in Settings or provided through the environment; `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
+- `GET /api/mvp/ai/status` returns LangGraph research workflow availability and OpenAI-compatible research-LLM status. In the current Docker runtime checked on 2026-06-15, the research LLM is configured and available (`configured=true`, `available=true`, model `mimo-v2.5-pro`); `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
 - `GET/PUT /api/mvp/runtime-settings` backs the Web Settings page, where runtime operators can adjust data mode, SEC EDGAR User-Agent, LEAN backtest timeout, OpenAI Research LLM model/base URL/timeout, and save or clear an OpenAI API key. Stored API keys are used by the backend but are never returned in API responses; scheduler startup and Redis wiring still come from environment variables.
 - `GET /api/mvp/strategy-lab/status` now reports Docker CLI, Docker Compose, Docker engine, LEAN CLI, cached `quantconnect/lean:latest`, and vectorbt readiness. The current Docker runtime has the QuantConnect LEAN engine image cached locally.
 - `POST /api/mvp/strategy-lab/backtests` is runtime-verified on the LEAN engine with OpenBB/yfinance real historical bars injected as LEAN `PythonData` custom data. Latest verified LEAN run `20260615T051211211740Z-moving_average_cross` returned `data_source=openbb_yfinance`, `data_quality=real_market_data`, `uses_real_market_data=true`, `total_net_profit=71.330%`, `sharpe_ratio=2.114`, `drawdown=20.300%`, and `total_trades=3`.
@@ -257,7 +263,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 
 - API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
 - `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，并显示 Mock、SEC EDGAR、OpenBB 均可用。
-- `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI-compatible 投研 LLM 状态。2026-06-15 当前 Docker 运行态未配置 runtime 或环境变量 API key（`configured=false`、`available=false`），因此投研助手会使用确定性的 LangGraph 投研输出，直到在设置页保存 key 或通过环境变量提供 key；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
+- `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI-compatible 投研 LLM 状态。2026-06-15 当前 Docker 运行态 Research LLM 已配置且可用（`configured=true`、`available=true`，模型 `mimo-v2.5-pro`）；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
 - `GET/PUT /api/mvp/runtime-settings` 支撑 Web 设置页，运行人员可在运行态调整数据模式、SEC EDGAR User-Agent、LEAN 回测超时、OpenAI Research LLM 模型/Base URL/超时，并保存或清除 OpenAI API key。已保存的 API key 只供后端使用，不会在 API 响应中回显；Scheduler 启动和 Redis 连接仍从环境变量读取。
 - `GET /api/mvp/strategy-lab/status` 现在会展示 Docker CLI、Docker Compose、Docker engine、LEAN CLI、本地缓存的 `quantconnect/lean:latest` 和 vectorbt 就绪状态。当前 Docker 运行态已缓存 QuantConnect LEAN 引擎镜像。
 - `POST /api/mvp/strategy-lab/backtests` 已在 LEAN 引擎运行态验证：系统会把 OpenBB/yfinance 真实历史 K 线注入为 LEAN `PythonData` custom data。最新验证 LEAN run `20260615T051211211740Z-moving_average_cross` 返回 `data_source=openbb_yfinance`、`data_quality=real_market_data`、`uses_real_market_data=true`、`total_net_profit=71.330%`、`sharpe_ratio=2.114`、`drawdown=20.300%`、`total_trades=3`。
