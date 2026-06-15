@@ -47,26 +47,6 @@ apps/api/app/services/strategy_runtime.py
 apps/api/app/services/paper_trading.py
 ```
 
-If you are judging this repository from GitHub at a glance, the intended About description is:
-
-如果你只从 GitHub 首屏判断，本仓库推荐使用的 About 描述是：
-
-```text
-VelaQuant: event-driven US equities trading infrastructure with its own Trading Core.
-```
-
-Recommended GitHub topics are lowercase:
-
-推荐 GitHub topics 全部用小写：
-
-```text
-trading-core
-event-driven
-paper-trading
-quant-research
-us-equities
-```
-
 Runtime proof path:
 
 运行态证据路径：
