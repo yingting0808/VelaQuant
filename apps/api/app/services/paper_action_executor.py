@@ -9,7 +9,7 @@ from app.data.providers.base import MarketDataProvider
 from app.data.providers.registry import build_market_data_provider
 from app.db.session import engine
 from app.domain.models import CoreEventLog, utc_now
-from app.services.alpha_validation_snapshot import record_alpha_validation_snapshot
+from app.services.alpha_validation_snapshot import record_registered_alpha_validation_snapshots
 from app.services.paper_action_plan import get_paper_action_plan
 from app.services.paper_operations import (
     quarantine_legacy_manual_future_runs,
@@ -56,7 +56,8 @@ def execute_paper_primary_action(
     elif action == "quarantine_legacy_manual_future_runs":
         result = quarantine_legacy_manual_future_runs(session).model_dump(mode="json")
     elif action == "continue_paper_validation":
-        result = record_alpha_validation_snapshot(session).model_dump(mode="json")
+        snapshots = record_registered_alpha_validation_snapshots(session)
+        result = {"snapshots": [snapshot.model_dump(mode="json") for snapshot in snapshots]}
     elif action == "hold_until_next_session":
         executed = False
         status = "waiting"

@@ -24,6 +24,7 @@ DEFAULT_PAPER_STRATEGY_VERSION = "v1"
 DEFAULT_PAPER_STRATEGY_NOTIONAL = 2000.0
 MOVING_AVERAGE_CROSS_STRATEGY_ID = "moving_average_cross"
 MOVING_AVERAGE_CROSS_STRATEGY_NAME = "MovingAverageCross"
+REGISTERED_PAPER_RUNTIME_STRATEGY_IDS = (DEFAULT_PAPER_STRATEGY_ID, MOVING_AVERAGE_CROSS_STRATEGY_ID)
 STRATEGY_REGISTRY_MISSING_CAPABILITIES = [
 ]
 
@@ -111,7 +112,7 @@ def get_registered_strategy_execution_binding(
 
 def is_registered_execution_strategy(strategy_id: str) -> bool:
     normalized = _normalize_strategy_id(strategy_id)
-    return normalized in {DEFAULT_PAPER_STRATEGY_ID, MOVING_AVERAGE_CROSS_STRATEGY_ID}
+    return normalized in set(REGISTERED_PAPER_RUNTIME_STRATEGY_IDS)
 
 
 def _deterministic_watchlist_binding(

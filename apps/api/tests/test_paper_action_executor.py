@@ -86,10 +86,13 @@ def test_execute_primary_action_continue_validation_records_alpha_snapshot(monke
         assert result.status == "completed"
         assert result.action_code == "continue_paper_validation"
         assert result.result is not None
-        assert result.result["team_id"] == str(team.id)
-        assert result.result["strategy_id"] == "deterministic_watchlist_v1"
-        assert len(snapshots) == 1
-        assert snapshots[0].team_id == team.id
+        result_snapshots = result.result["snapshots"]
+        result_strategy_ids = {snapshot["strategy_id"] for snapshot in result_snapshots}
+        stored_strategy_ids = {snapshot.strategy_id for snapshot in snapshots}
+        assert {"deterministic_watchlist_v1", "moving_average_cross"} <= result_strategy_ids
+        assert {"deterministic_watchlist_v1", "moving_average_cross"} <= stored_strategy_ids
+        assert {snapshot["team_id"] for snapshot in result_snapshots} == {str(team.id)}
+        assert {snapshot.team_id for snapshot in snapshots} == {team.id}
 
 
 def test_execute_primary_action_hold_until_next_session_returns_waiting_scheduler_status(monkeypatch):

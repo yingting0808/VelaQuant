@@ -30,7 +30,7 @@ from app.domain.models import (
 )
 from app.services.market_calendar import current_market_trading_day
 from app.services.paper_risk_settings import get_paper_risk_limits
-from app.services.alpha_validation_snapshot import record_alpha_validation_snapshot
+from app.services.alpha_validation_snapshot import record_registered_alpha_validation_snapshots
 from app.services.strategy_competition import record_strategy_competition_snapshot
 from app.services.workspace import get_or_create_default_workspace
 from app.services.strategy_control import (
@@ -38,7 +38,7 @@ from app.services.strategy_control import (
     assert_strategy_execution_allowed,
     get_strategy_execution_binding,
 )
-from app.services.strategy_registry import MOVING_AVERAGE_CROSS_STRATEGY_ID
+from app.services.strategy_registry import MOVING_AVERAGE_CROSS_STRATEGY_ID, REGISTERED_PAPER_RUNTIME_STRATEGY_IDS
 from app.services.strategy_candidate_backtest import (
     StrategyCandidateBacktestItem,
     run_strategy_candidate_backtests,
@@ -65,7 +65,7 @@ DEFAULT_EXIT_TAKE_PROFIT_PCT = 0.10
 DEFAULT_EXIT_STOP_LOSS_PCT = -0.05
 MANUAL_OVERRIDE_STRATEGY_SUFFIX = ":manual_override"
 RUNNING_LOCK_STALE_AFTER_MINUTES = 180
-PAPER_RUNTIME_STRATEGY_IDS = (DEFAULT_PAPER_STRATEGY_ID, MOVING_AVERAGE_CROSS_STRATEGY_ID)
+PAPER_RUNTIME_STRATEGY_IDS = REGISTERED_PAPER_RUNTIME_STRATEGY_IDS
 MOVING_AVERAGE_FAST_PERIOD = 20
 MOVING_AVERAGE_SLOW_PERIOD = 50
 
@@ -292,7 +292,7 @@ def run_daily_paper_trading_loop(
         session.add(review)
         session.flush()
         _finish_paper_run(session, account, run, PaperRunStatus.completed, review)
-        record_alpha_validation_snapshot(
+        record_registered_alpha_validation_snapshots(
             session,
             team_id=workspace.team.id,
             trading_day=resolved_trading_day,

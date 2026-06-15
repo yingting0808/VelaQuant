@@ -204,7 +204,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `POST /api/mvp/research` returns `status=complete_llm` only when the OpenAI-compatible LLM call succeeds; without a key or after provider failure, the same endpoint returns deterministic LangGraph research output and preserves `requires_human_review=true`. The Web AI sidecar now displays either `LLM 可用` or `本地规则`, and local-rule results are labeled `本地规则` instead of looking like an LLM response.
 - The Web AI sidecar can collapse into a compact AI rail and expand back without disabling research actions; expanded prompts still call the real `/api/mvp/research` path and can save research output as notes.
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` executes quick safe actions synchronously and queues long paper-run actions so the browser request does not block.
-- `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into `StrategyAlphaSnapshot` instead of returning a skipped/no-op response.
+- `continue_paper_validation` is an executable default action: it records the current Alpha validation facts into per-strategy `StrategyAlphaSnapshot` records instead of returning a skipped/no-op response.
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - The `hold_until_next_session` action now includes Alpha sampling forecast and the next actionable scheduler sample, so waiting states still show how many paper sessions remain and when the next useful sample is expected.
 - The `hold_until_next_session` action now also surfaces triggered exit samples expected on the next paper run, using the same order-projected as-of position view as the Daily Report so closed-trade sample progress is visible from the default action plan.
@@ -223,6 +223,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
 - Strategy Registry now reads per-strategy backtest history, prioritizes successful real-market backtests over the latest mock/deterministic fallback, and converts only positive-return backtests into read-only ranking evidence.
 - `moving_average_cross` is now connected to the controlled paper runtime after positive real-market backtest evidence. Daily paper candidate generation routes it through `StrategyRegistry -> StrategyExecutionBinding -> StrategyEngine -> RiskEngine -> ExecutionEngine -> EventLedger`; it consumes provider price history to create 20/50 SMA `MarketEvent` metadata and may produce paper orders, while live execution remains disabled.
+- Each daily paper run now records `StrategyAlphaSnapshot` evidence for every registered paper runtime strategy, currently `deterministic_watchlist_v1` and `moving_average_cross`, so Alpha gate evidence is no longer limited to the default strategy.
 - Strategy Competition marks positive catalog backtests as `connect_to_paper_runtime` work, while keeping negative or flat backtests in the lab and still blocking all catalog strategies from allocation until they are connected to the paper runtime and hot-swap path.
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
@@ -257,7 +258,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `POST /api/mvp/research` 只有在 OpenAI-compatible LLM 调用成功时才返回 `status=complete_llm`；未配置 key 或供应商失败时，同一接口会回退到确定性的 LangGraph 投研输出，并保持 `requires_human_review=true`。Web AI 侧栏现在会显示 `LLM 可用` 或 `本地规则`，本地规则结果会标注为 `本地规则`，避免误以为已经使用 LLM。
 - Web AI 侧栏现在可以收起为紧凑 AI 入口，也可以展开恢复完整面板；展开后的 prompt 仍调用真实 `/api/mvp/research` 路径，并可将研究输出保存为笔记。
 - `POST /api/mvp/paper-trading/action-plan/execute-primary` 会同步执行快速安全动作，并将较长的 paper run 动作排入后台，避免浏览器请求阻塞。
-- `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实写入 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
+- `continue_paper_validation` 已是可执行默认动作：它会把当前 Alpha 验证事实分别写入各策略的 `StrategyAlphaSnapshot`，不再返回 skipped/no-op。
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - `hold_until_next_session` 动作现在会带上 Alpha 样本预测和下一次有效调度采样，因此等待状态也能显示还需要多少次 paper sessions、下一次有效样本预计何时发生。
 - `hold_until_next_session` 动作现在也会展示下一次 paper run 预计触发的退出样本，并复用 Daily Report 同一套基于订单投影的 as-of 持仓口径，因此默认行动计划里也能看到闭环交易样本会如何推进。
@@ -276,6 +277,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
 - Strategy Registry 现在会按策略读取回测历史，优先采用真实市场成功回测，而不是被最新 mock/deterministic fallback 覆盖，并且只把正收益回测转成只读排名证据。
 - `moving_average_cross` 已在真实市场回测为正后接入受控 paper runtime。每日 paper 候选生成会通过 `StrategyRegistry -> StrategyExecutionBinding -> StrategyEngine -> RiskEngine -> ExecutionEngine -> EventLedger` 路由该策略；它会消费 provider 价格历史生成 20/50 SMA `MarketEvent` 元数据，并可产生模拟盘订单，但 live 执行仍被禁用。
+- 每次每日 paper run 现在都会为所有已注册 paper runtime 策略分别记录 `StrategyAlphaSnapshot` 证据，目前包括 `deterministic_watchlist_v1` 和 `moving_average_cross`，因此 Alpha 门禁证据不再只覆盖默认策略。
 - Strategy Competition 会把正收益目录回测标记为 `connect_to_paper_runtime` 工作项；负收益或持平回测继续留在 lab，且所有目录策略在接入 paper runtime 和热切换路径前仍禁止进入资金分配。
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
@@ -592,9 +594,9 @@ Run a focused paper action:
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/mvp/paper-trading/action-plan/execute-primary
 ```
 
-Quick actions return `status: completed`. When the primary action is `continue_paper_validation`, the result is an Alpha validation snapshot. When the primary action is `hold_until_next_session`, the result returns `status: waiting` plus scheduler context. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
+Quick actions return `status: completed`. When the primary action is `continue_paper_validation`, the result contains per-strategy Alpha validation snapshots. When the primary action is `hold_until_next_session`, the result returns `status: waiting` plus scheduler context. Long paper-run actions return `status: queued` and write their final outcome to `GET /api/mvp/paper-trading/runs`.
 
-快速动作返回 `status: completed`。当主动作是 `continue_paper_validation` 时，结果是一条 Alpha 验证快照。当主动作是 `hold_until_next_session` 时，结果会返回 `status: waiting` 和调度器上下文。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
+快速动作返回 `status: completed`。当主动作是 `continue_paper_validation` 时，结果会包含各策略的 Alpha 验证快照。当主动作是 `hold_until_next_session` 时，结果会返回 `status: waiting` 和调度器上下文。较长的 paper run 动作返回 `status: queued`，最终结果写入 `GET /api/mvp/paper-trading/runs`。
 
 Run a Strategy Lab backtest:
 

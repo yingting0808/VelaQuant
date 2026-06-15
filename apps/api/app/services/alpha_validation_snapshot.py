@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from app.domain.models import StrategyAlphaSnapshot, utc_now
 from app.services.alpha_validation import AlphaValidationPayload, get_alpha_validation
 from app.services.market_calendar import current_market_trading_day
+from app.services.strategy_registry import REGISTERED_PAPER_RUNTIME_STRATEGY_IDS
 from app.services.workspace import get_or_create_default_workspace
 
 
@@ -73,6 +74,26 @@ def record_alpha_validation_snapshot(
         trading_day=trading_day,
         alpha=alpha,
     )
+
+
+def record_registered_alpha_validation_snapshots(
+    session: Session,
+    *,
+    team_id: UUID | None = None,
+    trading_day: str | None = None,
+) -> list[AlphaValidationSnapshotPayload]:
+    if team_id is None:
+        team_id = get_or_create_default_workspace(session).team.id
+    trading_day = trading_day or current_market_trading_day()
+    return [
+        record_alpha_validation_snapshot(
+            session,
+            team_id=team_id,
+            strategy_id=strategy_id,
+            trading_day=trading_day,
+        )
+        for strategy_id in REGISTERED_PAPER_RUNTIME_STRATEGY_IDS
+    ]
 
 
 def record_alpha_validation_snapshot_from_payload(

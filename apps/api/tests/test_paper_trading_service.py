@@ -271,9 +271,11 @@ def test_daily_run_creates_account_candidates_and_review():
         assert runs[0].review_id == summary.latest_review.id
         assert runs[0].finished_at is not None
         snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
-        assert len(snapshots) == 1
-        assert snapshots[0].trading_day == summary.latest_review.trading_day
-        assert snapshots[0].latest_expectancy == summary.latest_review.expectancy
+        snapshots_by_strategy = {snapshot.strategy_id: snapshot for snapshot in snapshots}
+        assert {"deterministic_watchlist_v1", "moving_average_cross"} <= set(snapshots_by_strategy)
+        assert snapshots_by_strategy["deterministic_watchlist_v1"].trading_day == summary.latest_review.trading_day
+        assert snapshots_by_strategy["deterministic_watchlist_v1"].latest_expectancy == summary.latest_review.expectancy
+        assert snapshots_by_strategy["moving_average_cross"].trading_day == summary.latest_review.trading_day
         competition_snapshots = session.exec(select(StrategyCompetitionSnapshot)).all()
         competition_entries = session.exec(select(StrategyCompetitionEntry)).all()
         assert len(competition_snapshots) == 1
@@ -339,6 +341,15 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
             and metadata.get("fast_sma") > metadata.get("slow_sma")
             for event in market_events
         )
+        snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
+        moving_average_snapshot = next(
+            (snapshot for snapshot in snapshots if snapshot.strategy_id == "moving_average_cross"),
+            None,
+        )
+        assert moving_average_snapshot is not None
+        assert moving_average_snapshot.trading_day == summary.latest_review.trading_day
+        assert moving_average_snapshot.filled_order_count >= 1
+        assert moving_average_snapshot.event_chain_count >= 1
 
 
 def test_daily_run_uses_active_paper_risk_order_capacity_for_candidate_collection():
