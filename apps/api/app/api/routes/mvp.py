@@ -3,7 +3,7 @@ from dataclasses import asdict
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 
@@ -331,10 +331,14 @@ def research_note_create(body: ResearchNoteCreate, session: Session = Depends(ge
 
 @router.get("/paper-trading/summary")
 def paper_trading_summary(
+    refresh_quotes: bool = Query(
+        default=False,
+        description="When true, mark paper positions to market before returning the summary.",
+    ),
     provider: MarketDataProvider = Depends(get_market_data_provider),
     session: Session = Depends(get_session),
 ) -> dict:
-    return get_paper_trading_summary(session, provider).model_dump()
+    return get_paper_trading_summary(session, provider, use_live_quotes=refresh_quotes).model_dump()
 
 
 @router.get("/paper-trading/daily-report")

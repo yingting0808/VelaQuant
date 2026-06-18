@@ -16,6 +16,7 @@ import {
   getPaperReviewTrend,
   getPaperStrategyReviews,
   getPaperTradingSummary,
+  getStrategyRegistry,
   getAlphaGateProgress,
   getAlphaValidationForecast,
   getPaperActionPlan,
@@ -43,6 +44,7 @@ import {
   type PaperSimulationPayload,
   type PaperStrategyReviewsPayload,
   type PaperTradingSummaryPayload,
+  type StrategyRegistryPayload,
   type AlphaGateProgressPayload,
   type AlphaValidationForecastPayload,
   type PaperActionPlanPayload
@@ -186,6 +188,7 @@ export function PaperTradingWorkspace() {
   const [alphaForecast, setAlphaForecast] = useState<AlphaValidationForecastPayload | null>(null);
   const [actionPlan, setActionPlan] = useState<PaperActionPlanPayload | null>(null);
   const [strategyReviews, setStrategyReviews] = useState<PaperStrategyReviewsPayload | null>(null);
+  const [strategyRegistry, setStrategyRegistry] = useState<StrategyRegistryPayload | null>(null);
   const [repairResult, setRepairResult] = useState<PaperOperationsRepairPayload | null>(null);
   const [simulationResult, setSimulationResult] = useState<PaperSimulationPayload | null>(null);
   const [message, setMessage] = useState("正在读取模拟盘。");
@@ -212,6 +215,7 @@ export function PaperTradingWorkspace() {
       alphaForecastPayload,
       actionPlanPayload,
       strategyReviewsPayload,
+      strategyRegistryPayload,
       runPayload,
       ledgerPayload
     ] = await Promise.all([
@@ -228,6 +232,7 @@ export function PaperTradingWorkspace() {
       getAlphaValidationForecast(),
       getPaperActionPlan(),
       getPaperStrategyReviews(),
+      getStrategyRegistry(),
       getPaperRuns(),
       getPaperEventLedger()
     ]);
@@ -244,6 +249,7 @@ export function PaperTradingWorkspace() {
     setAlphaForecast(alphaForecastPayload);
     setActionPlan(actionPlanPayload);
     setStrategyReviews(strategyReviewsPayload);
+    setStrategyRegistry(strategyRegistryPayload);
     setRuns(runPayload.runs);
     setEventLedger(ledgerPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
@@ -266,6 +272,7 @@ export function PaperTradingWorkspace() {
       getAlphaValidationForecast().then((payload) => active && setAlphaForecast(payload)),
       getPaperActionPlan().then((payload) => active && setActionPlan(payload)),
       getPaperStrategyReviews().then((payload) => active && setStrategyReviews(payload)),
+      getStrategyRegistry().then((payload) => active && setStrategyRegistry(payload)),
       getPaperRuns().then((payload) => active && setRuns(payload.runs)),
       getPaperEventLedger().then((payload) => active && setEventLedger(payload))
     ];
@@ -301,6 +308,7 @@ export function PaperTradingWorkspace() {
         alphaForecastPayload,
         actionPlanPayload,
         strategyReviewsPayload,
+        strategyRegistryPayload,
         runPayload,
         ledgerPayload
       ] =
@@ -317,6 +325,7 @@ export function PaperTradingWorkspace() {
         getAlphaValidationForecast(),
         getPaperActionPlan(),
         getPaperStrategyReviews(),
+        getStrategyRegistry(),
         getPaperRuns(),
         getPaperEventLedger()
       ]);
@@ -333,6 +342,7 @@ export function PaperTradingWorkspace() {
       setAlphaForecast(alphaForecastPayload);
       setActionPlan(actionPlanPayload);
       setStrategyReviews(strategyReviewsPayload);
+      setStrategyRegistry(strategyRegistryPayload);
       setRuns(runPayload.runs);
       setEventLedger(ledgerPayload);
       setMessage("今日模拟已完成。");
@@ -455,6 +465,13 @@ export function PaperTradingWorkspace() {
   const tradeExplanation = replayChain?.trade_explanation ?? null;
   const backtestReturn = tradeExplanation?.backtest.total_net_profit;
   const candidateRankingScore = candidateRankingScoreLabel(tradeExplanation?.evidence);
+  const activeStrategy = strategyRegistry?.entries.find(
+    (entry) => entry.strategy_id === strategyRegistry.active_strategy_id
+  );
+  const paperStrategies = strategyRegistry?.entries.filter((entry) => entry.execution_mode === "paper") ?? [];
+  const paperStrategyLabel = paperStrategies.length
+    ? paperStrategies.map((entry) => entry.strategy_id).join(" / ")
+    : "正在读取";
 
   return (
     <div className="module-view">
@@ -465,6 +482,99 @@ export function PaperTradingWorkspace() {
         </div>
         <div className="status-pill neutral">{readinessLabel(review?.readiness)}</div>
       </header>
+
+      <section className="data-panel workspace-panel user-flow-panel" aria-label="SPCX INTC 上手向导">
+        <div className="panel-heading">
+          <div>
+            <h3>用 SPCX / INTC 举例：先选目的</h3>
+            <p>不是每只股票都必须盯盘、模拟、回测、追溯全走一遍；按你现在想解决的问题进对应入口。</p>
+          </div>
+          <span className="status-pill neutral">新手优先看这里</span>
+        </div>
+        <div className="user-flow-grid">
+          <article className="user-flow-step">
+            <span>1</span>
+            <strong>只是持续关注</strong>
+            <p>
+              到自选股页添加 <b>SPCX</b> 和 <b>INTC</b>，写清楚关注理由。这样系统会把它们纳入研究和候选上下文。
+            </p>
+            <a className="guide-action-link" href="/watchlist">
+              打开自选股
+            </a>
+          </article>
+          <article className="user-flow-step">
+            <span>2</span>
+            <strong>想让系统判断今天是否值得动</strong>
+            <p>看“今日简报”和“候选池”。SPCX/INTC 只有在策略、数据和风控都通过时才会出现；没出现就代表今天没有进入模拟条件。</p>
+            <a className="guide-action-link" href="#paper-candidates">
+              看候选池
+            </a>
+          </article>
+          <article className="user-flow-step">
+            <span>3</span>
+            <strong>想验证历史表现</strong>
+            <p>
+              到策略实验室跑单票或候选池回测。候选池可填 <b>SPCX, INTC</b>，重点看收益、Sharpe、回撤、数据质量和排名理由。
+            </p>
+            <a className="guide-action-link" href="/strategy-lab">
+              打开策略实验室
+            </a>
+          </article>
+          <article className="user-flow-step">
+            <span>4</span>
+            <strong>已经出候选或下过模拟单</strong>
+            <p>这时再追溯。候选理由在“候选池”；完整链路在“事件账本”，包括 trade_explanation、candidate_id、风控和订单状态。</p>
+            <a className="guide-action-link" href="#paper-ledger">
+              看事件账本
+            </a>
+          </article>
+        </div>
+        <div className="operator-focus-row" aria-label="按目的选择区域">
+          <span>按目的看：</span>
+          <strong>是否该动：今日简报 / 候选池</strong>
+          <strong>是否已动：模拟订单 / 持仓</strong>
+          <strong>为什么动：候选理由 / 事件账本</strong>
+          <strong>历史是否支持：策略实验室</strong>
+        </div>
+      </section>
+
+      <section className="data-panel workspace-panel strategy-origin-panel" aria-label="当前模拟盘策略来源">
+        <div className="panel-heading">
+          <div>
+            <h3>当前模拟盘策略从哪里来</h3>
+            <p>当前策略是可验证的工程基线，不是已经证明能赚钱的成熟 Alpha；任何新策略都必须先进入 Registry 再验证。</p>
+          </div>
+          <span className="status-pill neutral">{activeStrategy?.strategy_id ?? "读取中"}</span>
+        </div>
+        <div className="strategy-origin-grid">
+          <article>
+            <span>当前主策略</span>
+            <strong>{activeStrategy?.name ?? "正在读取 Strategy Registry"}</strong>
+            <p>{activeStrategy?.notes ?? "读取当前 paper runtime 的 active strategy、样本和门禁状态。"}</p>
+          </article>
+          <article>
+            <span>已接入模拟盘</span>
+            <strong>{paperStrategyLabel}</strong>
+            <p>只有这些 Registry 允许的策略可以产生 paper candidate；策略可升级、调参、新增或淘汰，但不能绕过门禁。</p>
+          </article>
+          <article>
+            <span>候选怎么产生</span>
+            <strong>StrategyEngine 运行规则</strong>
+            <p>自选股/组合标的进入策略宇宙，行情和研究数据形成 MarketEvent，规则通过后输出 TradeIntent。</p>
+          </article>
+          <article>
+            <span>怎么验证变化</span>
+            <strong>先回测，再模拟盘</strong>
+            <p>LEAN/vectorbt 提供历史证据；真正能否留用或进入下一阶段，还要看 paper 样本、PnL、风控和事件账本。</p>
+          </article>
+        </div>
+        <div className="strategy-evidence-note" aria-label="策略依据说明">
+          <strong>依据和边界：</strong>
+          <span>deterministic_watchlist_v1 基于自选股、正向事件、置信度、影响分和小额名义本金，是稳定跑通研究闭环的基线策略。</span>
+          <span>moving_average_cross 基于快慢均线交叉，是常见趋势跟随基线，用来验证历史数据、回测引擎和 paper runtime 接入。</span>
+          <span>它们不是最终赚钱策略；是否有 Alpha 要靠回测、连续模拟盘样本、闭环交易、回撤和归因一起证明。</span>
+        </div>
+      </section>
 
       <section className="metric-grid" aria-label="模拟盘指标">
         <div className="metric-card">
@@ -1401,7 +1511,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="事件账本">
+      <section className="data-panel workspace-panel" id="paper-ledger" aria-label="事件账本">
         <div className="panel-heading">
           <div>
             <h3>事件账本</h3>
@@ -1466,7 +1576,7 @@ export function PaperTradingWorkspace() {
         ) : null}
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="候选池">
+      <section className="data-panel workspace-panel" id="paper-candidates" aria-label="候选池">
         <div className="panel-heading">
           <div>
             <h3>候选池</h3>

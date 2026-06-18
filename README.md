@@ -227,6 +227,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Daily Report now includes quantified open Alpha gate gaps through `open_alpha_gates`, so operators can see current/required/remaining samples for blockers such as filled orders and closed trades without leaving the paper trading workspace.
 - The Daily Report now includes an `exit_watchlist` from current open paper positions, showing take-profit/stop-loss triggers, return percentage, unrealized PnL, and next eligible exit quantity so closed-trade sample collection is visible before the next daily loop even when the report uses an as-of trading-day view.
 - The Daily Report now uses stored paper execution marks for operational exit monitoring instead of blocking on live OpenBB/Yahoo quote calls; slower summary endpoints no longer prevent the report from rendering in the paper workspace.
+- Latest incremental verification on 2026-06-18: `GET /api/mvp/paper-trading/summary` now defaults to the stored effective-trading-day paper state and only refreshes live quote marks when `refresh_quotes=true`, keeping the Paper Trading workspace on a fast loading path while preserving optional mark-to-market refreshes.
 - OpenBB optional data access now circuit-breaks runtime quote/history/fundamental failures inside the request and falls back through the provider abstraction, so research data outages do not turn the paper trading dashboard into a 500.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
 - Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
@@ -249,6 +250,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
+- The Paper Trading workspace now opens with a purpose-based SPCX/INTC onboarding guide and a Registry-backed strategy source panel. The UI explicitly labels `deterministic_watchlist_v1` and `moving_average_cross` as controlled baseline research strategies, not proven profitable Alpha; each strategy still needs backtest evidence, paper samples, PnL, risk, and event-ledger attribution before promotion.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
@@ -288,6 +290,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Daily Report 现在会通过 `open_alpha_gates` 展示未通过 Alpha 门禁的当前值、目标值和剩余缺口，因此操作者不离开模拟盘工作台也能看到成交订单、闭环交易等 blocker 还差多少样本。
 - Daily Report 现在会通过 `exit_watchlist` 展示当前开放模拟持仓的止盈/止损触发、收益率、浮动盈亏和下一次可退出数量；即使日报其他字段采用 as-of 交易日口径，下一次日循环能补哪些闭环交易样本也会提前可见。
 - Daily Report 现在使用已记录的 paper execution mark 做运营退出监控，不再阻塞等待 live OpenBB/Yahoo 报价；较慢的 summary 接口也不会阻止模拟盘工作台先渲染今日简报。
+- 2026-06-18 最新增量验证：`GET /api/mvp/paper-trading/summary` 现在默认读取已记录的有效交易日模拟盘状态；只有显式传入 `refresh_quotes=true` 时才刷新实时行情标记，因此模拟盘工作台走快速加载路径，同时仍保留可选的实时盯市刷新能力。
 - OpenBB 可选数据访问现在会在单次请求内对 quote/history/fundamental 运行时失败熔断，并通过数据源抽象降级，因此研究数据源故障不会把模拟盘页面打成 500。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
 - Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
@@ -310,6 +313,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
 - 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
+- 模拟盘工作台现在进入页面先展示基于 SPCX/INTC 的按目的上手向导，并展示由 Strategy Registry 驱动的策略来源面板。页面会明确说明 `deterministic_watchlist_v1` 和 `moving_average_cross` 是受控研究基线策略，不是已经证明盈利的成熟 Alpha；策略晋级仍需要回测证据、模拟盘样本、盈亏、风控和事件账本归因共同证明。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
@@ -595,6 +599,10 @@ GET  /api/mvp/strategy-lab/alpha-snapshots
 GET  /api/mvp/strategy-lab/evaluation
 POST /api/mvp/strategy-lab/backtests
 ```
+
+`GET /api/mvp/paper-trading/summary` defaults to the fast stored paper view. Use `?refresh_quotes=true` only when the operator explicitly wants to refresh live quote marks before reading the summary.
+
+`GET /api/mvp/paper-trading/summary` 默认返回快速的已记录模拟盘视图。只有操作者明确需要先刷新实时行情标记时，才使用 `?refresh_quotes=true`。
 
 ## Development Commands / 开发命令
 

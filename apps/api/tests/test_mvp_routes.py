@@ -2205,7 +2205,13 @@ def _paper_trading_summary_payload() -> PaperTradingSummary:
 
 
 def test_mvp_paper_trading_summary_route_returns_sections(monkeypatch):
-    monkeypatch.setattr(mvp, "get_paper_trading_summary", lambda session, provider: _paper_trading_summary_payload(), raising=False)
+    call_args = {}
+
+    def fake_summary(session, provider, *, use_live_quotes=True):
+        call_args["use_live_quotes"] = use_live_quotes
+        return _paper_trading_summary_payload()
+
+    monkeypatch.setattr(mvp, "get_paper_trading_summary", fake_summary, raising=False)
     client = TestClient(create_app())
 
     response = client.get("/api/mvp/paper-trading/summary")
@@ -2216,6 +2222,23 @@ def test_mvp_paper_trading_summary_route_returns_sections(monkeypatch):
     assert payload["account"]["mode"] == "paper"
     assert payload["candidates"][0]["ticker"] == "NVDA"
     assert payload["latest_review"]["readiness"] == "collecting"
+    assert call_args["use_live_quotes"] is False
+
+
+def test_mvp_paper_trading_summary_route_can_refresh_quotes(monkeypatch):
+    call_args = {}
+
+    def fake_summary(session, provider, *, use_live_quotes=True):
+        call_args["use_live_quotes"] = use_live_quotes
+        return _paper_trading_summary_payload()
+
+    monkeypatch.setattr(mvp, "get_paper_trading_summary", fake_summary, raising=False)
+    client = TestClient(create_app())
+
+    response = client.get("/api/mvp/paper-trading/summary?refresh_quotes=true")
+
+    assert response.status_code == 200
+    assert call_args["use_live_quotes"] is True
 
 
 def test_mvp_paper_trading_daily_run_route_generates_candidates(monkeypatch):

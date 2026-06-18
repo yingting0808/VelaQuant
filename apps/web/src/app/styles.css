@@ -1017,6 +1017,137 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+.user-flow-panel {
+  border-color: #c7d7e8;
+}
+
+.user-flow-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.user-flow-step {
+  background: #ffffff;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.user-flow-step > span {
+  align-items: center;
+  background: #182235;
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.user-flow-step strong,
+.user-flow-step p {
+  margin: 0;
+}
+
+.user-flow-step p {
+  color: #566176;
+  font-size: 0.86rem;
+}
+
+.guide-action-link {
+  align-items: center;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  color: #172033;
+  display: inline-flex;
+  font-size: 0.86rem;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 32px;
+  padding: 5px 9px;
+  width: fit-content;
+}
+
+.guide-action-link:hover {
+  background: #eef2f6;
+}
+
+.operator-focus-row {
+  align-items: center;
+  border-top: 1px solid #edf0f4;
+  color: #667085;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.operator-focus-row strong {
+  background: #eef2f6;
+  border: 1px solid #d7dee8;
+  border-radius: 999px;
+  color: #172033;
+  font-size: 0.82rem;
+  padding: 4px 9px;
+}
+
+.strategy-origin-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.strategy-origin-grid article {
+  background: #ffffff;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.strategy-origin-grid span {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.strategy-origin-grid strong,
+.strategy-origin-grid p {
+  margin: 0;
+}
+
+.strategy-origin-grid strong {
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.strategy-origin-grid p {
+  color: #566176;
+  font-size: 0.86rem;
+}
+
+.strategy-evidence-note {
+  background: #fff7ed;
+  border-top: 1px solid #fdba74;
+  color: #7c2d12;
+  display: grid;
+  gap: 5px;
+  padding: 12px 16px;
+}
+
+.strategy-evidence-note strong,
+.strategy-evidence-note span {
+  margin: 0;
+}
+
+.strategy-evidence-note span {
+  font-size: 0.86rem;
+}
+
 .workspace-form {
   align-items: end;
   border-bottom: 1px solid #edf0f4;
@@ -1213,6 +1344,8 @@ tbody tr:last-child td {
 
 @media (max-width: 900px) {
   .strategy-grid,
+  .strategy-origin-grid,
+  .user-flow-grid,
   .parameter-grid,
   .backtest-metrics,
   .scheduler-grid,
