@@ -222,6 +222,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - The `hold_until_next_session` action now includes Alpha sampling forecast and the next actionable scheduler sample, so waiting states still show how many paper sessions remain and when the next useful sample is expected.
 - The `hold_until_next_session` action now also surfaces triggered exit samples expected on the next paper run, using the same order-projected as-of position view as the Daily Report so closed-trade sample progress is visible from the default action plan.
+- Latest incremental verification on 2026-06-19: executing the default `continue_paper_validation` action persisted registered-strategy Alpha snapshots for trading day `2026-06-17` (`deterministic_watchlist_v1` and `moving_average_cross`) and advanced the next primary action to `hold_until_next_session`.
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
 - The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
 - The Daily Report now includes quantified open Alpha gate gaps through `open_alpha_gates`, so operators can see current/required/remaining samples for blockers such as filled orders and closed trades without leaving the paper trading workspace.
@@ -236,6 +237,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The operations status API and Paper Trading workspace now surface the latest persisted `scheduler_decision`, including outcome, trading day, reason, timestamp, and summary.
 - Alpha snapshot history is filtered through the current effective market trading day, so legacy future-dated simulation snapshots do not drive the latest readiness view.
 - `collect_post_limit_sample` uses the normal paper trading loop with a controlled `force_new_sample` flag, so a post-limit sample can create a new run even when the same trading day already has a completed run.
+- Daily paper loop early-return recovery now backfills registered Alpha snapshots and Strategy Competition snapshots when a trading day already has a completed run but those control-plane artifacts are missing. This keeps old or interrupted runs from leaving the action plan stuck on `continue_paper_validation`.
 - Strategy Registry now reads per-strategy backtest history, prioritizes successful real-market backtests over the latest mock/deterministic fallback, and converts only positive-return backtests into read-only ranking evidence.
 - `moving_average_cross` is now connected to the controlled paper runtime after positive real-market backtest evidence. Daily paper candidate generation routes it through `StrategyRegistry -> StrategyExecutionBinding -> StrategyEngine -> RiskEngine -> ExecutionEngine -> EventLedger`; it consumes provider price history to create 20/50 SMA `MarketEvent` metadata and may produce paper orders, while live execution remains disabled.
 - Each daily paper run now records `StrategyAlphaSnapshot` evidence for every registered paper runtime strategy, currently `deterministic_watchlist_v1` and `moving_average_cross`, so Alpha gate evidence is no longer limited to the default strategy.
@@ -285,6 +287,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - `hold_until_next_session` 动作现在会带上 Alpha 样本预测和下一次有效调度采样，因此等待状态也能显示还需要多少次 paper sessions、下一次有效样本预计何时发生。
 - `hold_until_next_session` 动作现在也会展示下一次 paper run 预计触发的退出样本，并复用 Daily Report 同一套基于订单投影的 as-of 持仓口径，因此默认行动计划里也能看到闭环交易样本会如何推进。
+- 2026-06-19 最新增量验证：执行默认 `continue_paper_validation` 动作后，系统已为交易日 `2026-06-17` 写入已注册策略的 Alpha 快照（`deterministic_watchlist_v1` 和 `moving_average_cross`），下一主动作已切换为 `hold_until_next_session`。
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
 - Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。
 - Daily Report 现在会通过 `open_alpha_gates` 展示未通过 Alpha 门禁的当前值、目标值和剩余缺口，因此操作者不离开模拟盘工作台也能看到成交订单、闭环交易等 blocker 还差多少样本。
@@ -299,6 +302,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 运行健康 API 和模拟盘工作台已展示最新落库的 `scheduler_decision`，包括结果、交易日、原因、时间和摘要。
 - Alpha snapshot 历史会按当前有效美股交易日过滤，旧的未来日期模拟快照不会再影响最新 readiness 视图。
 - `collect_post_limit_sample` 仍走同一条 paper trading loop，只通过受控的 `force_new_sample` 标记生成限额更新后的新样本。
+- 每日 paper loop 的已完成运行早返回路径现在会补写已注册策略 Alpha 快照和 Strategy Competition 快照；如果旧版本或中断导致某个交易日有 completed run 但缺少控制平面证据，系统会自动补齐，不会让行动计划长期卡在 `continue_paper_validation`。
 - Strategy Registry 现在会按策略读取回测历史，优先采用真实市场成功回测，而不是被最新 mock/deterministic fallback 覆盖，并且只把正收益回测转成只读排名证据。
 - `moving_average_cross` 已在真实市场回测为正后接入受控 paper runtime。每日 paper 候选生成会通过 `StrategyRegistry -> StrategyExecutionBinding -> StrategyEngine -> RiskEngine -> ExecutionEngine -> EventLedger` 路由该策略；它会消费 provider 价格历史生成 20/50 SMA `MarketEvent` 元数据，并可产生模拟盘订单，但 live 执行仍被禁用。
 - 每次每日 paper run 现在都会为所有已注册 paper runtime 策略分别记录 `StrategyAlphaSnapshot` 证据，目前包括 `deterministic_watchlist_v1` 和 `moving_average_cross`，因此 Alpha 门禁证据不再只覆盖默认策略。

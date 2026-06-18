@@ -1006,6 +1006,37 @@ def test_daily_run_accepts_explicit_trading_day_for_lab_simulation():
         assert all(run.status == PaperRunStatus.completed for run in runs)
 
 
+def test_daily_run_backfills_alpha_snapshots_for_existing_completed_run():
+    with make_session() as session:
+        provider = FixtureProvider()
+
+        first_summary = run_daily_paper_trading_loop(session, provider, trading_day="2026-06-14")
+        for snapshot in session.exec(select(StrategyAlphaSnapshot)).all():
+            session.delete(snapshot)
+        for entry in session.exec(select(StrategyCompetitionEntry)).all():
+            session.delete(entry)
+        for snapshot in session.exec(select(StrategyCompetitionSnapshot)).all():
+            session.delete(snapshot)
+        session.commit()
+
+        second_summary = run_daily_paper_trading_loop(session, provider, trading_day="2026-06-14")
+
+        runs = session.exec(select(PaperRun)).all()
+        snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
+        competition_snapshots = session.exec(select(StrategyCompetitionSnapshot)).all()
+        competition_entries = session.exec(select(StrategyCompetitionEntry)).all()
+        snapshots_by_strategy = {snapshot.strategy_id: snapshot for snapshot in snapshots}
+        assert second_summary.latest_review is not None
+        assert second_summary.latest_review.id == first_summary.latest_review.id
+        assert len(runs) == 1
+        assert {"deterministic_watchlist_v1", "moving_average_cross"} <= set(snapshots_by_strategy)
+        assert snapshots_by_strategy["deterministic_watchlist_v1"].trading_day == "2026-06-14"
+        assert snapshots_by_strategy["moving_average_cross"].trading_day == "2026-06-14"
+        assert len(competition_snapshots) == 1
+        assert competition_snapshots[0].trading_day == "2026-06-14"
+        assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
+
+
 def test_scheduled_daily_run_records_scheduled_trigger():
     with make_session() as session:
         summary = run_daily_paper_trading_loop(session, FixtureProvider(), trigger=PaperRunTrigger.scheduled)

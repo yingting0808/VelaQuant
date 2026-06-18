@@ -263,6 +263,17 @@ def run_daily_paper_trading_loop(
         )
     ):
         _mark_positions_to_market(session, account, provider)
+        record_registered_alpha_validation_snapshots(
+            session,
+            team_id=workspace.team.id,
+            trading_day=resolved_trading_day,
+        )
+        record_strategy_competition_snapshot(
+            session,
+            provider=provider,
+            team_id=workspace.team.id,
+            trading_day=resolved_trading_day,
+        )
         session.commit()
         session.refresh(account)
         return _summary_payload(session, account, provider, as_of_trading_day=resolved_trading_day)
