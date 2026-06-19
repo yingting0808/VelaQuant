@@ -263,6 +263,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The paper action plan now turns `score_pnl_inversion_review` into a concrete `review_score_pnl_inversion` action, including inverted tickers such as AMZN in the evidence. Executing that primary action writes a `strategy_review` CoreEventLog audit event and returns `review_required` instead of placing trades or changing risk limits; the next plan consumes the recorded review event so the same score/PnL inversion is not repeatedly promoted as the primary action.
 - `GET /api/mvp/paper-trading/strategy-reviews` reads persisted `strategy_review` CoreEventLog audit events and the Paper Trading workspace displays those records next to the Action Plan, so score/PnL quarantine evidence is reviewable without querying the generic event ledger.
 - Daily candidate generation now consumes required `strategy_review` score/PnL inversion events and excludes those tickers from new buy candidates while the review remains unresolved; existing position exit handling remains active.
+- Score/PnL inversion quarantine is now strategy-scoped. Legacy review events without a `strategy_id` are treated as `deterministic_watchlist_v1` reviews, so they still block the default evidence-scoring strategy from reusing inverted tickers while allowing `moving_average_cross` to test its independent moving-average hypothesis on the same ticker universe.
 - Alpha validation now counts only unreviewed score/PnL inversion tickers as open blockers, so a recorded `strategy_review` quarantine lets the system continue collecting clean paper samples without reintroducing the isolated ticker.
 - Paper Trading summary now defaults to the effective market trading day, matching Daily Report and Alpha gates, so non-trading-day manual reviews do not appear as the current paper review by default.
 - Candidate-only event chains (`MarketEvent -> StrategyInput -> TradeIntent`) are treated as replayable evidence; repair is reserved for missing ledgers or broken risk/order chains.
@@ -324,6 +325,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 模拟盘工作台现在进入页面先展示基于 SPCX/INTC 的按目的上手向导，并展示由 Strategy Registry 驱动的策略来源面板。页面会明确说明 `deterministic_watchlist_v1` 和 `moving_average_cross` 是受控研究基线策略，不是已经证明盈利的成熟 Alpha；策略晋级仍需要回测证据、模拟盘样本、盈亏、风控和事件账本归因共同证明。
 - 模拟盘工作台现在按专业工作流拆成“总览 / 事件与AI / 候选与模拟 / 风控与复盘 / 运行维护”。其中“事件与AI”包含具体 EventLedger topic 流和 correlation id、可按 SPCX/INTC 等标的切换的市场事件中心、人可读的事件解读、逐条证据的来源/标题/摘要/链接、可选原始 payload、AI/LangGraph/LLM 分析边界、最新 `trade_explanation` 证据，以及 OHLC K线面板。
+- 评分/盈亏背离隔离现在按策略生效。历史没有 `strategy_id` 的复盘事件默认视为 `deterministic_watchlist_v1` 复盘，因此仍会阻止默认证据评分策略复用背离 ticker，但不会阻止 `moving_average_cross` 在同一 ticker universe 上验证独立的均线假设。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。

@@ -661,7 +661,11 @@ def _order_count(session: Session, account: PaperAccount) -> int:
     return len(session.exec(select(PaperOrder).where(PaperOrder.account_id == account.id)).all())
 
 
-def _score_pnl_review_blocked_tickers(session: Session, team_id: UUID) -> set[str]:
+def _score_pnl_review_blocked_tickers(
+    session: Session,
+    team_id: UUID,
+    strategy_id: str = DEFAULT_PAPER_STRATEGY_ID,
+) -> set[str]:
     events = session.exec(
         select(CoreEventLog)
         .where(CoreEventLog.team_id == team_id)
@@ -674,6 +678,9 @@ def _score_pnl_review_blocked_tickers(session: Session, team_id: UUID) -> set[st
         try:
             payload = json.loads(event.payload_json)
         except json.JSONDecodeError:
+            continue
+        review_strategy_id = str(payload.get("strategy_id") or DEFAULT_PAPER_STRATEGY_ID).strip()
+        if review_strategy_id != strategy_id:
             continue
         if payload.get("action_code") != "review_score_pnl_inversion":
             continue
@@ -713,8 +720,8 @@ def _generate_candidates(
         item.ticker
         for item in session.exec(select(WatchlistItem).where(WatchlistItem.team_id == team_id)).all()
     }
-    blocked_tickers = _score_pnl_review_blocked_tickers(session, team_id)
-    all_tickers = sorted((portfolio_tickers | watchlist_tickers) - blocked_tickers)
+    all_tickers = sorted(portfolio_tickers | watchlist_tickers)
+    default_blocked_tickers = _score_pnl_review_blocked_tickers(session, team_id, DEFAULT_PAPER_STRATEGY_ID)
     bindings = []
     for strategy_id in PAPER_RUNTIME_STRATEGY_IDS:
         assert_strategy_execution_allowed(session, strategy_id, requested_mode="paper")
@@ -730,7 +737,11 @@ def _generate_candidates(
     event_bus = _build_trading_event_bus()
     ranked: list[tuple[float, str, PaperCandidate, CoreEventContext]] = []
     candidate_created_at = _order_timestamp(trading_day)
-    backtest_items = _daily_candidate_backtest_items(provider, all_tickers, trading_day=trading_day)
+    backtest_items = _daily_candidate_backtest_items(
+        provider,
+        [ticker for ticker in all_tickers if ticker not in default_blocked_tickers],
+        trading_day=trading_day,
+    )
 
     for ticker in all_tickers:
         quote = provider.get_quote(ticker)
@@ -741,6 +752,8 @@ def _generate_candidates(
         diversification_bonus = 0.15 if ticker not in portfolio_tickers else 0.0
         base_score = _candidate_score(evidence_count, diversification_bonus)
         for binding in bindings:
+            if ticker in _score_pnl_review_blocked_tickers(session, team_id, binding.strategy_id):
+                continue
             event = _market_event_for_strategy(
                 strategy_id=binding.strategy_id,
                 ticker=ticker,

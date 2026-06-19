@@ -574,7 +574,7 @@ def test_daily_run_skips_new_buy_candidates_with_required_score_pnl_review(monke
                     volume=1_000_000,
                     source="openbb_yfinance",
                 )
-                for day in range(1, 8)
+                for day in range(1, 61)
             ]
 
     def fake_candidate_backtests(**kwargs):
@@ -618,10 +618,26 @@ def test_daily_run_skips_new_buy_candidates_with_required_score_pnl_review(monke
 
         assert calls
         assert "AMZN" not in calls[0]["tickers"]
-        assert all(candidate.ticker != "AMZN" for candidate in summary.candidates)
-        assert all(order.ticker != "AMZN" for order in summary.orders if order.side == "buy")
+        assert all(
+            candidate.ticker != "AMZN" or candidate.strategy_id == "moving_average_cross"
+            for candidate in summary.candidates
+        )
+        assert all(
+            order.ticker != "AMZN" or order.strategy_id == "moving_average_cross"
+            for order in summary.orders
+            if order.side == "buy"
+        )
         explanation_events = session.exec(select(CoreEventLog).where(CoreEventLog.topic == "trade_explanation")).all()
-        assert all(json.loads(event.payload_json)["ticker"] != "AMZN" for event in explanation_events)
+        assert all(
+            json.loads(event.payload_json)["ticker"] != "AMZN"
+            for event in explanation_events
+            if json.loads(event.payload_json)["strategy_id"] == "deterministic_watchlist_v1"
+        )
+        assert any(
+            json.loads(event.payload_json)["ticker"] == "AMZN"
+            and json.loads(event.payload_json)["strategy_id"] == "moving_average_cross"
+            for event in explanation_events
+        )
 
 
 def test_daily_run_auto_exits_profitable_open_position_before_review():
