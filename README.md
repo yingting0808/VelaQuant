@@ -227,7 +227,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
 - The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
 - The Daily Report now includes quantified open Alpha gate gaps through `open_alpha_gates`, so operators can see current/required/remaining samples for blockers such as filled orders and closed trades without leaving the paper trading workspace.
-- The Daily Report now reports latest/average/consecutive expectancy from strategy-level Alpha Validation, not account-level review trend, so positive portfolio PnL cannot mask a strategy that has not produced closed-trade expectancy yet.
+- The Daily Report now separates account-review expectancy from strategy-level Alpha expectancy. Account review metrics explain daily paper PnL, while Alpha gates still use strategy-level closed-trade expectancy so positive portfolio PnL cannot mask a strategy that has not produced closed-trade expectancy yet.
 - The Daily Report now includes an `exit_watchlist` from current open paper positions, showing take-profit/stop-loss triggers, return percentage, unrealized PnL, and next eligible exit quantity so closed-trade sample collection is visible before the next daily loop even when the report uses an as-of trading-day view.
 - The Daily Report now uses stored paper execution marks for operational exit monitoring instead of blocking on live OpenBB/Yahoo quote calls; slower summary endpoints no longer prevent the report from rendering in the paper workspace.
 - Latest incremental verification on 2026-06-18: `GET /api/mvp/paper-trading/summary` now defaults to the stored effective-trading-day paper state and only refreshes live quote marks when `refresh_quotes=true`, keeping the Paper Trading workspace on a fast loading path while preserving optional mark-to-market refreshes.
@@ -301,7 +301,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
 - Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。
 - Daily Report 现在会通过 `open_alpha_gates` 展示未通过 Alpha 门禁的当前值、目标值和剩余缺口，因此操作者不离开模拟盘工作台也能看到成交订单、闭环交易等 blocker 还差多少样本。
-- Daily Report 现在的最新/平均/连续期望改用策略级 Alpha Validation 口径，不再用账户级复盘趋势；因此组合浮盈为正也不能掩盖某个策略尚未形成闭环交易期望的事实。
+- Daily Report 现在会把账户级复盘期望和策略级 Alpha 期望分开展示。账户复盘期望用于解释每日 paper PnL，Alpha 门禁仍使用策略自己的闭环交易期望，因此组合浮盈为正也不能掩盖某个策略尚未形成闭环交易期望的事实。
 - Daily Report 现在会通过 `exit_watchlist` 展示当前开放模拟持仓的止盈/止损触发、收益率、浮动盈亏和下一次可退出数量；即使日报其他字段采用 as-of 交易日口径，下一次日循环能补哪些闭环交易样本也会提前可见。
 - Daily Report 现在使用已记录的 paper execution mark 做运营退出监控，不再阻塞等待 live OpenBB/Yahoo 报价；较慢的 summary 接口也不会阻止模拟盘工作台先渲染今日简报。
 - 2026-06-18 最新增量验证：`GET /api/mvp/paper-trading/summary` 现在默认读取已记录的有效交易日模拟盘状态；只有显式传入 `refresh_quotes=true` 时才刷新实时行情标记，因此模拟盘工作台走快速加载路径，同时仍保留可选的实时盯市刷新能力。

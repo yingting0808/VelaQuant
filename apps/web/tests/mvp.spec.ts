@@ -636,6 +636,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     latest_expectancy: 0,
     average_expectancy: 0,
     consecutive_positive_expectancy_days: 0,
+    review_latest_expectancy: 0,
+    review_average_expectancy: 0,
+    review_consecutive_positive_expectancy_days: 0,
     event_ledger_ready: false,
     alpha_ready: false,
     alpha_blockers: ["review_day_sample"],
@@ -686,7 +689,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
       }
     ],
     data_quality_warnings: [],
-    summary: "Daily paper report: operations blocked, run not_started, latest expectancy 0.00; continue paper validation before live capital."
+    summary: "Daily paper report: operations blocked, run not_started, latest strategy Alpha expectancy 0.00; continue paper validation before live capital."
   };
   const readyDailyReport: PaperDailyReportPayload = {
     ...blockedDailyReport,
@@ -702,8 +705,11 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     open_position_count: 1,
     daily_pnl: 125.5,
     daily_return: 0.0013,
+    review_latest_expectancy: 0,
+    review_average_expectancy: 0,
+    review_consecutive_positive_expectancy_days: 0,
     event_ledger_ready: true,
-    summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
+    summary: "Daily paper report: operations ready, run skipped, latest strategy Alpha expectancy 0.00; continue paper validation before live capital."
   };
   const emptyExecutionDiagnostics: PaperExecutionDiagnosticsPayload = {
     order_count: 0,
@@ -1244,13 +1250,16 @@ test("paper trading disables daily run when today's operations are complete", as
         latest_expectancy: 0,
         average_expectancy: 0,
         consecutive_positive_expectancy_days: 0,
+        review_latest_expectancy: 0,
+        review_average_expectancy: 0,
+        review_consecutive_positive_expectancy_days: 0,
         event_ledger_ready: true,
         alpha_ready: false,
         alpha_blockers: ["review_day_sample"],
         open_alpha_gates: [],
         exit_watchlist: [],
         data_quality_warnings: [],
-        summary: "Daily paper report: operations ready, run skipped, latest expectancy 0.00; continue paper validation before live capital."
+        summary: "Daily paper report: operations ready, run skipped, latest strategy Alpha expectancy 0.00; continue paper validation before live capital."
       }
     });
   });
@@ -1478,7 +1487,7 @@ test("paper trading shows daily report before slower summary endpoints finish", 
         ],
         data_quality_warnings: [],
         summary:
-          "Daily paper report: operations ready, run completed, latest expectancy 151.40; continue paper validation before live capital."
+          "Daily paper report: operations ready, run completed, latest strategy Alpha expectancy 151.40; continue paper validation before live capital."
       }
     });
   });
@@ -1826,13 +1835,16 @@ test("paper trading can repair missing historical event ledgers", async ({ page 
     latest_expectancy: 1,
     average_expectancy: 0.5,
     consecutive_positive_expectancy_days: 1,
+    review_latest_expectancy: 1,
+    review_average_expectancy: 0.5,
+    review_consecutive_positive_expectancy_days: 1,
     event_ledger_ready: true,
     alpha_ready: false,
     alpha_blockers: ["review_day_sample"],
     open_alpha_gates: [],
     exit_watchlist: [],
     data_quality_warnings: ["future_runs_excluded_from_as_of_report"],
-    summary: "Daily paper report: operations ready, run skipped, latest expectancy 1.00; continue paper validation before live capital."
+    summary: "Daily paper report: operations ready, run skipped, latest strategy Alpha expectancy 1.00; continue paper validation before live capital."
   };
   const actionPlan: PaperActionPlanPayload = {
     readiness: "ready",

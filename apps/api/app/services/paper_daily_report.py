@@ -66,6 +66,9 @@ class PaperDailyReportPayload(BaseModel):
     latest_expectancy: float
     average_expectancy: float
     consecutive_positive_expectancy_days: int
+    review_latest_expectancy: float
+    review_average_expectancy: float
+    review_consecutive_positive_expectancy_days: int
     event_ledger_ready: bool
     alpha_ready: bool
     alpha_blockers: list[str]
@@ -117,6 +120,9 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         latest_expectancy=alpha_validation.latest_expectancy,
         average_expectancy=alpha_validation.average_expectancy,
         consecutive_positive_expectancy_days=alpha_validation.consecutive_positive_expectancy_days,
+        review_latest_expectancy=review_trend.latest_expectancy,
+        review_average_expectancy=review_trend.average_expectancy,
+        review_consecutive_positive_expectancy_days=review_trend.consecutive_positive_expectancy_days,
         event_ledger_ready=event_ledger.replay_ready,
         alpha_ready=alpha_validation.alpha_ready,
         alpha_blockers=alpha_validation.blockers,
@@ -220,6 +226,6 @@ def _summary(
         return "Daily paper report: operations are healthy and paper alpha gates are satisfied."
     return (
         "Daily paper report: "
-        f"operations {health_status}, run {run_state}, latest expectancy {latest_expectancy:.2f}; "
+        f"operations {health_status}, run {run_state}, latest strategy Alpha expectancy {latest_expectancy:.2f}; "
         "continue paper validation before live capital."
     )

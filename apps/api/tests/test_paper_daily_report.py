@@ -353,8 +353,11 @@ def test_paper_daily_report_uses_strategy_alpha_expectancy_not_account_review(mo
         assert report.latest_expectancy == 0
         assert report.average_expectancy == 0
         assert report.consecutive_positive_expectancy_days == 0
+        assert report.review_latest_expectancy == 250
+        assert report.review_average_expectancy == 250
+        assert report.review_consecutive_positive_expectancy_days == 1
         assert "latest_positive_expectancy" in report.alpha_blockers
-        assert "latest expectancy 0.00" in report.summary
+        assert "latest strategy Alpha expectancy 0.00" in report.summary
 
 
 def make_session() -> Session:

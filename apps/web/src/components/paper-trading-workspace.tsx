@@ -1667,9 +1667,18 @@ export function PaperTradingWorkspace() {
         </div>
         <div className="import-result">
           <strong>
-            策略Alpha期望 {formatCurrency(dailyReport?.latest_expectancy ?? 0)} · 连续正期望{" "}
-            {dailyReport?.consecutive_positive_expectancy_days ?? 0} 天
+            账户复盘期望 {formatCurrency(dailyReport?.review_latest_expectancy ?? 0)} · 复盘连续正期望{" "}
+            {dailyReport?.review_consecutive_positive_expectancy_days ?? 0} 天
           </strong>
+          <p>
+            策略 Alpha 期望 {formatCurrency(dailyReport?.latest_expectancy ?? 0)} · Alpha 连续正期望{" "}
+            {dailyReport?.consecutive_positive_expectancy_days ?? 0} 天
+            <small> Alpha 口径只看策略级闭环交易，账户复盘口径用于每日盈亏观察。</small>
+          </p>
+          <p>
+            账户平均期望 {formatCurrency(dailyReport?.review_average_expectancy ?? 0)} · 策略 Alpha 平均期望{" "}
+            {formatCurrency(dailyReport?.average_expectancy ?? 0)}
+          </p>
           <p>
             已实现 {formatCurrency(dailyReport?.realized_pnl ?? 0)} · 未实现{" "}
             {formatCurrency(dailyReport?.unrealized_pnl ?? 0)} · 事件链{" "}

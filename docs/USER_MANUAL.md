@@ -302,6 +302,10 @@ VelaQuant 的目标不是让 AI 直接喊单，而是帮用户建立一条可复
 
 - 系统合并 paper run、orders、positions、reviews、alpha gates 和 scheduler 状态。
 - 今日简报不只看行情，还看策略是否在正确收集验证样本。
+- 页面会把“账户复盘期望”和“策略 Alpha 期望”分开展示：
+  - 账户复盘期望：解释当天 paper account 的盈亏和复盘结果。
+  - 策略 Alpha 期望：只看策略自己的闭环交易样本，用于 Alpha 门禁。
+  - 如果账户复盘期望为正、策略 Alpha 期望仍为 0，表示账户今天赚钱了，但这个策略还没有足够闭环交易证明自己有稳定 Alpha。
 
 能达到的效果：
 

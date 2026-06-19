@@ -838,6 +838,9 @@ export type PaperDailyReportPayload = {
   latest_expectancy: number;
   average_expectancy: number;
   consecutive_positive_expectancy_days: number;
+  review_latest_expectancy: number;
+  review_average_expectancy: number;
+  review_consecutive_positive_expectancy_days: number;
   event_ledger_ready: boolean;
   alpha_ready: boolean;
   alpha_blockers: string[];
@@ -1929,6 +1932,9 @@ const fallbackPaperDailyReport: PaperDailyReportPayload = {
   latest_expectancy: 0,
   average_expectancy: 0,
   consecutive_positive_expectancy_days: 0,
+  review_latest_expectancy: 0,
+  review_average_expectancy: 0,
+  review_consecutive_positive_expectancy_days: 0,
   event_ledger_ready: false,
   alpha_ready: false,
   alpha_blockers: ["api_unavailable"],
@@ -5222,6 +5228,9 @@ function isPaperDailyReportPayload(value: unknown): value is PaperDailyReportPay
     typeof value.latest_expectancy === "number" &&
     typeof value.average_expectancy === "number" &&
     typeof value.consecutive_positive_expectancy_days === "number" &&
+    typeof value.review_latest_expectancy === "number" &&
+    typeof value.review_average_expectancy === "number" &&
+    typeof value.review_consecutive_positive_expectancy_days === "number" &&
     typeof value.event_ledger_ready === "boolean" &&
     typeof value.alpha_ready === "boolean" &&
     Array.isArray(value.alpha_blockers) &&
