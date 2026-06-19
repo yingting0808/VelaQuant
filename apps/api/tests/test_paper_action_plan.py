@@ -212,6 +212,50 @@ def test_paper_action_plan_holds_when_score_pnl_inversion_review_is_recorded_for
     assert "score_pnl_inversion_review_recorded=true" in plan.items[0].evidence
 
 
+def test_paper_action_plan_prioritizes_expectancy_quality_review_for_strategy_alpha_blocker():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("latest_positive_expectancy", "最新期望", 0, 0, 0.01, "USD", comparison="greater_than"),
+                _gate("consecutive_positive_expectancy", "连续正期望", 0, 5, 5, "天"),
+                _gate("closed_trade_sample", "闭环交易", 7, 10, 3, "笔"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+    )
+
+    assert plan.primary_action == "review_expectancy_quality"
+    assert plan.items[0].action_code == "review_expectancy_quality"
+    assert plan.items[0].title == "复盘期望质量"
+    assert "最新期望" in plan.items[0].detail
+    assert "latest_alpha_snapshot_trading_day=2026-06-13" in plan.items[0].evidence
+    assert "latest_positive_expectancy_current=0" in plan.items[0].evidence
+    assert any(item.action_code == "hold_until_next_session" for item in plan.items)
+
+
+def test_paper_action_plan_holds_after_expectancy_quality_review_is_recorded():
+    plan = build_paper_action_plan(
+        operations=_operations(blockers=[], health_status="ready"),
+        alpha_gates=_alpha_gates(
+            [
+                _gate("latest_positive_expectancy", "最新期望", 0, 0, 0.01, "USD", comparison="greater_than"),
+                _gate("consecutive_positive_expectancy", "连续正期望", 0, 5, 5, "天"),
+            ]
+        ),
+        execution=_execution(max_daily_order_rejections=0),
+        risk_profile=_risk_profile(max_daily_orders=10),
+        latest_alpha_snapshot_trading_day="2026-06-13",
+        expectancy_quality_review_recorded=True,
+    )
+
+    assert plan.primary_action == "hold_until_next_session"
+    assert all(item.action_code != "review_expectancy_quality" for item in plan.items)
+    assert "expectancy_quality_review_recorded=true" in plan.items[0].evidence
+
+
 def test_paper_action_plan_holds_after_current_alpha_snapshot_is_recorded():
     plan = build_paper_action_plan(
         operations=_operations(blockers=[], health_status="ready"),

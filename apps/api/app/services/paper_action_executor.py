@@ -64,12 +64,18 @@ def execute_paper_primary_action(
         scheduler = get_paper_scheduler_status().model_dump(mode="json")
         hold_detail = plan.items[0].detail if plan.items else "Waiting for the next scheduled paper run."
         result = {"reason": hold_detail, "scheduler": scheduler}
-    elif action == "review_score_pnl_inversion":
+    elif action in {"review_score_pnl_inversion", "review_expectancy_quality"}:
         executed = False
         status = "review_required"
         review_item = next((item for item in plan.items if item.action_code == action), None)
-        title = review_item.title if review_item is not None else "复盘评分背离"
-        detail = review_item.detail if review_item is not None else "评分方向与观测盈亏存在反向，需要人工复盘。"
+        default_title = "复盘期望质量" if action == "review_expectancy_quality" else "复盘评分背离"
+        default_detail = (
+            "策略级 Alpha 期望质量未达标，需要人工复盘。"
+            if action == "review_expectancy_quality"
+            else "评分方向与观测盈亏存在反向，需要人工复盘。"
+        )
+        title = review_item.title if review_item is not None else default_title
+        detail = review_item.detail if review_item is not None else default_detail
         evidence = review_item.evidence if review_item is not None else []
         audit_event, audit_created = _record_strategy_review_event(
             session,
@@ -129,8 +135,8 @@ def _record_strategy_review_event(
 ) -> tuple[CoreEventLog, bool]:
     workspace = get_or_create_default_workspace(session)
     tickers = _tickers_from_evidence(evidence)
-    ticker_key = ",".join(tickers) if tickers else "unknown"
-    correlation_id = f"paper_action:{action_code}:{ticker_key}"
+    review_subject = _review_subject_from_evidence(action_code, evidence)
+    correlation_id = f"paper_action:{action_code}:{review_subject}"
     existing = session.exec(
         select(CoreEventLog)
         .where(CoreEventLog.team_id == workspace.team.id)
@@ -178,6 +184,15 @@ def _tickers_from_evidence(evidence: list[str]) -> list[str]:
             return []
         return sorted({ticker.strip().upper() for ticker in raw.split(",") if ticker.strip()})
     return []
+
+
+def _review_subject_from_evidence(action_code: str, evidence: list[str]) -> str:
+    tickers = _tickers_from_evidence(evidence)
+    if tickers:
+        return ",".join(tickers)
+    if action_code == "review_expectancy_quality":
+        return "expectancy"
+    return "unknown"
 
 
 def _next_strategy_review_sequence(session: Session, team_id) -> int:

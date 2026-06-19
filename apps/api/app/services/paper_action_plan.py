@@ -74,6 +74,11 @@ def get_paper_action_plan(session: Session) -> PaperActionPlanPayload:
             team_id=team_id,
             tickers=inverted_tickers,
         ),
+        expectancy_quality_review_recorded=_has_expectancy_quality_review_record(
+            session,
+            team_id=team_id,
+            latest_alpha_snapshot_trading_day=snapshots.latest.trading_day if snapshots.latest is not None else None,
+        ),
         triggered_exit_sample_count=_triggered_exit_sample_count(session),
     )
 
@@ -91,6 +96,7 @@ def build_paper_action_plan(
     latest_alpha_snapshot_trading_day: str | None = None,
     inverted_score_pnl_tickers: list[str] | None = None,
     score_pnl_inversion_review_recorded: bool = False,
+    expectancy_quality_review_recorded: bool = False,
     triggered_exit_sample_count: int = 0,
 ) -> PaperActionPlanPayload:
     items: list[PaperActionPlanItem] = []
@@ -131,7 +137,7 @@ def build_paper_action_plan(
         ticker_text = ", ".join(tickers) if tickers else f"{score_pnl_gate.remaining:g} 项"
         items.append(
             PaperActionPlanItem(
-                priority=2,
+                priority=3,
                 action_code="review_score_pnl_inversion",
                 title="复盘评分背离",
                 detail=(
@@ -147,6 +153,53 @@ def build_paper_action_plan(
         )
     elif score_pnl_gate is not None:
         open_gates = [item for item in open_gates if item.gate != "score_pnl_inversion_review"]
+
+    latest_expectancy_gate = _gate(open_gates, "latest_positive_expectancy")
+    expectancy_gates = []
+    if latest_expectancy_gate is not None and latest_alpha_snapshot_trading_day is not None:
+        expectancy_gates = [
+            item
+            for item in open_gates
+            if item.gate in {"latest_positive_expectancy", "consecutive_positive_expectancy"}
+        ]
+    if expectancy_gates and not expectancy_quality_review_recorded:
+        gate_text = " / ".join(
+            f"{item.label} 当前 {item.current:g}{item.unit}，目标 {item.required:g}{item.unit}"
+            for item in expectancy_gates
+        )
+        items.append(
+            PaperActionPlanItem(
+                priority=2,
+                action_code="review_expectancy_quality",
+                title="复盘期望质量",
+                detail=(
+                    f"策略级 Alpha 期望质量未达标：{gate_text}；"
+                    "先复盘最近闭环交易、候选证据、入场价和退出规则，暂不把继续收样本误判为 Alpha 改善。"
+                ),
+                evidence=[
+                    alpha_gates.summary,
+                    f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day or 'unknown'}",
+                    *[
+                        f"{item.gate}_current={item.current:g}"
+                        for item in expectancy_gates
+                    ],
+                    *[
+                        f"{item.gate}_required={item.required:g}"
+                        for item in expectancy_gates
+                    ],
+                    *[
+                        f"{item.gate}_current={item.current:g};required={item.required:g};remaining={item.remaining:g}{item.unit}"
+                        for item in expectancy_gates
+                    ],
+                ],
+            )
+        )
+    elif expectancy_gates:
+        open_gates = [
+            item
+            for item in open_gates
+            if item.gate not in {"latest_positive_expectancy", "consecutive_positive_expectancy"}
+        ]
 
     latest_review = review_trend.items[0] if review_trend is not None and review_trend.items else None
     if latest_review is not None and latest_review.daily_pnl < 0:
@@ -258,6 +311,11 @@ def build_paper_action_plan(
                         if score_pnl_inversion_review_recorded
                         else []
                     ),
+                    *(
+                        ["expectancy_quality_review_recorded=true"]
+                        if expectancy_quality_review_recorded
+                        else []
+                    ),
                     *_hold_until_next_session_evidence(
                         alpha_forecast,
                         scheduler,
@@ -284,6 +342,11 @@ def build_paper_action_plan(
                     *(
                         ["score_pnl_inversion_review_recorded=true"]
                         if score_pnl_inversion_review_recorded
+                        else []
+                    ),
+                    *(
+                        ["expectancy_quality_review_recorded=true"]
+                        if expectancy_quality_review_recorded
                         else []
                     ),
                 ],
@@ -319,7 +382,19 @@ def build_paper_action_plan(
                 action_code="hold_until_next_session",
                 title="等待下一次调度",
                 detail="当前没有阻断动作，等待下一交易日继续收集样本。",
-                evidence=[operations.summary],
+                evidence=[
+                    operations.summary,
+                    *(
+                        ["score_pnl_inversion_review_recorded=true"]
+                        if score_pnl_inversion_review_recorded
+                        else []
+                    ),
+                    *(
+                        ["expectancy_quality_review_recorded=true"]
+                        if expectancy_quality_review_recorded
+                        else []
+                    ),
+                ],
             )
         )
 
@@ -373,6 +448,35 @@ def _has_score_pnl_inversion_review_record(
             }
         )
         if reviewed_tickers == normalized_tickers:
+            return True
+    return False
+
+
+def _has_expectancy_quality_review_record(
+    session: Session,
+    *,
+    team_id,
+    latest_alpha_snapshot_trading_day: str | None,
+) -> bool:
+    if latest_alpha_snapshot_trading_day is None:
+        return False
+    events = session.exec(
+        select(CoreEventLog)
+        .where(CoreEventLog.team_id == team_id)
+        .where(CoreEventLog.run_id == None)  # noqa: E711
+        .where(CoreEventLog.topic == "strategy_review")
+        .order_by(CoreEventLog.published_at.desc())
+    ).all()
+    expected_evidence = f"latest_alpha_snapshot_trading_day={latest_alpha_snapshot_trading_day}"
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("action_code") != "review_expectancy_quality":
+            continue
+        evidence = payload.get("evidence")
+        if isinstance(evidence, list) and expected_evidence in evidence:
             return True
     return False
 

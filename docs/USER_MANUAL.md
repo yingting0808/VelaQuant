@@ -315,6 +315,7 @@ VelaQuant 的目标不是让 AI 直接喊单，而是帮用户建立一条可复
 - `hold_until_next_session`：等待下一次有效交易日采样。
 - `continue_paper_validation`：记录当前 Alpha 验证快照。
 - `review_score_pnl_inversion`：复盘评分和盈亏反向的 ticker。
+- `review_expectancy_quality`：复盘策略级最新期望或连续正期望不足的问题。
 - `apply_paper_risk_limit_recommendation`：只调整 paper 风险限额，不改变 live 限额。
 
 背后逻辑：
@@ -322,6 +323,7 @@ VelaQuant 的目标不是让 AI 直接喊单，而是帮用户建立一条可复
 - 系统会根据 Alpha blocker、运行健康、风控限制、事件账本和复盘状态生成首要动作。
 - 行动计划不会越过 live/broker 禁用状态。
 - 如果下一次 paper run 已经有可能触发退出样本，行动计划会展示结构化“预计推进”，例如“闭环交易 +2 笔，剩余 3 到 1 笔”。这表示系统预计下一次有效采样会补上 2 笔闭环交易样本，但仍要等实际运行和落库后才算正式通过。
+- 如果策略级最新期望不为正，行动计划会优先要求 `review_expectancy_quality`。这个动作只写入复盘审计，不会下单，也不会改风控；目的是提醒用户先检查最近闭环交易、候选证据、入场价和退出规则。
 
 能达到的效果：
 

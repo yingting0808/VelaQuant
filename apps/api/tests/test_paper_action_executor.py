@@ -170,6 +170,41 @@ def test_execute_primary_action_score_pnl_inversion_returns_review_required(monk
         assert "manual review required" in result.summary
 
 
+def test_execute_primary_action_expectancy_quality_returns_review_required(monkeypatch):
+    plan = SimpleNamespace(
+        primary_action="review_expectancy_quality",
+        items=[
+            SimpleNamespace(
+                action_code="review_expectancy_quality",
+                title="复盘期望质量",
+                detail="策略级 Alpha 期望质量未达标。",
+                evidence=[
+                    "latest_alpha_snapshot_trading_day=2026-06-18",
+                    "latest_positive_expectancy_current=0",
+                ],
+            )
+        ],
+    )
+
+    monkeypatch.setattr(paper_action_executor, "get_paper_action_plan", lambda session: plan)
+
+    with make_session() as session:
+        result = execute_paper_primary_action(session, MockMarketDataProvider())
+
+        assert result.executed is False
+        assert result.status == "review_required"
+        assert result.action_code == "review_expectancy_quality"
+        assert result.result is not None
+        assert result.result["title"] == "复盘期望质量"
+        assert result.result["evidence"] == [
+            "latest_alpha_snapshot_trading_day=2026-06-18",
+            "latest_positive_expectancy_current=0",
+        ]
+        assert result.result["audit_event_created"] is True
+        assert result.result["audit_event_id"] == "paper_action:review_expectancy_quality:expectancy:1:strategy_review"
+        assert "manual review required" in result.summary
+
+
 def test_execute_primary_action_score_pnl_inversion_persists_strategy_review_event(monkeypatch):
     plan = SimpleNamespace(
         primary_action="review_score_pnl_inversion",
