@@ -93,6 +93,10 @@ async function openAiAssistant(page: Page) {
   await expect(page.getByRole("heading", { name: "AI 助手" })).toBeVisible();
 }
 
+async function openPaperView(page: Page, name: string) {
+  await page.getByRole("button", { name: new RegExp(name) }).click();
+}
+
 test("dashboard renders portfolio, alerts, and AI sidecar", async ({ page }) => {
   await gotoDashboard(page);
 
@@ -1041,7 +1045,66 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await page.route("**/api/mvp/strategy-lab/alpha-forecast", async (route) => {
     await route.fulfill({ contentType: "application/json", json: alphaForecast });
   });
-  await page.route("**/api/mvp/paper-trading/action-plan", async (route) => {
+  await page.route("**/api/mvp/strategy-lab/registry", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        active_strategy_id: "deterministic_watchlist_v1",
+        entries: [
+          {
+            strategy_id: "deterministic_watchlist_v1",
+            name: "Deterministic Watchlist Strategy",
+            version: "v1",
+            source: "paper_core",
+            execution_mode: "paper",
+            status: "active",
+            rank: 1,
+            ranking_score: 80,
+            readiness: "watch",
+            promotion_gate: "keep_paper_running",
+            sample_size: 1,
+            filled_order_count: 1,
+            observed_pnl: 0,
+            primary_regime: "paper_runtime_alpha",
+            signal_quality_score: 1,
+            backtest_status: "success",
+            supports_live: false,
+            supports_hot_swap: true,
+            notes: "Registry fixture for paper trading E2E."
+          }
+        ],
+        missing_capabilities: [],
+        summary: "Strategy registry fixture."
+      }
+    });
+  });
+  await page.route("**/api/mvp/ai/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        langgraph: {
+          available: true,
+          mode: "research_workflow",
+          message: "LangGraph research workflow fixture."
+        },
+        research_llm: {
+          provider: "openai_responses_or_chat_completions",
+          mode: "research_only",
+          configured: false,
+          available: false,
+          model: "gpt-5.5",
+          base_url: "https://api.openai.com/v1",
+          message: "LLM disabled in E2E fixture."
+        },
+        execution_path: {
+          ai_generates_trade_intent: false,
+          ai_influences_risk: false,
+          ai_calls_execution: false
+        }
+      }
+    });
+  });
+  await page.route(/\/api\/mvp\/paper-trading\/action-plan$/, async (route) => {
     await route.fulfill({ contentType: "application/json", json: actionPlan });
   });
   await page.route("**/api/mvp/paper-trading/strategy-reviews", async (route) => {
@@ -1053,6 +1116,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
 
   await expect(page).toHaveURL("/paper-trading");
   await expect(page.getByRole("heading", { level: 2, name: "模拟盘" })).toBeVisible();
+  await openPaperView(page, "总览");
   await expect(page.getByText("默认模拟盘")).toBeVisible();
   const marketSessionPanel = page.getByRole("region", { name: "市场交易日" });
   await expect(marketSessionPanel.getByText("生效交易日")).toBeVisible();
@@ -1068,6 +1132,12 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(dailyReportPanel.getByText("AAPL 止盈 15.0% · 下次 2")).toBeVisible();
   await expect(dailyReportPanel.getByText("MSFT 止损 -10.0% · 下次 1")).toBeVisible();
   await expect(dailyReportPanel.getByText("阻断 review_day_sample")).toBeVisible();
+  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
+  await expect(
+    actionPlanPanel.getByText("Paper action plan primary action: apply_paper_risk_limit_recommendation")
+  ).toBeVisible();
+  await expect(actionPlanPanel.getByText("应用 Paper 限额建议")).toBeVisible();
+  await openPaperView(page, "运行维护");
   const operationsPanel = page.getByRole("region", { name: "运行健康" });
   await expect(operationsPanel.getByText("blocked", { exact: true })).toBeVisible();
   await expect(operationsPanel.getByText("run_daily_paper_trading")).toBeVisible();
@@ -1078,10 +1148,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   const stabilityPanel = page.getByRole("region", { name: "稳定趋势" });
   await expect(stabilityPanel.getByText("No paper operations history is available yet.")).toBeVisible();
   await expect(stabilityPanel.getByText("0.0%")).toHaveCount(2);
+  await openPaperView(page, "风控与复盘");
   const reviewTrendPanel = page.getByRole("region", { name: "净期望趋势" });
   await expect(reviewTrendPanel.getByText("No paper reviews are available yet.")).toBeVisible();
-  const executionPanel = page.getByRole("region", { name: "执行诊断" });
-  await expect(executionPanel.getByText("No paper execution orders are available yet.")).toBeVisible();
   const riskPanel = page.getByRole("region", { name: "风险配置" });
   await expect(riskPanel.getByText("Trading Core RiskEngine")).toBeVisible();
   await expect(riskPanel.getByText("5 笔")).toBeVisible();
@@ -1089,21 +1158,18 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(riskLimitReviewPanel.getByText("Paper risk limit review: paper-only review required")).toBeVisible();
   await expect(riskLimitReviewPanel.getByText("5 → 6")).toBeVisible();
   await expect(riskLimitReviewPanel.getByText("Live 不变")).toBeVisible();
-  const actionPlanPanel = page.getByRole("region", { name: "行动计划" });
-  await expect(
-    actionPlanPanel.getByText("Paper action plan primary action: apply_paper_risk_limit_recommendation")
-  ).toBeVisible();
-  await expect(actionPlanPanel.getByText("应用 Paper 限额建议")).toBeVisible();
   const strategyReviewsPanel = page.getByRole("region", { name: "策略复盘记录" });
   await expect(strategyReviewsPanel.getByText("Strategy reviews: 1 recorded")).toBeVisible();
   await expect(strategyReviewsPanel.getByText("AAPL, NVDA")).toBeVisible();
   await expect(strategyReviewsPanel.getByText("required")).toBeVisible();
+  await openPaperView(page, "总览");
   await actionPlanPanel.getByRole("button", { name: "执行首要动作" }).click();
   await expect(
     page.getByText("Executed primary action apply_paper_risk_limit_recommendation; next action collect_post_limit_sample.")
   ).toBeVisible();
   await expect(actionPlanPanel.getByText("Paper action plan primary action: collect_post_limit_sample")).toBeVisible();
   await expect(actionPlanPanel.getByText("收集新限额样本")).toBeVisible();
+  await openPaperView(page, "风控与复盘");
   await expect(riskLimitReviewPanel.getByText("6 → 6")).toBeVisible();
   await expect(riskPanel.getByText("6 笔")).toBeVisible();
   const alphaGatePanel = page.getByRole("region", { name: "Alpha 门禁" });
@@ -1115,12 +1181,16 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(alphaForecastPanel.getByText("Alpha validation needs about 5 more paper sessions")).toBeVisible();
   await expect(alphaForecastPanel.getByText("5 次", { exact: true })).toBeVisible();
   await expect(alphaForecastPanel.getByText("filled_order_sample")).toBeVisible();
+  await openPaperView(page, "候选与模拟");
   const simulationPanel = page.getByRole("region", { name: "多日模拟" });
   await expect(simulationPanel.getByText("多日模拟")).toBeVisible();
   await page.getByRole("button", { name: "运行 5 日模拟" }).click();
   await expect(simulationPanel.getByText("Paper simulation completed 5/5 days under bullish")).toBeVisible();
   await expect(simulationPanel.getByText("5 / 5")).toBeVisible();
   await expect(simulationPanel.getByText("closed_trade_sample")).toBeVisible();
+  const executionPanel = page.getByRole("region", { name: "执行诊断" });
+  await expect(executionPanel.getByText("No paper execution orders are available yet.")).toBeVisible();
+  await openPaperView(page, "运行维护");
   const schedulerPanel = page.getByRole("region", { name: "每日调度" });
   await expect(schedulerPanel.getByText("休市跳过")).toBeVisible();
   await expect(schedulerPanel.getByText("运行中")).toBeVisible();
@@ -1138,36 +1208,44 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("skipped")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("manual")).toBeVisible();
   await expect(page.getByRole("region", { name: "运行账本" }).getByText("订单 1")).toBeVisible();
+  await openPaperView(page, "事件与AI");
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("需修复")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("missing_core_events")).toBeVisible();
 
+  await openPaperView(page, "总览");
   await page.getByRole("button", { name: "运行今日模拟" }).click();
 
+  await openPaperView(page, "候选与模拟");
   await expect(page.getByRole("region", { name: "候选池" }).getByText("NVDA", { exact: true })).toBeVisible();
   await expect(page.getByText("3 条证据支持继续跟踪 NVDA")).toBeVisible();
   await expect(page.getByText("回测 收益 -1.46%")).toBeVisible();
   await expect(page.getByRole("button", { name: "已排除 AMZN" })).toBeDisabled();
-  await expect(page.getByText("正在收集模拟盘样本。")).toBeVisible();
+  await expect(page.locator("header").getByText("收集样本", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "模拟买入 NVDA" }).click();
 
+  await openPaperView(page, "总览");
   await expect(page.getByText("已模拟买入 NVDA。")).toBeVisible();
   await expect(dailyReportPanel.getByText("Daily paper report: operations ready")).toBeVisible();
   await expect(dailyReportPanel.getByText("hold_until_next_session")).toBeVisible();
   await expect(dailyReportPanel.getByText("今日 PnL")).toBeVisible();
   await expect(dailyReportPanel.getByText("$125.50 · 0.1%")).toBeVisible();
+  await openPaperView(page, "运行维护");
   await expect(operationsPanel.getByText("ready", { exact: true })).toBeVisible();
   await expect(operationsPanel.getByText("hold_until_next_session")).toBeVisible();
   await expect(operationsPanel.getByText("事件链可回放")).toBeVisible();
   await expect(stabilityPanel.getByText("100.0%")).toHaveCount(2);
   await expect(stabilityPanel.getByText("2026-06-13")).toBeVisible();
+  await openPaperView(page, "风控与复盘");
   await expect(reviewTrendPanel.getByText("Paper review trend is not validated")).toBeVisible();
   await expect(reviewTrendPanel.getByText("2026-06-13")).toBeVisible();
   await expect(reviewTrendPanel.getByText("日 PnL")).toBeVisible();
   await expect(reviewTrendPanel.getByText("$125.50")).toBeVisible();
   await expect(reviewTrendPanel.getByText("0.1%")).toBeVisible();
+  await openPaperView(page, "候选与模拟");
   await expect(executionPanel.getByText("Paper execution diagnostics: 1 filled, 0 rejected")).toBeVisible();
   await expect(executionPanel.getByText("100.0%")).toBeVisible();
+  await openPaperView(page, "事件与AI");
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("完整", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("NVDA · filled")).toBeVisible();
   await expect(page.getByRole("region", { name: "事件账本" }).getByText("order_state 5")).toBeVisible();
@@ -1187,6 +1265,7 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(
     page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
   ).toBeVisible();
+  await openPaperView(page, "候选与模拟");
   await expect(page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "filled", exact: true })).toBeVisible();
   await expect(
     page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "approved approved" })
