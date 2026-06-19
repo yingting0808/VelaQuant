@@ -26,6 +26,7 @@ class EventLedgerTradeExplanation(BaseModel):
     decision: str | None = None
     explanation: str | None = None
     evidence: list[str] = Field(default_factory=list)
+    evidence_items: list[dict[str, str | None]] = Field(default_factory=list)
     backtest: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 
@@ -71,6 +72,51 @@ class EventLedgerStatus(BaseModel):
     warnings: list[str]
     summary: str
     latest_replay: EventLedgerReplay | None
+
+
+class MarketEventTraceEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    topic: str
+    sequence: int
+    causation_id: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class MarketEventTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    run_id: UUID | None
+    trading_day: str | None
+    published_at: datetime
+    correlation_id: str
+    ticker: str | None
+    strategy_id: str | None
+    event_type: str | None
+    summary: str | None
+    confidence: float | None
+    impact_score: float | None
+    source: str | None
+    topics: list[str]
+    trade_intent_side: str | None = None
+    trade_intent_reason: str | None = None
+    risk_decision: str | None = None
+    risk_reason: str | None = None
+    order_state: str | None = None
+    explanation: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    chain_events: list[MarketEventTraceEvent] = Field(default_factory=list)
+
+
+class MarketEventTracePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_event_count: int
+    filtered_event_count: int
+    events: list[MarketEventTrace]
+    summary: str
 
 
 def get_event_ledger_status(
@@ -131,6 +177,52 @@ def get_event_ledger_status(
         warnings=warnings,
         summary=_summary(latest_run, latest_replay),
         latest_replay=latest_replay,
+    )
+
+
+def list_market_event_traces(
+    session: Session,
+    *,
+    ticker: str | None = None,
+    strategy_id: str | None = None,
+    limit: int = 50,
+) -> MarketEventTracePayload:
+    workspace = get_or_create_default_workspace(session)
+    team_id = workspace.team.id
+    normalized_ticker = ticker.strip().upper() if ticker else None
+    normalized_strategy_id = strategy_id.strip() if strategy_id else None
+    bounded_limit = max(1, min(limit, 200))
+    events = list(
+        session.exec(
+            select(CoreEventLog)
+            .where(CoreEventLog.team_id == team_id)
+            .order_by(CoreEventLog.published_at.desc(), CoreEventLog.sequence.desc())
+        ).all()
+    )
+    market_events = [event for event in events if event.topic == "market_event"]
+    events_by_correlation: dict[str, list[CoreEventLog]] = {}
+    run_trading_days = _run_trading_days(session, {event.run_id for event in market_events if event.run_id is not None})
+    for event in events:
+        events_by_correlation.setdefault(event.correlation_id, []).append(event)
+
+    traces: list[MarketEventTrace] = []
+    for event in market_events:
+        chain = sorted(
+            events_by_correlation.get(event.correlation_id, []),
+            key=lambda item: (item.sequence, item.published_at),
+        )
+        trace = _market_event_trace(event, chain, run_trading_days=run_trading_days)
+        if normalized_ticker and trace.ticker != normalized_ticker:
+            continue
+        if normalized_strategy_id and trace.strategy_id != normalized_strategy_id:
+            continue
+        traces.append(trace)
+
+    return MarketEventTracePayload(
+        total_event_count=len(market_events),
+        filtered_event_count=len(traces),
+        events=traces[:bounded_limit],
+        summary=_market_event_trace_summary(len(market_events), len(traces[:bounded_limit])),
     )
 
 
@@ -344,6 +436,7 @@ def _chain_trade_explanation(events: list[CoreEventLog]) -> EventLedgerTradeExpl
             decision=_optional_str(payload.get("decision")),
             explanation=_optional_str(payload.get("explanation")),
             evidence=[item for item in evidence if isinstance(item, str)] if isinstance(evidence, list) else [],
+            evidence_items=_evidence_items_payload(payload.get("evidence_items")),
             backtest=backtest if isinstance(backtest, dict) else {},
         )
     return None
@@ -353,12 +446,135 @@ def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _evidence_items_payload(value: object) -> list[dict[str, str | None]]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict[str, str | None]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "ticker": _optional_str(item.get("ticker")),
+                "title": _optional_str(item.get("title")),
+                "summary": _optional_str(item.get("summary")),
+                "source": _optional_str(item.get("source")),
+                "source_url": _optional_str(item.get("source_url")),
+                "observed_at": _optional_str(item.get("observed_at")),
+                "form": _optional_str(item.get("form")),
+                "filing_date": _optional_str(item.get("filing_date")),
+                "accession_number": _optional_str(item.get("accession_number")),
+            }
+        )
+    return items
+
+
 def _event_payload(event: CoreEventLog) -> dict:
     try:
         payload = json.loads(event.payload_json)
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _run_trading_days(session: Session, run_ids: set[UUID]) -> dict[UUID, str]:
+    if not run_ids:
+        return {}
+    runs = list(session.exec(select(PaperRun).where(PaperRun.id.in_(run_ids))).all())
+    return {run.id: run.trading_day for run in runs}
+
+
+def _market_event_trace(
+    event: CoreEventLog,
+    chain: list[CoreEventLog],
+    *,
+    run_trading_days: dict[UUID, str],
+) -> MarketEventTrace:
+    payload = _event_payload(event)
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    explanation = _chain_trade_explanation(chain)
+    trade_intent_payload = _latest_topic_payload(chain, "trade_intent")
+    risk_payload = _latest_topic_payload(chain, "risk_decision")
+    order_payload = _latest_topic_payload(chain, "order_state")
+    return MarketEventTrace(
+        event_id=event.event_id,
+        run_id=event.run_id,
+        trading_day=run_trading_days.get(event.run_id) if event.run_id is not None else None,
+        published_at=event.published_at,
+        correlation_id=event.correlation_id,
+        ticker=_payload_ticker(payload),
+        strategy_id=_optional_str(metadata.get("strategy_id")) or (explanation.strategy_id if explanation else None),
+        event_type=_optional_str(payload.get("event_type")),
+        summary=_optional_str(payload.get("summary")),
+        confidence=_optional_float(payload.get("confidence")),
+        impact_score=_optional_float(payload.get("impact_score")),
+        source=_optional_str(metadata.get("source")) or _optional_str(payload.get("source")),
+        topics=[item.topic for item in chain],
+        trade_intent_side=_optional_str(trade_intent_payload.get("side")),
+        trade_intent_reason=_optional_str(trade_intent_payload.get("reason")),
+        risk_decision=_risk_decision_label(risk_payload),
+        risk_reason=_optional_str(risk_payload.get("reason")),
+        order_state=_optional_str(order_payload.get("state")) or _optional_str(order_payload.get("current_state")),
+        explanation=explanation.explanation if explanation else None,
+        evidence=explanation.evidence if explanation else [],
+        chain_events=[
+            MarketEventTraceEvent(
+                event_id=item.event_id,
+                topic=item.topic,
+                sequence=item.sequence,
+                causation_id=item.causation_id,
+                payload=_event_payload(item),
+            )
+            for item in chain
+        ],
+    )
+
+
+def _latest_topic_payload(events: list[CoreEventLog], topic: str) -> dict:
+    for event in reversed(events):
+        if event.topic == topic:
+            return _event_payload(event)
+    return {}
+
+
+def _payload_ticker(payload: dict) -> str | None:
+    ticker = payload.get("ticker")
+    if isinstance(ticker, str) and ticker.strip():
+        return ticker.strip().upper()
+    nested = payload.get("market_event")
+    if isinstance(nested, dict):
+        nested_ticker = nested.get("ticker")
+        if isinstance(nested_ticker, str) and nested_ticker.strip():
+            return nested_ticker.strip().upper()
+    return None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _risk_decision_label(payload: dict) -> str | None:
+    approved = payload.get("approved")
+    if isinstance(approved, bool):
+        return "approved" if approved else "rejected"
+    status = payload.get("status")
+    if isinstance(status, str) and status:
+        return status
+    code = payload.get("code")
+    if isinstance(code, str) and code:
+        return code
+    return None
+
+
+def _market_event_trace_summary(total: int, visible: int) -> str:
+    if total == 0:
+        return "No market events have been persisted yet."
+    return f"Showing {visible} market event traces from {total} persisted market events."
 
 
 def _summary(run: PaperRun, replay: EventLedgerReplay | None) -> str:

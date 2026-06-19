@@ -251,10 +251,11 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Automatic paper exit orders now inherit the latest linked entry candidate id, preserving candidate attribution through closed-trade realized PnL instead of stopping at the opening order.
 - Strategy attribution now prefers order-linked `candidate_id` when matching candidate scores to observed PnL, falling back to ticker-level matching only for older records without candidate linkage.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
+- `GET /api/mvp/paper-trading/market-events` now exposes a user-facing Market Event Center over persisted `CoreEventLog` data. Operators can filter by ticker, then see the `MarketEvent` summary, strategy id, confidence, impact score, source, downstream `TradeIntent`, `RiskDecision`, `OrderState`, explanation, evidence, and `correlation_id`.
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - The Paper Trading workspace now opens with a purpose-based SPCX/INTC onboarding guide and a Registry-backed strategy source panel. The UI explicitly labels `deterministic_watchlist_v1` and `moving_average_cross` as controlled baseline research strategies, not proven profitable Alpha; each strategy still needs backtest evidence, paper samples, PnL, risk, and event-ledger attribution before promotion.
-- The Paper Trading workspace now opens with an operator observability console: concrete EventLedger topic flow and correlation id, AI/LangGraph/LLM analysis boundary, latest `trade_explanation` evidence, and a selectable OHLC candlestick panel for paper tickers such as SPCX and INTC.
+- The Paper Trading workspace is split into professional workflow views: Overview, Events & AI, Candidates & Simulation, Risk & Review, and Operations. The Events & AI view includes concrete EventLedger topic flow, correlation id, a Market Event Center for selected tickers such as SPCX and INTC, human-readable event explanations, per-evidence source/title/summary/url details, optional raw payload content, AI/LangGraph/LLM analysis boundary, latest `trade_explanation` evidence, and a selectable OHLC candlestick panel.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
@@ -318,10 +319,11 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 自动 paper 退出订单现在会继承最近一次有关联的入场候选 ID，因此候选归因可以穿透到闭环交易的已实现盈亏，而不是停在开仓订单。
 - 策略归因现在会优先使用订单关联的 `candidate_id` 匹配候选评分与观测盈亏；只有老数据没有候选关联时才退回 ticker 级匹配。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
+- `GET /api/mvp/paper-trading/market-events` 现在会基于已落库的 `CoreEventLog` 暴露面向用户的市场事件中心。运行人员可以按 ticker 筛选，并看到 `MarketEvent` 摘要、策略 ID、置信度、影响分、来源、后续 `TradeIntent`、`RiskDecision`、`OrderState`、解释、证据和 `correlation_id`。
 - 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 模拟盘工作台现在进入页面先展示基于 SPCX/INTC 的按目的上手向导，并展示由 Strategy Registry 驱动的策略来源面板。页面会明确说明 `deterministic_watchlist_v1` 和 `moving_average_cross` 是受控研究基线策略，不是已经证明盈利的成熟 Alpha；策略晋级仍需要回测证据、模拟盘样本、盈亏、风控和事件账本归因共同证明。
-- 模拟盘工作台现在首屏展示运行可视化控制台：具体 EventLedger topic 流和 correlation id、AI/LangGraph/LLM 分析边界、最新 `trade_explanation` 证据，以及可切换 SPCX、INTC 等标的的 OHLC K线面板。
+- 模拟盘工作台现在按专业工作流拆成“总览 / 事件与AI / 候选与模拟 / 风控与复盘 / 运行维护”。其中“事件与AI”包含具体 EventLedger topic 流和 correlation id、可按 SPCX/INTC 等标的切换的市场事件中心、人可读的事件解读、逐条证据的来源/标题/摘要/链接、可选原始 payload、AI/LangGraph/LLM 分析边界、最新 `trade_explanation` 证据，以及 OHLC K线面板。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。

@@ -490,6 +490,14 @@ EventLedger 是系统的审计记录。
 - 把候选理由和后续 PnL 关联起来。
 - 支撑 Alpha validation 和 strategy attribution。
 
+当前可用查询入口：
+
+| 入口 | 用途 |
+| --- | --- |
+| `GET /api/mvp/paper-trading/event-ledger` | 查看最近一次可回放运行的事件账本、topic 计数和链路完整性 |
+| `GET /api/mvp/paper-trading/market-events?ticker=INTC` | 查看指定 ticker 的市场事件，以及后续 TradeIntent、RiskDecision、OrderState、解释和证据 |
+| Web UI：`模拟盘 -> 事件与AI -> 市场事件中心` | 面向运行人员查看 SPCX、INTC 等标的的事件、原因、逐 topic payload 和追溯链 |
+
 ## 13. 策略生命周期
 
 目标生命周期：

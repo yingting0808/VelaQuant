@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
 from app.core.config import get_settings
-from app.data.providers.base import MarketDataProvider
+from app.data.providers.base import EvidenceItem, MarketDataProvider
 from app.domain.models import (
     CoreEventLog,
     PaperAccount,
@@ -795,6 +795,7 @@ def _generate_candidates(
                     candidate,
                     backtest_item,
                     strategy_id=binding.strategy_id,
+                    evidence_items=evidence,
                     evidence_count=evidence_count,
                     quote_source=quote.source,
                     diversification_bonus=diversification_bonus,
@@ -1148,6 +1149,7 @@ def _trade_explanation_event(
     item: StrategyCandidateBacktestItem | None,
     *,
     strategy_id: str,
+    evidence_items: list[EvidenceItem] | None = None,
     evidence_count: int | None = None,
     quote_source: str | None = None,
     diversification_bonus: float | None = None,
@@ -1169,8 +1171,23 @@ def _trade_explanation_event(
         decision=item.recommendation if item is not None else _candidate_decision(candidate),
         explanation=candidate.thesis,
         evidence=evidence,
+        evidence_items=[_evidence_item_payload(evidence_item) for evidence_item in evidence_items or []],
         backtest=_trade_explanation_backtest(item),
     )
+
+
+def _evidence_item_payload(item: EvidenceItem) -> dict[str, str | None]:
+    return {
+        "ticker": item.ticker,
+        "title": item.title,
+        "summary": item.summary,
+        "source": item.source,
+        "source_url": item.source_url,
+        "observed_at": item.observed_at,
+        "form": item.form,
+        "filing_date": item.filing_date,
+        "accession_number": item.accession_number,
+    }
 
 
 def _candidate_decision(candidate: PaperCandidate) -> str:

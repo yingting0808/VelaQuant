@@ -530,6 +530,17 @@ def test_daily_run_records_trade_explanations_for_candidates_without_backtests(m
         assert "base_score=0.85" in nvda_payload["evidence"]
         assert "backtest_score=0.00" in nvda_payload["evidence"]
         assert "final_score=0.85" in nvda_payload["evidence"]
+        assert nvda_payload["evidence_items"][0] == {
+            "ticker": "NVDA",
+            "title": "NVDA evidence 1",
+            "summary": "NVDA has fixture evidence 1.",
+            "source": "fixture",
+            "source_url": "https://example.test/evidence",
+            "observed_at": "2026-06-13T00:00:00Z",
+            "form": None,
+            "filing_date": None,
+            "accession_number": None,
+        }
         assert nvda_payload["backtest"] == {}
         nvda_event = next(event for event in explanation_events if json.loads(event.payload_json)["ticker"] == "NVDA")
         trade_intent_event = session.exec(

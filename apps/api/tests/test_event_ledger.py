@@ -3,7 +3,7 @@ from datetime import timedelta
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.domain.models import CoreEventLog, PaperRun, PaperRunStatus, PaperRunTrigger
-from app.services.event_ledger import get_event_ledger_status
+from app.services.event_ledger import get_event_ledger_status, list_market_event_traces
 from app.services.workspace import get_or_create_default_workspace
 
 
@@ -186,6 +186,10 @@ def test_event_ledger_replay_exposes_trade_explanation_for_candidate_review():
                 '"candidate_id":"candidate-aapl",'
                 '"decision":"candidate","explanation":"AAPL promoted by real backtest evidence.",'
                 '"evidence":["positive expectancy","source=openbb_yfinance"],'
+                '"evidence_items":[{"ticker":"AAPL","title":"AAPL 10-Q filed",'
+                '"summary":"AAPL filed 10-Q with SEC EDGAR.","source":"sec_edgar",'
+                '"source_url":"https://www.sec.gov/aapl-10q","observed_at":"2026-06-12T00:00:00Z",'
+                '"form":"10-Q","filing_date":"2026-06-01","accession_number":"0000320193-26-000001"}],'
                 '"backtest":{"run_id":"bt-aapl","total_net_profit":"38.60%",'
                 '"sharpe_ratio":"1.42","drawdown":"-4.10%","total_trades":"12"}}'
             ),
@@ -203,8 +207,135 @@ def test_event_ledger_replay_exposes_trade_explanation_for_candidate_review():
         assert chain.trade_explanation.decision == "candidate"
         assert chain.trade_explanation.explanation == "AAPL promoted by real backtest evidence."
         assert chain.trade_explanation.evidence == ["positive expectancy", "source=openbb_yfinance"]
+        assert chain.trade_explanation.evidence_items[0]["source"] == "sec_edgar"
+        assert chain.trade_explanation.evidence_items[0]["summary"] == "AAPL filed 10-Q with SEC EDGAR."
         assert chain.trade_explanation.backtest["run_id"] == "bt-aapl"
         assert chain.trade_explanation.backtest["total_net_profit"] == "38.60%"
+
+
+def test_market_event_traces_filter_by_ticker_and_expose_downstream_chain():
+    with make_session() as session:
+        team_id, run = _workspace_run(session)
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="market-intc",
+            topic="market_event",
+            sequence=1,
+            correlation_id="corr-intc",
+            payload_json=(
+                '{"ticker":"INTC","event_type":"price_action","summary":"INTC fast SMA crossed above slow SMA.",'
+                '"confidence":0.74,"impact_score":0.66,"metadata":{"strategy_id":"moving_average_cross",'
+                '"fast_sma":31.2,"slow_sma":30.7,"source":"mock_market_data"}}'
+            ),
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="input-intc",
+            topic="strategy_input",
+            sequence=2,
+            causation_id="market-intc",
+            correlation_id="corr-intc",
+            payload_json='{"market_event":{"ticker":"INTC"},"portfolio":{"cash":100000}}',
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="intent-intc",
+            topic="trade_intent",
+            sequence=3,
+            causation_id="input-intc",
+            correlation_id="corr-intc",
+            payload_json=(
+                '{"ticker":"INTC","side":"buy","notional":2000,'
+                '"reason":"INTC moving-average cross event: fast_sma=31.20 > slow_sma=30.70"}'
+            ),
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="risk-intc",
+            topic="risk_decision",
+            sequence=4,
+            causation_id="intent-intc",
+            correlation_id="corr-intc",
+            payload_json='{"status":"approved","code":"approved","reason":"within paper risk limits"}',
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="order-intc",
+            topic="order_state",
+            sequence=5,
+            causation_id="risk-intc",
+            correlation_id="corr-intc",
+            payload_json='{"state":"filled","ticker":"INTC","quantity":64}',
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="explain-intc",
+            topic="trade_explanation",
+            sequence=6,
+            causation_id="intent-intc",
+            correlation_id="corr-intc",
+            payload_json=(
+                '{"ticker":"INTC","strategy_id":"moving_average_cross","decision":"candidate",'
+                '"explanation":"INTC entered because momentum evidence passed the strategy gate.",'
+                '"evidence":["fast_sma_above_slow_sma","source=mock_market_data"]}'
+            ),
+        )
+        _add_event(
+            session,
+            team_id,
+            run,
+            event_id="market-spcx",
+            topic="market_event",
+            sequence=7,
+            correlation_id="corr-spcx",
+            payload_json='{"ticker":"SPCX","summary":"SPCX evidence update.","confidence":0.6,"impact_score":0.5}',
+        )
+        session.commit()
+
+        traces = list_market_event_traces(session, ticker="intc")
+
+        assert traces.total_event_count == 2
+        assert traces.filtered_event_count == 1
+        assert len(traces.events) == 1
+        trace = traces.events[0]
+        assert trace.ticker == "INTC"
+        assert trace.strategy_id == "moving_average_cross"
+        assert trace.summary == "INTC fast SMA crossed above slow SMA."
+        assert trace.confidence == 0.74
+        assert trace.impact_score == 0.66
+        assert trace.correlation_id == "corr-intc"
+        assert trace.topics == [
+            "market_event",
+            "strategy_input",
+            "trade_intent",
+            "risk_decision",
+            "order_state",
+            "trade_explanation",
+        ]
+        assert trace.trade_intent_side == "buy"
+        assert trace.trade_intent_reason.startswith("INTC moving-average cross")
+        assert trace.risk_decision == "approved"
+        assert trace.risk_reason == "within paper risk limits"
+        assert trace.order_state == "filled"
+        assert trace.explanation == "INTC entered because momentum evidence passed the strategy gate."
+        assert trace.evidence == ["fast_sma_above_slow_sma", "source=mock_market_data"]
+        assert [event.topic for event in trace.chain_events] == trace.topics
+        assert trace.chain_events[0].payload["summary"] == "INTC fast SMA crossed above slow SMA."
+        assert trace.chain_events[2].payload["reason"].startswith("INTC moving-average cross")
+        assert trace.chain_events[3].payload["status"] == "approved"
+        assert trace.chain_events[4].payload["state"] == "filled"
 
 
 def make_session() -> Session:

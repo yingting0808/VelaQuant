@@ -14,6 +14,7 @@ import {
   getPaperRiskLimitReview,
   getPaperSchedulerStatus,
   getPaperMarketSession,
+  getPaperMarketEvents,
   getPaperRuns,
   getPaperReviewTrend,
   getPaperStrategyReviews,
@@ -41,6 +42,7 @@ import {
   type PaperRiskLimitApplyPayload,
   type PaperRiskLimitReviewPayload,
   type PaperMarketSessionPayload,
+  type PaperMarketEventsPayload,
   type PaperReviewTrendPayload,
   type PaperRunPayload,
   type PaperSchedulerStatusPayload,
@@ -202,6 +204,182 @@ function eventTopicLabel(value: string): string {
   return labels[value] ?? value;
 }
 
+function riskDecisionLabel(value: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    approved: "风控通过",
+    rejected: "风控拒绝"
+  };
+  return value ? labels[value] ?? value : "未进入风控";
+}
+
+function orderStateLabel(value: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    filled: "已成交",
+    rejected: "已拒绝",
+    sent: "已发送",
+    validated: "已校验"
+  };
+  return value ? labels[value] ?? value : "未形成订单";
+}
+
+function formatEventPayload(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function payloadText(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function payloadNumber(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function nestedRecord(payload: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = payload[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+type ReadableEvidenceItem = {
+  title: string;
+  summary: string;
+  source: string;
+  source_url: string;
+  observed_at: string;
+};
+
+function payloadEvidenceItems(payload: Record<string, unknown>): ReadableEvidenceItem[] {
+  const value = payload.evidence_items;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item))
+    .map((item) => ({
+      title: payloadText(item, "title") ?? "未命名证据",
+      summary: payloadText(item, "summary") ?? "无摘要",
+      source: payloadText(item, "source") ?? "unknown",
+      source_url: payloadText(item, "source_url") ?? "",
+      observed_at: payloadText(item, "observed_at") ?? "未知时间"
+    }));
+}
+
+function payloadEvidenceCountLabel(payload: Record<string, unknown>): string | null {
+  const evidence = payload.evidence;
+  if (!Array.isArray(evidence)) {
+    return null;
+  }
+  return evidence.find((item): item is string => typeof item === "string" && item.startsWith("evidence_count=")) ?? null;
+}
+
+function eventReadableTitle(topic: string, payload: Record<string, unknown>): string {
+  const ticker = payloadText(payload, "ticker") ?? payloadText(nestedRecord(payload, "market_event"), "ticker");
+  if (topic === "market_event") {
+    return `${ticker ?? "UNKNOWN"} 市场事件`;
+  }
+  if (topic === "strategy_input") {
+    return `${ticker ?? "组合"} 进入策略判断`;
+  }
+  if (topic === "trade_intent") {
+    return `${ticker ?? "UNKNOWN"} 生成交易意图`;
+  }
+  if (topic === "risk_decision") {
+    return `${ticker ?? "UNKNOWN"} 风控裁决`;
+  }
+  if (topic === "order_state") {
+    return `${ticker ?? "UNKNOWN"} 订单状态`;
+  }
+  if (topic === "trade_explanation") {
+    return `${ticker ?? "UNKNOWN"} 交易解释`;
+  }
+  return eventTopicLabel(topic);
+}
+
+function eventReadableSummary(topic: string, payload: Record<string, unknown>): string {
+  if (topic === "market_event") {
+    const summary = payloadText(payload, "summary") ?? "系统记录了一条市场输入。";
+    const eventType = payloadText(payload, "event_type");
+    const sentiment = payloadText(payload, "sentiment");
+    const confidence = payloadNumber(payload, "confidence");
+    const impact = payloadNumber(payload, "impact_score");
+    const metadata = nestedRecord(payload, "metadata");
+    const price = payloadNumber(metadata, "quote_price");
+    const evidenceCount = payloadNumber(metadata, "evidence_count");
+    return [
+      summary,
+      eventType ? `类型：${eventType}` : null,
+      sentiment ? `情绪：${sentiment}` : null,
+      confidence !== null ? `置信度：${percentFormatter.format(confidence)}` : null,
+      impact !== null ? `影响分：${percentFormatter.format(impact)}` : null,
+      price !== null ? `参考价：${formatCurrency(price)}` : null,
+      evidenceCount !== null ? `证据数量：${formatNumber(evidenceCount)}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (topic === "strategy_input") {
+    const marketEvent = nestedRecord(payload, "market_event");
+    const portfolio = nestedRecord(payload, "portfolio");
+    const cash = payloadNumber(portfolio, "cash");
+    const equity = payloadNumber(portfolio, "equity");
+    return [
+      "策略收到市场事件和当时组合状态。",
+      payloadText(marketEvent, "summary"),
+      cash !== null ? `现金：${formatCurrency(cash)}` : null,
+      equity !== null ? `权益：${formatCurrency(equity)}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (topic === "trade_intent") {
+    const side = payloadText(payload, "side");
+    const notional = payloadNumber(payload, "notional");
+    const reason = payloadText(payload, "reason");
+    return [
+      side ? `方向：${side}` : null,
+      notional !== null ? `名义金额：${formatCurrency(notional)}` : null,
+      reason ? `原因：${reason}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (topic === "risk_decision") {
+    const status = payloadText(payload, "status") ?? payloadText(payload, "code");
+    const reason = payloadText(payload, "reason");
+    return [`结果：${riskDecisionLabel(status)}`, reason ? `原因：${reason}` : null].filter(Boolean).join(" · ");
+  }
+  if (topic === "order_state") {
+    const state = payloadText(payload, "state") ?? payloadText(payload, "current_state");
+    const quantity = payloadNumber(payload, "quantity");
+    const fillPrice = payloadNumber(payload, "fill_price") ?? payloadNumber(payload, "price");
+    return [
+      `状态：${orderStateLabel(state)}`,
+      quantity !== null ? `数量：${formatNumber(quantity)}` : null,
+      fillPrice !== null ? `价格：${formatCurrency(fillPrice)}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (topic === "trade_explanation") {
+    const explanation = payloadText(payload, "explanation");
+    const decision = payloadText(payload, "decision");
+    const evidence = Array.isArray(payload.evidence)
+      ? payload.evidence.filter((item): item is string => typeof item === "string")
+      : [];
+    const evidenceItems = payloadEvidenceItems(payload);
+    return [
+      decision ? `决策：${decision}` : null,
+      explanation ?? "系统记录了一条交易解释。",
+      evidenceItems.length ? `具体证据：${evidenceItems.length} 条` : null,
+      evidence.length ? `证据：${evidence.slice(0, 4).join(" / ")}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return "系统记录了一条运行事件。";
+}
+
 function historyBarDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -216,6 +394,16 @@ type NumericHistoryBar = PriceHistoryBarPayload & {
   low: number;
   close: number;
 };
+
+type PaperWorkspaceView = "overview" | "events" | "trading" | "risk" | "operations";
+
+const paperWorkspaceViews: { id: PaperWorkspaceView; label: string; description: string }[] = [
+  { id: "overview", label: "总览", description: "今天状态和首要动作" },
+  { id: "events", label: "事件与AI", description: "市场事件、AI分析、K线和追溯" },
+  { id: "trading", label: "候选与模拟", description: "候选、订单、持仓和多日模拟" },
+  { id: "risk", label: "风控与复盘", description: "Alpha门禁、风险限额和策略复盘" },
+  { id: "operations", label: "运行维护", description: "调度、健康、账本修复" }
+];
 
 function isNumericHistoryBar(value: PriceHistoryBarPayload): value is NumericHistoryBar {
   return (
@@ -354,6 +542,7 @@ export function PaperTradingWorkspace() {
   const [reviewTrend, setReviewTrend] = useState<PaperReviewTrendPayload | null>(null);
   const [runs, setRuns] = useState<PaperRunPayload[]>([]);
   const [eventLedger, setEventLedger] = useState<PaperEventLedgerPayload | null>(null);
+  const [marketEvents, setMarketEvents] = useState<PaperMarketEventsPayload | null>(null);
   const [executionDiagnostics, setExecutionDiagnostics] = useState<PaperExecutionDiagnosticsPayload | null>(null);
   const [riskProfile, setRiskProfile] = useState<PaperRiskProfilePayload | null>(null);
   const [riskLimitReview, setRiskLimitReview] = useState<PaperRiskLimitReviewPayload | null>(null);
@@ -370,6 +559,7 @@ export function PaperTradingWorkspace() {
   const [marketHistory, setMarketHistory] = useState<PriceHistoryBarPayload[]>([]);
   const [isLoadingMarketHistory, setIsLoadingMarketHistory] = useState(false);
   const [marketHistoryMessage, setMarketHistoryMessage] = useState("正在读取行情。");
+  const [activeView, setActiveView] = useState<PaperWorkspaceView>("events");
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isExecutingPrimaryAction, setIsExecutingPrimaryAction] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -397,7 +587,8 @@ export function PaperTradingWorkspace() {
       strategyRegistryPayload,
       aiStatusPayload,
       runPayload,
-      ledgerPayload
+      ledgerPayload,
+      marketEventsPayload
     ] = await Promise.all([
       getPaperTradingSummary(),
       getPaperDailyReport(),
@@ -415,7 +606,8 @@ export function PaperTradingWorkspace() {
       getStrategyRegistry(),
       getAIStatus(),
       getPaperRuns(),
-      getPaperEventLedger()
+      getPaperEventLedger(),
+      getPaperMarketEvents(selectedTicker)
     ]);
     setSummary(payload);
     setDailyReport(reportPayload);
@@ -434,6 +626,7 @@ export function PaperTradingWorkspace() {
     setAIStatus(aiStatusPayload);
     setRuns(runPayload.runs);
     setEventLedger(ledgerPayload);
+    setMarketEvents(marketEventsPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
   }
 
@@ -457,7 +650,8 @@ export function PaperTradingWorkspace() {
       getStrategyRegistry().then((payload) => active && setStrategyRegistry(payload)),
       getAIStatus().then((payload) => active && setAIStatus(payload)),
       getPaperRuns().then((payload) => active && setRuns(payload.runs)),
-      getPaperEventLedger().then((payload) => active && setEventLedger(payload))
+      getPaperEventLedger().then((payload) => active && setEventLedger(payload)),
+      getPaperMarketEvents(selectedTicker).then((payload) => active && setMarketEvents(payload))
     ];
     Promise.allSettled(requests).then(() => {
       if (active) {
@@ -468,6 +662,14 @@ export function PaperTradingWorkspace() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    getPaperMarketEvents(selectedTicker).then((payload) => active && setMarketEvents(payload));
+    return () => {
+      active = false;
+    };
+  }, [selectedTicker]);
 
   async function handleDailyRun() {
     if (operations && !operations.can_retry_today) {
@@ -707,6 +909,11 @@ export function PaperTradingWorkspace() {
   const eventTopics = replayChain?.topics.length
     ? replayChain.topics
     : eventLedger?.latest_topic_counts.map((item) => item.topic) ?? [];
+  const selectedMarketEvents = marketEvents?.events ?? [];
+  const latestMarketEvent = selectedMarketEvents[0] ?? null;
+  const marketEventTopics = latestMarketEvent?.topics ?? [];
+  const marketEventSummary =
+    marketEvents?.summary ?? `${selectedTicker} 暂无市场事件；先运行模拟盘或等待调度采样。`;
   const numericMarketHistory = marketHistory.filter(isNumericHistoryBar);
   const latestMarketBar = numericMarketHistory.length ? numericMarketHistory[numericMarketHistory.length - 1] : null;
   const marketHistoryChange = historyChangePercent(numericMarketHistory);
@@ -725,7 +932,7 @@ export function PaperTradingWorkspace() {
     !aiStatus.execution_path.ai_calls_execution;
 
   return (
-    <div className="module-view">
+    <div className="module-view paper-trading-module" data-active-paper-view={activeView}>
       <header className="page-header">
         <div>
           <p>候选、解释、纸面成交、PnL 与复盘</p>
@@ -734,7 +941,21 @@ export function PaperTradingWorkspace() {
         <div className="status-pill neutral">{readinessLabel(review?.readiness)}</div>
       </header>
 
-      <section className="data-panel workspace-panel operations-visibility-panel" aria-label="运行可视化">
+      <nav className="paper-workspace-tabs" aria-label="模拟盘分类">
+        {paperWorkspaceViews.map((view) => (
+          <button
+            key={view.id}
+            type="button"
+            className={activeView === view.id ? "active" : ""}
+            onClick={() => setActiveView(view.id)}
+          >
+            <strong>{view.label}</strong>
+            <span>{view.description}</span>
+          </button>
+        ))}
+      </nav>
+
+      <section className="data-panel workspace-panel operations-visibility-panel paper-view-section paper-view-events" aria-label="运行可视化">
         <div className="panel-heading">
           <div>
             <h3>运行可视化</h3>
@@ -793,6 +1014,135 @@ export function PaperTradingWorkspace() {
               <strong>{topicSummary}</strong>
               <p>账本警告 {ledgerWarnings.join(" / ") || "无"} · 链路警告 {chainWarnings.join(" / ") || "无"}</p>
             </div>
+          </article>
+
+          <article className="operations-observer-card market-events-card" aria-label="市场事件中心">
+            <div className="observer-card-heading">
+              <div>
+                <span>Market Events</span>
+                <strong>市场事件中心</strong>
+              </div>
+              <span className="status-pill neutral">
+                {marketEvents?.filtered_event_count ?? 0}/{marketEvents?.total_event_count ?? 0}
+              </span>
+            </div>
+            <div className="market-event-focus">
+              <span>{selectedTicker} 最新事件</span>
+              <strong>{latestMarketEvent?.summary ?? "暂无市场事件"}</strong>
+              <p>
+                策略 {latestMarketEvent?.strategy_id ?? "未触发"} · corr {compactId(latestMarketEvent?.correlation_id)} ·{" "}
+                {formatTimestamp(latestMarketEvent?.published_at, "无时间")}
+              </p>
+            </div>
+            <div className="market-event-decision-grid">
+              <div>
+                <span>置信度</span>
+                <strong>{latestMarketEvent?.confidence === null || latestMarketEvent?.confidence === undefined ? "-" : percentFormatter.format(latestMarketEvent.confidence)}</strong>
+              </div>
+              <div>
+                <span>影响分</span>
+                <strong>{latestMarketEvent?.impact_score === null || latestMarketEvent?.impact_score === undefined ? "-" : percentFormatter.format(latestMarketEvent.impact_score)}</strong>
+              </div>
+              <div>
+                <span>交易意图</span>
+                <strong>{latestMarketEvent?.trade_intent_side ?? "未生成"}</strong>
+              </div>
+              <div>
+                <span>风控</span>
+                <strong>{riskDecisionLabel(latestMarketEvent?.risk_decision)}</strong>
+              </div>
+              <div>
+                <span>订单</span>
+                <strong>{orderStateLabel(latestMarketEvent?.order_state)}</strong>
+              </div>
+              <div>
+                <span>来源</span>
+                <strong>{latestMarketEvent?.source ?? "未标注"}</strong>
+              </div>
+            </div>
+            <div className="market-event-chain">
+              {marketEventTopics.length ? (
+                marketEventTopics.map((topic, index) => (
+                  <span key={`${latestMarketEvent?.correlation_id}-${topic}-${index}`}>{eventTopicLabel(topic)}</span>
+                ))
+              ) : (
+                <span>暂无可追溯链路</span>
+              )}
+            </div>
+            <div className="market-event-explanation">
+              <span>解释与证据</span>
+              <p>{latestMarketEvent?.explanation ?? latestMarketEvent?.trade_intent_reason ?? "暂无解释；产生候选或订单后会写入 trade_explanation。"}</p>
+              <p>{latestMarketEvent?.evidence.join(" / ") || "暂无证据标签"}</p>
+            </div>
+            <div className="market-event-payloads">
+              <span>具体事件内容</span>
+              {latestMarketEvent?.chain_events.length ? (
+                latestMarketEvent.chain_events.map((event) => (
+                  <article key={`${event.event_id}-${event.sequence}`} className="readable-event-card">
+                    <div className="readable-event-heading">
+                      <span>{event.sequence}</span>
+                      <div>
+                        <strong>{eventReadableTitle(event.topic, event.payload)}</strong>
+                        <small>
+                          {eventTopicLabel(event.topic)} · event {compactId(event.event_id)}
+                          {event.causation_id ? ` · caused by ${compactId(event.causation_id)}` : ""}
+                        </small>
+                      </div>
+                    </div>
+                    <p>{eventReadableSummary(event.topic, event.payload)}</p>
+                    {payloadEvidenceItems(event.payload).length ? (
+                      <div className="readable-evidence-list">
+                        <span>证据来源与内容</span>
+                        {payloadEvidenceItems(event.payload).map((item, index) => (
+                          <div key={`${event.event_id}-evidence-${index}`} className="readable-evidence-item">
+                            <strong>{item.title}</strong>
+                            <p>{item.summary}</p>
+                            <small>
+                              来源 {item.source} · 观察时间 {item.observed_at}
+                              {item.source_url ? ` · ${item.source_url}` : ""}
+                            </small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : event.topic === "trade_explanation" ? (
+                      <div className="readable-evidence-list missing-evidence-detail">
+                        <span>证据来源与内容</span>
+                        <p>
+                          这条历史解释事件只落库了证据标签
+                          {payloadEvidenceCountLabel(event.payload) ? `（${payloadEvidenceCountLabel(event.payload)}）` : ""}
+                          ，没有保存每条证据的标题、来源、链接和摘要。新产生的模拟盘事件会写入证据明细。
+                        </p>
+                      </div>
+                    ) : null}
+                    <details>
+                      <summary>原始数据</summary>
+                      <pre>{formatEventPayload(event.payload)}</pre>
+                    </details>
+                  </article>
+                ))
+              ) : (
+                <p>暂无 payload。运行模拟盘产生 MarketEvent 后会显示原始事件内容。</p>
+              )}
+            </div>
+            <div className="market-event-list">
+              {selectedMarketEvents.length ? (
+                selectedMarketEvents.slice(0, 5).map((event) => (
+                  <button key={event.event_id} type="button" className="market-event-row">
+                    <span>{event.ticker ?? "UNKNOWN"}</span>
+                    <strong>{event.summary ?? event.event_type ?? "market_event"}</strong>
+                    <small>
+                      {orderStateLabel(event.order_state)} · {riskDecisionLabel(event.risk_decision)} · {compactId(event.correlation_id)}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className="market-event-empty">
+                  <strong>{selectedTicker} 暂无市场事件</strong>
+                  <p>先把标的加入自选股并运行模拟盘；系统产生 MarketEvent 后，这里会显示事件、解释、风控和订单追溯。</p>
+                </div>
+              )}
+            </div>
+            <p className="kline-message">{marketEventSummary}</p>
           </article>
 
           <article className="operations-observer-card" aria-label="AI分析过程">
@@ -896,7 +1246,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel user-flow-panel" aria-label="SPCX INTC 上手向导">
+      <section className="data-panel workspace-panel user-flow-panel paper-view-section paper-view-overview" aria-label="SPCX INTC 上手向导">
         <div className="panel-heading">
           <div>
             <h3>用 SPCX / INTC 举例：先选目的</h3>
@@ -951,7 +1301,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel strategy-origin-panel" aria-label="当前模拟盘策略来源">
+      <section className="data-panel workspace-panel strategy-origin-panel paper-view-section paper-view-overview" aria-label="当前模拟盘策略来源">
         <div className="panel-heading">
           <div>
             <h3>当前模拟盘策略从哪里来</h3>
@@ -989,7 +1339,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="metric-grid" aria-label="模拟盘指标">
+      <section className="metric-grid paper-view-section paper-view-overview" aria-label="模拟盘指标">
         <div className="metric-card">
           <div className="metric-label">账户权益</div>
           <strong>{formatCurrency(account?.equity ?? 0)}</strong>
@@ -1004,7 +1354,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="模拟盘控制台">
+      <section className="data-panel workspace-panel paper-view-section paper-view-overview" aria-label="模拟盘控制台">
         <div className="panel-heading">
           <div>
             <h3>{account?.name ?? "默认模拟盘"}</h3>
@@ -1020,7 +1370,7 @@ export function PaperTradingWorkspace() {
         </p>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="市场交易日">
+      <section className="data-panel workspace-panel paper-view-section paper-view-overview" aria-label="市场交易日">
         <div className="panel-heading">
           <div>
             <h3>
@@ -1061,7 +1411,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="今日简报">
+      <section className="data-panel workspace-panel paper-view-section paper-view-overview" aria-label="今日简报">
         <div className="panel-heading">
           <div>
             <h3>今日简报</h3>
@@ -1169,7 +1519,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="多日模拟">
+      <section className="data-panel workspace-panel paper-view-section paper-view-trading" aria-label="多日模拟">
         <div className="panel-heading">
           <div>
             <h3>多日模拟</h3>
@@ -1221,7 +1571,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="运行健康">
+      <section className="data-panel workspace-panel paper-view-section paper-view-operations" aria-label="运行健康">
         <div className="panel-heading">
           <div>
             <h3>运行健康</h3>
@@ -1290,7 +1640,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="稳定趋势">
+      <section className="data-panel workspace-panel paper-view-section paper-view-operations" aria-label="稳定趋势">
         <div className="panel-heading">
           <div>
             <h3>稳定趋势</h3>
@@ -1382,7 +1732,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="净期望趋势">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="净期望趋势">
         <div className="panel-heading">
           <div>
             <h3>净期望趋势</h3>
@@ -1463,7 +1813,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="执行诊断">
+      <section className="data-panel workspace-panel paper-view-section paper-view-trading" aria-label="执行诊断">
         <div className="panel-heading">
           <div>
             <h3>执行诊断</h3>
@@ -1519,7 +1869,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="Alpha 门禁">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="Alpha 门禁">
         <div className="panel-heading">
           <div>
             <h3>Alpha 门禁</h3>
@@ -1557,7 +1907,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="Alpha 预测">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="Alpha 预测">
         <div className="panel-heading">
           <div>
             <h3>Alpha 预测</h3>
@@ -1605,7 +1955,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="行动计划">
+      <section className="data-panel workspace-panel paper-view-section paper-view-overview" aria-label="行动计划">
         <div className="panel-heading">
           <div>
             <h3>行动计划</h3>
@@ -1657,7 +2007,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="策略复盘记录">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="策略复盘记录">
         <div className="panel-heading">
           <div>
             <h3>策略复盘记录</h3>
@@ -1704,7 +2054,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="风险配置">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="风险配置">
         <div className="panel-heading">
           <div>
             <h3>风险配置</h3>
@@ -1740,7 +2090,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="风险限额评审">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="风险限额评审">
         <div className="panel-heading">
           <div>
             <h3>风险限额评审</h3>
@@ -1806,7 +2156,7 @@ export function PaperTradingWorkspace() {
         ) : null}
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="每日调度">
+      <section className="data-panel workspace-panel paper-view-section paper-view-operations" aria-label="每日调度">
         <div className="panel-heading">
           <div>
             <h3>每日调度</h3>
@@ -1870,7 +2220,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="运行账本">
+      <section className="data-panel workspace-panel paper-view-section paper-view-operations" aria-label="运行账本">
         <div className="panel-heading">
           <div>
             <h3>运行账本</h3>
@@ -1924,7 +2274,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" id="paper-ledger" aria-label="事件账本">
+      <section className="data-panel workspace-panel paper-view-section paper-view-events" id="paper-ledger" aria-label="事件账本">
         <div className="panel-heading">
           <div>
             <h3>事件账本</h3>
@@ -1989,7 +2339,7 @@ export function PaperTradingWorkspace() {
         ) : null}
       </section>
 
-      <section className="data-panel workspace-panel" id="paper-candidates" aria-label="候选池">
+      <section className="data-panel workspace-panel paper-view-section paper-view-trading" id="paper-candidates" aria-label="候选池">
         <div className="panel-heading">
           <div>
             <h3>候选池</h3>
@@ -2062,7 +2412,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="模拟订单">
+      <section className="data-panel workspace-panel paper-view-section paper-view-trading" aria-label="模拟订单">
         <div className="panel-heading">
           <div>
             <h3>模拟订单</h3>
@@ -2123,7 +2473,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="模拟持仓">
+      <section className="data-panel workspace-panel paper-view-section paper-view-trading" aria-label="模拟持仓">
         <div className="panel-heading">
           <div>
             <h3>模拟持仓</h3>
@@ -2169,7 +2519,7 @@ export function PaperTradingWorkspace() {
         </div>
       </section>
 
-      <section className="data-panel workspace-panel" aria-label="复盘策略">
+      <section className="data-panel workspace-panel paper-view-section paper-view-risk" aria-label="复盘策略">
         <div className="panel-heading">
           <div>
             <h3>复盘策略</h3>

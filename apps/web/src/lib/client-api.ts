@@ -1170,6 +1170,17 @@ export type EventLedgerTradeExplanationPayload = {
   decision: string | null;
   explanation: string | null;
   evidence: string[];
+  evidence_items?: {
+    ticker: string;
+    title: string;
+    summary: string;
+    source: string;
+    source_url: string;
+    observed_at: string;
+    form: string | null;
+    filing_date: string | null;
+    accession_number: string | null;
+  }[];
   backtest: Record<string, string | number | boolean | null>;
 };
 
@@ -1208,6 +1219,43 @@ export type PaperEventLedgerPayload = {
   warnings: string[];
   summary: string;
   latest_replay: EventLedgerReplayPayload | null;
+};
+
+export type MarketEventTracePayload = {
+  chain_events: {
+    event_id: string;
+    topic: string;
+    sequence: number;
+    causation_id: string | null;
+    payload: Record<string, unknown>;
+  }[];
+  event_id: string;
+  run_id: string | null;
+  trading_day: string | null;
+  published_at: string;
+  correlation_id: string;
+  ticker: string | null;
+  strategy_id: string | null;
+  event_type: string | null;
+  summary: string | null;
+  confidence: number | null;
+  impact_score: number | null;
+  source: string | null;
+  topics: string[];
+  trade_intent_side: string | null;
+  trade_intent_reason: string | null;
+  risk_decision: string | null;
+  risk_reason: string | null;
+  order_state: string | null;
+  explanation: string | null;
+  evidence: string[];
+};
+
+export type PaperMarketEventsPayload = {
+  total_event_count: number;
+  filtered_event_count: number;
+  events: MarketEventTracePayload[];
+  summary: string;
 };
 
 export type PaperOrderInputPayload = {
@@ -2096,6 +2144,13 @@ const fallbackPaperEventLedger: PaperEventLedgerPayload = {
   warnings: ["missing_core_events"],
   summary: "后端 API 暂不可用，无法确认事件账本。",
   latest_replay: null
+};
+
+const fallbackPaperMarketEvents: PaperMarketEventsPayload = {
+  total_event_count: 0,
+  filtered_event_count: 0,
+  events: [],
+  summary: "后端 API 暂不可用，无法读取市场事件。"
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -4891,6 +4946,21 @@ function isEventLedgerTradeExplanation(value: unknown): value is EventLedgerTrad
     (typeof value.explanation === "string" || value.explanation === null) &&
     Array.isArray(value.evidence) &&
     value.evidence.every((item) => typeof item === "string") &&
+    (value.evidence_items === undefined ||
+      (Array.isArray(value.evidence_items) &&
+        value.evidence_items.every(
+          (item) =>
+            isRecord(item) &&
+            typeof item.ticker === "string" &&
+            typeof item.title === "string" &&
+            typeof item.summary === "string" &&
+            typeof item.source === "string" &&
+            typeof item.source_url === "string" &&
+            typeof item.observed_at === "string" &&
+            (typeof item.form === "string" || item.form === null) &&
+            (typeof item.filing_date === "string" || item.filing_date === null) &&
+            (typeof item.accession_number === "string" || item.accession_number === null)
+        ))) &&
     isRecord(value.backtest) &&
     Object.values(value.backtest).every(
       (item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean" || item === null
@@ -4987,6 +5057,55 @@ function isPaperReviewPayload(value: unknown): value is PaperReviewPayload {
     typeof value.readiness === "string" &&
     typeof value.notes === "string" &&
     typeof value.created_at === "string"
+  );
+}
+
+function isMarketEventTracePayload(value: unknown): value is MarketEventTracePayload {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.chain_events) &&
+    value.chain_events.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.event_id === "string" &&
+        typeof item.topic === "string" &&
+        typeof item.sequence === "number" &&
+        (typeof item.causation_id === "string" || item.causation_id === null) &&
+        isRecord(item.payload)
+    ) &&
+    typeof value.event_id === "string" &&
+    (typeof value.run_id === "string" || value.run_id === null) &&
+    (typeof value.trading_day === "string" || value.trading_day === null) &&
+    typeof value.published_at === "string" &&
+    typeof value.correlation_id === "string" &&
+    (typeof value.ticker === "string" || value.ticker === null) &&
+    (typeof value.strategy_id === "string" || value.strategy_id === null) &&
+    (typeof value.event_type === "string" || value.event_type === null) &&
+    (typeof value.summary === "string" || value.summary === null) &&
+    (typeof value.confidence === "number" || value.confidence === null) &&
+    (typeof value.impact_score === "number" || value.impact_score === null) &&
+    (typeof value.source === "string" || value.source === null) &&
+    Array.isArray(value.topics) &&
+    value.topics.every((item) => typeof item === "string") &&
+    (typeof value.trade_intent_side === "string" || value.trade_intent_side === null) &&
+    (typeof value.trade_intent_reason === "string" || value.trade_intent_reason === null) &&
+    (typeof value.risk_decision === "string" || value.risk_decision === null) &&
+    (typeof value.risk_reason === "string" || value.risk_reason === null) &&
+    (typeof value.order_state === "string" || value.order_state === null) &&
+    (typeof value.explanation === "string" || value.explanation === null) &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isPaperMarketEventsPayload(value: unknown): value is PaperMarketEventsPayload {
+  return (
+    isRecord(value) &&
+    typeof value.total_event_count === "number" &&
+    typeof value.filtered_event_count === "number" &&
+    Array.isArray(value.events) &&
+    value.events.every(isMarketEventTracePayload) &&
+    typeof value.summary === "string"
   );
 }
 
@@ -5487,6 +5606,25 @@ export async function getPaperEventLedger(): Promise<PaperEventLedgerPayload> {
     return isPaperEventLedgerPayload(payload) ? payload : fallbackPaperEventLedger;
   } catch {
     return fallbackPaperEventLedger;
+  }
+}
+
+export async function getPaperMarketEvents(ticker?: string): Promise<PaperMarketEventsPayload> {
+  try {
+    const params = new URLSearchParams({ limit: "80" });
+    if (ticker?.trim()) {
+      params.set("ticker", ticker.trim().toUpperCase());
+    }
+    const response = await fetch(`${getPublicApiBaseUrl()}/api/mvp/paper-trading/market-events?${params}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return fallbackPaperMarketEvents;
+    }
+    const payload: unknown = await response.json();
+    return isPaperMarketEventsPayload(payload) ? payload : fallbackPaperMarketEvents;
+  } catch {
+    return fallbackPaperMarketEvents;
   }
 }
 

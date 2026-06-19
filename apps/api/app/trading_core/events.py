@@ -80,6 +80,7 @@ class TradeExplanationEvent(BaseModel):
     decision: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
     evidence: list[str] = Field(default_factory=list)
+    evidence_items: list[dict[str, str | None]] = Field(default_factory=list)
     backtest: dict[str, str | bool | None] = Field(default_factory=dict)
 
     @field_validator("ticker")
