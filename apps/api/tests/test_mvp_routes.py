@@ -205,11 +205,12 @@ def test_mvp_dashboard_route_includes_provider_and_strategy_status():
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
-    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert not any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert any(source["name"] == "OpenBB" for source in payload["data_sources"])
     assert payload["strategy_lab"] == FAKE_STRATEGY_LAB_PAYLOAD
 
 
-def test_mvp_dashboard_route_openbb_optional_mode_uses_mock_quote_fallback(monkeypatch):
+def test_mvp_dashboard_route_openbb_optional_mode_does_not_expose_mock_fallback(monkeypatch):
     monkeypatch.setenv("AI_STOCKS_DATA_MODE", "openbb_optional")
     client = TestClient(create_app(), raise_server_exceptions=False)
 
@@ -218,7 +219,7 @@ def test_mvp_dashboard_route_openbb_optional_mode_uses_mock_quote_fallback(monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider_mode"] == "openbb_optional"
-    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert not any(source["name"] == "Mock" for source in payload["data_sources"])
     assert any(source["name"] == "OpenBB" for source in payload["data_sources"])
 
 
@@ -231,7 +232,8 @@ def test_mvp_data_sources_status_route_returns_statuses():
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider_mode"] == "hybrid"
-    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert not any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert any(source["name"] == "OpenBB" for source in payload["data_sources"])
 
 
 def test_mvp_runtime_settings_drive_data_provider_and_backtest_timeout(monkeypatch):
@@ -1667,7 +1669,7 @@ def test_mvp_market_snapshot_route_returns_quote_fundamentals_and_sources():
     assert "fundamentals" in payload
     assert "history" in payload
     assert payload["provider_mode"] == "hybrid"
-    assert any(source["name"] == "Mock" for source in payload["data_sources"])
+    assert not any(source["name"] == "Mock" for source in payload["data_sources"])
 
 
 def test_mvp_market_history_rejects_unsupported_interval():

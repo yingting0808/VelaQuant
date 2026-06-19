@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
 from app.core.config import get_settings
-from app.data.providers.base import EvidenceItem, MarketDataProvider
+from app.data.providers.base import EvidenceItem, MarketDataProvider, PriceHistoryBar, Quote
 from app.domain.models import (
     CoreEventLog,
     PaperAccount,
@@ -747,7 +747,13 @@ def _generate_candidates(
         quote = provider.get_quote(ticker)
         if quote.price is None or quote.price <= 0:
             continue
-        evidence = provider.get_research_evidence(ticker)
+        if not _is_real_market_quote(quote):
+            continue
+        evidence = [
+            item
+            for item in provider.get_research_evidence(ticker)
+            if _is_real_market_source(item.source) and _is_real_market_url(item.source_url)
+        ]
         evidence_count = len(evidence)
         diversification_bonus = 0.15 if ticker not in portfolio_tickers else 0.0
         base_score = _candidate_score(evidence_count, diversification_bonus)
@@ -1316,6 +1322,7 @@ def _market_event_from_moving_average_cross(
     provider: MarketDataProvider,
 ) -> MarketEvent | None:
     bars = provider.get_price_history(ticker, interval="1d")
+    bars = [bar for bar in bars if _is_real_market_price_bar(bar)]
     closes = [
         float(bar.close)
         for bar in bars
@@ -1365,6 +1372,37 @@ def _market_event_from_moving_average_cross(
             "price_source": source,
         },
     )
+
+
+def _is_real_market_quote(quote: Quote) -> bool:
+    return (
+        quote.price is not None
+        and quote.price > 0
+        and not quote.is_fallback
+        and _is_real_market_source(quote.source)
+    )
+
+
+def _is_real_market_price_bar(bar: PriceHistoryBar) -> bool:
+    return _is_real_market_source(bar.source)
+
+
+def _is_real_market_url(source_url: str | None) -> bool:
+    if not source_url:
+        return True
+    normalized = source_url.strip().lower()
+    return not (
+        normalized.startswith("mock://")
+        or "example.local" in normalized
+        or "example.test" in normalized
+    )
+
+
+def _is_real_market_source(source: str | None) -> bool:
+    if not source:
+        return False
+    normalized = source.strip().lower()
+    return normalized.startswith(("openbb_", "alpaca", "polygon", "sec_edgar"))
 
 
 def _paper_risk_limits(

@@ -11,13 +11,13 @@ VelaQuant 是一套本地优先的美股投研、回测、模拟盘和交易内�
 
 - 已有自研事件驱动 Trading Core。
 - 已有模拟盘日循环、候选生成、风控、执行状态机、事件账本、盈亏记录、策略复盘和 Alpha 门禁。
-- 已接入 OpenBB 数据访问、SEC EDGAR、Mock fallback、LEAN 回测、vectorbt 研究回测、LangGraph 投研 workflow、OpenAI-compatible LLM 投研解释。
+- 已接入 OpenBB 数据访问、SEC EDGAR、LEAN 回测、vectorbt 研究回测、LangGraph 投研 workflow、OpenAI-compatible LLM 投研解释；MockProvider 仅保留给显式开发/测试模式，不参与默认 hybrid 模拟盘证据链。
 - 当前 live 或 broker execution 仍关闭，系统处于 controlled paper trading 阶段。
 - AI 助手只做投研解释、风险梳理、情景拆解和交易计划草稿，不生成可执行订单，不调用 ExecutionEngine，不绕过 RiskEngine。
 
 当前运行态重点事实：
 
-- `data_sources/status` 显示 Mock、SEC EDGAR、OpenBB 可用。
+- `data_sources/status` 默认 hybrid 显示 SEC EDGAR、OpenBB；MockProvider 不在默认运行态暴露。
 - `ai/status` 显示 LangGraph 可用，OpenAI-compatible research LLM 已配置且可用，当前模型为 `mimo-v2.5-pro`。
 - `strategy-lab/status` 显示 Docker、LEAN、LEAN Docker image、vectorbt 可用。
 - `system-readiness` 显示系统可进行 controlled daily runs，生命周期阶段为 `paper`，live/broker execution disabled。
@@ -416,7 +416,7 @@ VelaQuant 当前有两类回测能力：
 
 | 数据源 | 当前状态 | 作用 |
 | --- | --- | --- |
-| Mock | 可用 | 本地确定性 fallback，保证系统可开发、可测试 |
+| Mock | 开发/测试模式 | 本地确定性数据，不进入默认 hybrid 模拟盘证据链 |
 | SEC EDGAR | 可用 | 获取 SEC filings 和公司事件证据 |
 | OpenBB | 可用 | 通过 yfinance 等能力获取 quote、history、fundamentals |
 
@@ -424,7 +424,7 @@ VelaQuant 当前有两类回测能力：
 
 - 策略不能在内部随意直接调用外部 API。
 - 数据必须通过 provider abstraction 进入系统。
-- OpenBB 失败时，系统会通过数据源抽象降级，避免页面 500。
+- OpenBB 失败时，系统会返回结构化不可用状态，避免页面 500；默认 hybrid 不回落到 Mock 市场值。
 - OpenBB 不负责下单，不负责风控，不负责执行。
 
 ## 11. 风控与执行逻辑

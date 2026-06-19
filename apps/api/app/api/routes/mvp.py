@@ -485,7 +485,12 @@ def paper_trading_market_events(
     limit: int = 50,
     session: Session = Depends(get_session),
 ) -> dict:
-    return list_market_event_traces(session, ticker=ticker, strategy_id=strategy_id, limit=limit).model_dump()
+    return list_market_event_traces(
+        session,
+        ticker=ticker,
+        strategy_id=strategy_id,
+        limit=limit,
+    ).model_dump()
 
 
 @router.post("/trading-core/dry-run")

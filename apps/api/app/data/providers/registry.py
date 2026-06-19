@@ -10,7 +10,6 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
-from app.data.providers.mock import MockMarketDataProvider
 from app.data.providers.openbb_optional import OpenBBOptionalProvider
 from app.data.providers.sec_edgar import SecEdgarProvider
 
@@ -27,21 +26,14 @@ class HybridMarketDataProvider:
     def __init__(
         self,
         *,
-        mock_provider: MockMarketDataProvider | None = None,
         sec_provider: ResearchEvidenceProvider | None = None,
         openbb_provider: OpenBBOptionalProvider | None = None,
-        include_mock_evidence: bool = True,
     ) -> None:
-        self.mock_provider = mock_provider or MockMarketDataProvider()
         self.sec_provider = sec_provider
         self.openbb_provider = openbb_provider or OpenBBOptionalProvider()
-        self.include_mock_evidence = include_mock_evidence
 
     def get_quote(self, ticker: str) -> Quote:
-        quote = self.openbb_provider.get_quote(ticker)
-        if quote.price is not None:
-            return quote
-        return self.mock_provider.get_quote(ticker)
+        return self.openbb_provider.get_quote(ticker)
 
     def get_price_history(
         self,
@@ -57,18 +49,10 @@ class HybridMarketDataProvider:
             end_date=end_date,
             interval=interval,
         )
-        return history or self.mock_provider.get_price_history(
-            ticker,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-        )
+        return history
 
     def get_fundamentals(self, ticker: str) -> FundamentalSnapshot:
-        fundamentals = self.openbb_provider.get_fundamentals(ticker)
-        if fundamentals.market_cap is not None or fundamentals.pe_ratio is not None or fundamentals.eps is not None:
-            return fundamentals
-        return self.mock_provider.get_fundamentals(ticker)
+        return self.openbb_provider.get_fundamentals(ticker)
 
     def get_market_snapshot(self, ticker: str) -> MarketSnapshot:
         normalized = ticker.strip().upper()
@@ -83,13 +67,10 @@ class HybridMarketDataProvider:
         evidence: list[EvidenceItem] = []
         if self.sec_provider is not None:
             evidence.extend(self.sec_provider.get_research_evidence(ticker))
-        if self.include_mock_evidence:
-            evidence.extend(self.mock_provider.get_research_evidence(ticker))
         return evidence
 
     def get_statuses(self) -> list[ProviderStatus]:
         statuses: list[ProviderStatus] = []
-        statuses.extend(self.mock_provider.get_statuses())
         if self.sec_provider is not None:
             statuses.extend(self.sec_provider.get_statuses())
         statuses.extend(self.openbb_provider.get_statuses())
@@ -108,6 +89,8 @@ def build_market_data_provider(settings: Settings | None = None) -> MarketDataPr
     mode = active_settings.data_mode
 
     if mode == "mock":
+        from app.data.providers.mock import MockMarketDataProvider
+
         return MockMarketDataProvider()
 
     if mode == "openbb_optional":
@@ -122,7 +105,6 @@ def build_market_data_provider(settings: Settings | None = None) -> MarketDataPr
         return HybridMarketDataProvider(
             sec_provider=sec_provider,
             openbb_provider=OpenBBOptionalProvider(),
-            include_mock_evidence=False,
         )
 
     return HybridMarketDataProvider(sec_provider=sec_provider, openbb_provider=OpenBBOptionalProvider())

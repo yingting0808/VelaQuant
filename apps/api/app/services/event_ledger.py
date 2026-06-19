@@ -222,6 +222,8 @@ def list_market_event_traces(
             continue
         if normalized_strategy_id and trace.strategy_id != normalized_strategy_id:
             continue
+        if trace.evidence_quality != "real_market_data":
+            continue
         traces.append(trace)
 
     return MarketEventTracePayload(
@@ -655,7 +657,7 @@ def _risk_decision_label(payload: dict) -> str | None:
 def _market_event_trace_summary(total: int, visible: int) -> str:
     if total == 0:
         return "No market events have been persisted yet."
-    return f"Showing {visible} market event traces from {total} persisted market events."
+    return f"Showing {visible} real market events from {total} persisted market events."
 
 
 def _summary(run: PaperRun, replay: EventLedgerReplay | None) -> str:

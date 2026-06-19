@@ -93,10 +93,10 @@ export function RuntimeSettingsPanel() {
               }))
             }
           >
-            <option value="hybrid">hybrid · OpenBB + SEC EDGAR + Mock fallback</option>
-            <option value="openbb_optional">openbb_optional · OpenBB + Mock fallback</option>
+            <option value="hybrid">hybrid · OpenBB + SEC EDGAR</option>
+            <option value="openbb_optional">openbb_optional · OpenBB only</option>
             <option value="sec_edgar">sec_edgar · SEC EDGAR + OpenBB</option>
-            <option value="mock">mock · deterministic local data</option>
+            <option value="mock">mock · development only</option>
           </select>
         </label>
 

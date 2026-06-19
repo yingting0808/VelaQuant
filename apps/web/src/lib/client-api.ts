@@ -1318,14 +1318,6 @@ const fallbackDataSourcesStatus: DataSourcesStatusPayload = {
   provider_mode: "hybrid",
   data_sources: [
     {
-      name: "Mock",
-      mode: "mock",
-      available: true,
-      message: "本地 Mock 数据可用。",
-      checked_at: "local",
-      version: "local"
-    },
-    {
       name: "SEC EDGAR",
       mode: "sec_edgar",
       available: false,

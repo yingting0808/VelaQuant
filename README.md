@@ -209,7 +209,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 截至 2026-06-15，已在 Docker Compose 运行态验证：
 
 - API, web, PostgreSQL, and Redis run together through Docker Compose.
-- `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with Mock, SEC EDGAR, and OpenBB available in the current Docker runtime.
+- `GET /api/mvp/data-sources/status` returns `provider_mode=hybrid` with SEC EDGAR and OpenBB in the current Docker runtime; MockProvider is not exposed or used by the default hybrid paper-trading path.
 - `GET /api/mvp/ai/status` returns LangGraph research workflow availability and OpenAI-compatible research-LLM status. In the current Docker runtime checked on 2026-06-15, the research LLM is configured and available (`configured=true`, `available=true`, model `mimo-v2.5-pro`); `ai_generates_trade_intent`, `ai_influences_risk`, and `ai_calls_execution` are all `false`.
 - `GET/PUT /api/mvp/runtime-settings` backs the Web Settings page, where runtime operators can adjust data mode, SEC EDGAR User-Agent, LEAN backtest timeout, OpenAI Research LLM model/base URL/timeout, and save or clear an OpenAI API key. Stored API keys are used by the backend but are never returned in API responses; scheduler startup and Redis wiring still come from environment variables.
 - `GET /api/mvp/strategy-lab/status` now reports Docker CLI, Docker Compose, Docker engine, LEAN CLI, cached `quantconnect/lean:latest`, and vectorbt readiness. The current Docker runtime has the QuantConnect LEAN engine image cached locally.
@@ -231,7 +231,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Daily Report now includes an `exit_watchlist` from current open paper positions, showing take-profit/stop-loss triggers, return percentage, unrealized PnL, and next eligible exit quantity so closed-trade sample collection is visible before the next daily loop even when the report uses an as-of trading-day view.
 - The Daily Report now uses stored paper execution marks for operational exit monitoring instead of blocking on live OpenBB/Yahoo quote calls; slower summary endpoints no longer prevent the report from rendering in the paper workspace.
 - Latest incremental verification on 2026-06-18: `GET /api/mvp/paper-trading/summary` now defaults to the stored effective-trading-day paper state and only refreshes live quote marks when `refresh_quotes=true`, keeping the Paper Trading workspace on a fast loading path while preserving optional mark-to-market refreshes.
-- OpenBB optional data access now circuit-breaks runtime quote/history/fundamental failures inside the request and falls back through the provider abstraction, so research data outages do not turn the paper trading dashboard into a 500.
+- OpenBB optional data access now circuit-breaks runtime quote/history/fundamental failures inside the request and returns structured unavailable data instead of manufacturing market values; the default hybrid path no longer falls back to MockProvider.
 - Executing `hold_until_next_session` returns `status: waiting` with scheduler context instead of a skipped/no-op response.
 - Scheduler status distinguishes the next cron trigger from the next actionable market sample through `next_run_will_execute`, `next_run_execution_gate`, `next_run_trading_day`, `next_actionable_run_at`, and `next_actionable_trading_day`.
 - Current scheduler runtime shows the next cron trigger will be guarded as `market_closed`, while the next actionable paper sample is `2026-06-16T06:30:00+08:00` for trading day `2026-06-15`.
@@ -255,7 +255,8 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - `GET /api/mvp/paper-trading/market-events` now exposes a user-facing Market Event Center over persisted `CoreEventLog` data. Operators can filter by ticker, then see the `MarketEvent` summary, strategy id, confidence, impact score, source, downstream `TradeIntent`, `RiskDecision`, `OrderState`, explanation, evidence, and `correlation_id`.
 - Market events now persist structured `evidence_items` on the event payload itself. Evidence-scored events store provider research evidence, while `moving_average_cross` stores a 20/50 SMA snapshot with source and observed time, so the UI can show where the event came from before users open raw JSON.
-- Market Event traces now expose `evidence_quality` and `uses_real_market_evidence`, and the Paper Trading workspace labels evidence as real market data, mock data, mixed, deterministic research series, or unknown. Mock evidence is explicitly marked as unsuitable for live Alpha proof, preventing development fixtures from being mistaken for tradable evidence. 中文：市场事件追溯现在返回并展示证据质量，明确区分真实市场数据、Mock 数据、混合证据、确定性研究序列和未知来源；Mock 证据会标注“不可作为实盘 Alpha 依据”。
+- Market Event traces now expose `evidence_quality` and `uses_real_market_evidence`, and the Paper Trading workspace defaults to pure `real_market_data` events only. Mock, mixed, deterministic, and unknown events are filtered out of the user-facing Market Event Center so development fixtures are not mistaken for tradable evidence. 中文：市场事件追溯现在返回并展示证据质量；模拟盘市场事件中心默认只显示纯真实市场数据事件，Mock、混合证据、确定性研究序列和未知来源不会进入用户默认视图。
+- Paper-trading candidate generation now requires real-market quotes and evidence sources. MockProvider, fixture, `example.local`, and fallback quotes do not create candidates, market events, or paper orders in the default paper loop. 中文：模拟盘候选生成现在必须基于真实行情/公告/研究来源；MockProvider、fixture、`example.local` 和 fallback 报价不会在默认 paper loop 中生成候选、事件或订单。
 - Alpha validation now has a separate `real_market_event_evidence` gate backed by `real_market_event_chain_count`. Runtime event-ledger chains must include pure real-market MarketEvent evidence before the strategy can be considered paper-validated; mock or mixed evidence can be audited but cannot satisfy this Alpha gate alone. 中文：Alpha 验证新增“真实事件证据”门禁，只有运行时事件链里的纯真实市场 MarketEvent 才能通过；Mock 或混合证据可以用于追溯和联调，但不能单独证明策略 Alpha。
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
@@ -285,7 +286,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 中文对应事实：
 
 - API、Web、PostgreSQL、Redis 已通过 Docker Compose 一起运行。
-- `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，并显示 Mock、SEC EDGAR、OpenBB 均可用。
+- `GET /api/mvp/data-sources/status` 在当前 Docker 运行态返回 `provider_mode=hybrid`，默认只显示 SEC EDGAR 和 OpenBB；MockProvider 不再暴露或参与默认 hybrid 模拟盘路径。
 - `GET /api/mvp/ai/status` 会返回 LangGraph 投研 workflow 可用状态和 OpenAI-compatible 投研 LLM 状态。2026-06-15 当前 Docker 运行态 Research LLM 已配置且可用（`configured=true`、`available=true`，模型 `mimo-v2.5-pro`）；`ai_generates_trade_intent`、`ai_influences_risk`、`ai_calls_execution` 均为 `false`。
 - `GET/PUT /api/mvp/runtime-settings` 支撑 Web 设置页，运行人员可在运行态调整数据模式、SEC EDGAR User-Agent、LEAN 回测超时、OpenAI Research LLM 模型/Base URL/超时，并保存或清除 OpenAI API key。已保存的 API key 只供后端使用，不会在 API 响应中回显；Scheduler 启动和 Redis 连接仍从环境变量读取。
 - `GET /api/mvp/strategy-lab/status` 现在会展示 Docker CLI、Docker Compose、Docker engine、LEAN CLI、本地缓存的 `quantconnect/lean:latest` 和 vectorbt 就绪状态。当前 Docker 运行态已缓存 QuantConnect LEAN 引擎镜像。
@@ -307,7 +308,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Daily Report 现在会通过 `exit_watchlist` 展示当前开放模拟持仓的止盈/止损触发、收益率、浮动盈亏和下一次可退出数量；即使日报其他字段采用 as-of 交易日口径，下一次日循环能补哪些闭环交易样本也会提前可见。
 - Daily Report 现在使用已记录的 paper execution mark 做运营退出监控，不再阻塞等待 live OpenBB/Yahoo 报价；较慢的 summary 接口也不会阻止模拟盘工作台先渲染今日简报。
 - 2026-06-18 最新增量验证：`GET /api/mvp/paper-trading/summary` 现在默认读取已记录的有效交易日模拟盘状态；只有显式传入 `refresh_quotes=true` 时才刷新实时行情标记，因此模拟盘工作台走快速加载路径，同时仍保留可选的实时盯市刷新能力。
-- OpenBB 可选数据访问现在会在单次请求内对 quote/history/fundamental 运行时失败熔断，并通过数据源抽象降级，因此研究数据源故障不会把模拟盘页面打成 500。
+- OpenBB 可选数据访问现在会在单次请求内对 quote/history/fundamental 运行时失败熔断，并返回结构化不可用数据，不再制造 mock 市场值；默认 hybrid 路径不再回落到 MockProvider。
 - 执行 `hold_until_next_session` 会返回 `status: waiting` 和调度器上下文，不再返回 skipped/no-op。
 - Scheduler 状态会用 `next_run_will_execute`、`next_run_execution_gate`、`next_run_trading_day`、`next_actionable_run_at`、`next_actionable_trading_day` 区分“下一次 cron 触发”和“下一次真正可采样的美股交易日”。
 - 当前调度器运行态显示，下一次 cron 会因 `market_closed` 守门跳过，而下一次真正有效的 paper 采样时间是 `2026-06-16T06:30:00+08:00`，对应交易日 `2026-06-15`。
@@ -555,9 +556,9 @@ Current boundary:
 
 ## Data Sources / 数据源
 
-VelaQuant uses a provider abstraction for market and research data. The current data layer can run safely with mock data for development and can use OpenBB when the package and its upstream data access are available.
+VelaQuant uses a provider abstraction for market and research data. The default hybrid runtime uses real-market data sources only: OpenBB for quote/history/fundamentals and SEC EDGAR for filing evidence. MockProvider remains available only for explicit development/test mode, not for default paper-trading evidence.
 
-VelaQuant 通过统一的数据源抽象层读取行情和研究数据。当前系统可以在开发环境使用 Mock 数据安全运行，也可以在 OpenBB 包和上游数据访问可用时调用 OpenBB。
+VelaQuant 通过统一的数据源抽象层读取行情和研究数据。默认 hybrid 运行态只使用真实市场数据源：OpenBB 提供报价 / 历史价格 / 基本面，SEC EDGAR 提供公告证据。MockProvider 仅保留给显式开发 / 测试模式，不进入默认模拟盘证据链。
 
 Current data-source roles:
 
@@ -565,13 +566,13 @@ Current data-source roles:
 
 - OpenBB: quote, historical price, and fundamentals research access when available.
 - SEC EDGAR: filing evidence and regulatory document metadata.
-- MockProvider: deterministic local development and test data.
+- MockProvider: explicit development/test data only; not used by the default hybrid paper-trading path.
 
 中文说明：
 
 - OpenBB：在可用时提供报价、历史价格和基本面研究数据。
 - SEC EDGAR：提供公告、财报文件和监管披露证据。
-- MockProvider：用于本地开发和测试的确定性数据。
+- MockProvider：仅用于显式开发 / 测试模式，不参与默认 hybrid 模拟盘路径。
 
 OpenBB is part of the data/research layer. It is not a broker, not a risk engine, and not an execution adapter.
 

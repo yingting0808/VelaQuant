@@ -29,7 +29,7 @@ export default async function DashboardPage() {
           </div>
           <div className="status-pill">
             <Activity size={15} aria-hidden="true" />
-            Mock 数据视图
+            实盘数据视图
           </div>
         </header>
 

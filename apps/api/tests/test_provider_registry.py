@@ -33,7 +33,7 @@ class StaticEvidenceProvider:
         ]
 
 
-def test_hybrid_provider_uses_mock_quotes_and_sec_evidence():
+def test_hybrid_provider_returns_unavailable_quote_and_sec_evidence_without_mock_fallback():
     provider = HybridMarketDataProvider(
         sec_provider=StaticEvidenceProvider(),
         openbb_provider=OpenBBOptionalProvider(module_finder=lambda _: None),
@@ -43,9 +43,11 @@ def test_hybrid_provider_uses_mock_quotes_and_sec_evidence():
     evidence = provider.get_research_evidence("aapl")
     statuses = provider.get_statuses()
 
-    assert quote.source == "mock"
+    assert quote.source == "openbb_yfinance"
+    assert quote.price is None
+    assert quote.is_fallback is False
     assert evidence[0].source == "sec_edgar"
-    assert any(status.name == "Mock" for status in statuses)
+    assert not any(status.name == "Mock" for status in statuses)
     assert any(status.name == "SEC EDGAR" for status in statuses)
 
 
@@ -61,7 +63,7 @@ def test_provider_registry_builds_hybrid_by_default():
     assert isinstance(provider, HybridMarketDataProvider)
 
 
-def test_provider_registry_openbb_optional_uses_mock_quotes_with_openbb_status(monkeypatch):
+def test_provider_registry_openbb_optional_reports_openbb_without_mock_fallback(monkeypatch):
     monkeypatch.setattr(
         "app.data.providers.registry.OpenBBOptionalProvider",
         lambda: OpenBBOptionalProvider(module_finder=lambda _: None),
@@ -72,8 +74,9 @@ def test_provider_registry_openbb_optional_uses_mock_quotes_with_openbb_status(m
     statuses = provider.get_statuses()
 
     assert isinstance(provider, HybridMarketDataProvider)
-    assert quote.source == "mock"
-    assert any(status.name == "Mock" for status in statuses)
+    assert quote.source == "openbb_yfinance"
+    assert quote.price is None
+    assert not any(status.name == "Mock" for status in statuses)
     assert any(status.name == "OpenBB" for status in statuses)
 
 
@@ -215,15 +218,17 @@ def test_hybrid_provider_uses_openbb_market_data_when_available():
     assert fundamentals.source == "openbb_yfinance"
 
 
-def test_hybrid_provider_falls_back_to_mock_display_data_when_openbb_unavailable():
+def test_hybrid_provider_does_not_fall_back_to_mock_display_data_when_openbb_unavailable():
     provider = HybridMarketDataProvider(openbb_provider=UnavailableMarketProvider())
 
     quote = provider.get_quote("aapl")
     history = provider.get_price_history("aapl")
     fundamentals = provider.get_fundamentals("aapl")
 
-    assert quote.source == "mock"
-    assert quote.is_fallback is True
-    assert history[0].source == "mock"
-    assert fundamentals.source == "mock"
-    assert fundamentals.is_fallback is True
+    assert quote.source == "openbb_yfinance"
+    assert quote.price is None
+    assert quote.is_fallback is False
+    assert history == []
+    assert fundamentals.source == "openbb_yfinance"
+    assert fundamentals.market_cap is None
+    assert fundamentals.is_fallback is False

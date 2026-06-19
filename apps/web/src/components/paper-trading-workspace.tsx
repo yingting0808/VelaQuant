@@ -1098,12 +1098,14 @@ export function PaperTradingWorkspace() {
   const eventTopics = replayChain?.topics.length
     ? replayChain.topics
     : eventLedger?.latest_topic_counts.map((item) => item.topic) ?? [];
-  const selectedMarketEvents = marketEvents?.events ?? [];
+  const selectedMarketEvents = (marketEvents?.events ?? []).filter(
+    (event) => event.evidence_quality === "real_market_data"
+  );
   const latestMarketEvent = selectedMarketEvents[0] ?? null;
   const latestMarketEventEvidenceItems = traceEvidenceItems(latestMarketEvent);
   const marketEventTopics = latestMarketEvent?.topics ?? [];
   const marketEventSummary =
-    marketEvents?.summary ?? `${selectedTicker} 暂无市场事件；先运行模拟盘或等待调度采样。`;
+    marketEvents?.summary ?? `${selectedTicker} 暂无真实市场事件；系统演示数据不会在这里展示。`;
   const numericMarketHistory = marketHistory.filter(isNumericHistoryBar);
   const latestMarketBar = numericMarketHistory.length ? numericMarketHistory[numericMarketHistory.length - 1] : null;
   const marketHistoryChange = historyChangePercent(numericMarketHistory);
@@ -1217,8 +1219,8 @@ export function PaperTradingWorkspace() {
               </span>
             </div>
             <div className="market-event-focus">
-              <span>{selectedTicker} 最新事件</span>
-              <strong>{latestMarketEvent?.summary ?? "暂无市场事件"}</strong>
+              <span>{selectedTicker} 最新真实市场事件</span>
+              <strong>{latestMarketEvent?.summary ?? "暂无真实市场事件"}</strong>
               <p>
                 策略 {latestMarketEvent?.strategy_id ?? "未触发"} · corr {compactId(latestMarketEvent?.correlation_id)} ·{" "}
                 {formatTimestamp(latestMarketEvent?.published_at, "无时间")}
@@ -1247,7 +1249,7 @@ export function PaperTradingWorkspace() {
               </div>
               <div>
                 <span>来源</span>
-                <strong>{latestMarketEvent?.source ?? "未标注"}</strong>
+                <strong>{latestMarketEvent?.source ?? "真实数据源未生成"}</strong>
               </div>
               <div>
                 <span>证据质量</span>
@@ -1265,7 +1267,7 @@ export function PaperTradingWorkspace() {
             </div>
             <div className="market-event-explanation">
               <span>解释与证据</span>
-              <p>{latestMarketEvent?.explanation ?? latestMarketEvent?.trade_intent_reason ?? "暂无解释；产生候选或订单后会写入 trade_explanation。"}</p>
+              <p>{latestMarketEvent?.explanation ?? latestMarketEvent?.trade_intent_reason ?? "暂无真实市场事件解释；Mock、演示和系统样例数据不会展示。"}</p>
               <p>{latestMarketEvent?.evidence.join(" / ") || "暂无证据标签"}</p>
               <p>
                 证据质量 {evidenceQualityLabel(latestMarketEvent?.evidence_quality)} ·{" "}
@@ -1286,7 +1288,7 @@ export function PaperTradingWorkspace() {
                   </div>
                 ))
               ) : (
-                <p>这条历史市场事件没有保存结构化来源明细；可在下方具体事件内容中查看 payload，新的模拟盘事件会优先写入本事件依据。</p>
+                <p>暂无真实来源明细。只有 OpenBB、Alpaca、Polygon 或 SEC EDGAR 等真实数据源事件会在这里展示。</p>
               )}
             </div>
             <div className="market-event-payloads">
@@ -1350,7 +1352,7 @@ export function PaperTradingWorkspace() {
                   </article>
                 ))
               ) : (
-                <p>暂无 payload。运行模拟盘产生 MarketEvent 后会显示原始事件内容。</p>
+                <p>暂无真实市场事件 payload。系统演示数据、MockProvider 和 example.local 内容不会在这里展示。</p>
               )}
             </div>
             <div className="market-event-list">
@@ -1366,8 +1368,8 @@ export function PaperTradingWorkspace() {
                 ))
               ) : (
                 <div className="market-event-empty">
-                  <strong>{selectedTicker} 暂无市场事件</strong>
-                  <p>先把标的加入自选股并运行模拟盘；系统产生 MarketEvent 后，这里会显示事件、解释、风控和订单追溯。</p>
+                  <strong>{selectedTicker} 暂无真实市场事件</strong>
+                  <p>先接通真实数据源并产生 OpenBB、Alpaca、Polygon 或 SEC EDGAR 事件；系统演示数据不会在市场事件中心展示。</p>
                 </div>
               )}
             </div>

@@ -331,173 +331,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   };
   const paperMarketEvents: PaperMarketEventsPayload = {
     total_event_count: 1,
-    filtered_event_count: 1,
-    summary: "Market event center has 1 event.",
-    events: [
-      {
-        event_id: "market-event-nvda",
-        run_id: "paper-run-today",
-        trading_day: "2026-06-13",
-        published_at: "2026-06-13T00:01:00Z",
-        correlation_id: "core-chain",
-        ticker: "NVDA",
-        strategy_id: "deterministic_watchlist_v1",
-        event_type: "news",
-        summary: "NVDA 3 条证据支持继续跟踪。",
-        confidence: 0.9,
-        impact_score: 0.72,
-        source: "mock_provider",
-        evidence_quality: "mock_data",
-        uses_real_market_evidence: false,
-        topics: ["market_event", "strategy_input", "trade_intent", "risk_decision", "order_state", "trade_explanation"],
-        trade_intent_side: "buy",
-        trade_intent_reason: "NVDA positive news event: 3 supporting evidence items.",
-        risk_decision: "approved",
-        risk_reason: "within paper risk limits",
-        order_state: "filled",
-        explanation: "NVDA promoted by real backtest evidence.",
-        evidence: ["evidence_count=3", "source=mock_provider", "final_score=1034.97"],
-        evidence_items: [
-          {
-            ticker: "NVDA",
-            title: "NVDA provider evidence 1",
-            summary: "Provider says NVDA has fixture evidence 1.",
-            source: "mock_provider",
-            source_url: "https://example.test/nvda-evidence",
-            observed_at: "2026-06-13T00:00:00Z",
-            form: null,
-            filing_date: null,
-            accession_number: null
-          }
-        ],
-        chain_events: [
-          {
-            event_id: "market-event-nvda",
-            topic: "market_event",
-            sequence: 1,
-            causation_id: null,
-            payload: {
-              ticker: "NVDA",
-              event_type: "news",
-              summary: "NVDA 3 条证据支持继续跟踪。",
-              sentiment: "positive",
-              confidence: 0.9,
-              impact_score: 0.72,
-              evidence_items: [
-                {
-                  ticker: "NVDA",
-                  title: "NVDA provider evidence 1",
-                  summary: "Provider says NVDA has fixture evidence 1.",
-                  source: "mock_provider",
-                  source_url: "https://example.test/nvda-evidence",
-                  observed_at: "2026-06-13T00:00:00Z"
-                }
-              ],
-              metadata: {
-                strategy_id: "deterministic_watchlist_v1",
-                source: "mock_provider",
-                quote_price: 50,
-                evidence_count: 3
-              }
-            }
-          },
-          {
-            event_id: "strategy-input-nvda",
-            topic: "strategy_input",
-            sequence: 2,
-            causation_id: "market-event-nvda",
-            payload: {
-              market_event: {
-                ticker: "NVDA",
-                summary: "NVDA 3 条证据支持继续跟踪。",
-                evidence_items: [
-                  {
-                    ticker: "NVDA",
-                    title: "NVDA provider evidence 1",
-                    summary: "Provider says NVDA has fixture evidence 1.",
-                    source: "mock_provider",
-                    source_url: "https://example.test/nvda-evidence",
-                    observed_at: "2026-06-13T00:00:00Z"
-                  }
-                ],
-                metadata: {
-                  source: "mock_provider"
-                }
-              },
-              portfolio: {
-                cash: 100000,
-                equity: 100000,
-                positions: []
-              }
-            }
-          },
-          {
-            event_id: "intent-nvda",
-            topic: "trade_intent",
-            sequence: 3,
-            causation_id: "strategy-input-nvda",
-            payload: {
-              ticker: "NVDA",
-              side: "buy",
-              notional: 2000,
-              reason: "NVDA positive news event: 3 supporting evidence items."
-            }
-          },
-          {
-            event_id: "risk-nvda",
-            topic: "risk_decision",
-            sequence: 4,
-            causation_id: "intent-nvda",
-            payload: {
-              ticker: "NVDA",
-              status: "approved",
-              code: "approved",
-              reason: "within paper risk limits"
-            }
-          },
-          {
-            event_id: "order-nvda",
-            topic: "order_state",
-            sequence: 5,
-            causation_id: "risk-nvda",
-            payload: {
-              ticker: "NVDA",
-              state: "filled",
-              quantity: 40,
-              fill_price: 50
-            }
-          },
-          {
-            event_id: "explain-nvda",
-            topic: "trade_explanation",
-            sequence: 6,
-            causation_id: "intent-nvda",
-            payload: {
-              ticker: "NVDA",
-              strategy_id: "deterministic_watchlist_v1",
-              decision: "candidate",
-              explanation: "NVDA promoted by real backtest evidence.",
-              evidence: ["evidence_count=3", "source=mock_provider", "final_score=1034.97"],
-              evidence_items: [
-                {
-                  ticker: "NVDA",
-                  title: "NVDA provider evidence 1",
-                  summary: "Provider says NVDA has fixture evidence 1.",
-                  source: "mock_provider",
-                  source_url: "https://example.test/nvda-evidence",
-                  observed_at: "2026-06-13T00:00:00Z"
-                }
-              ],
-              backtest: {
-                total_net_profit: "38.60%",
-                sharpe_ratio: "1.42",
-                total_trades: "12"
-              }
-            }
-          }
-        ]
-      }
-    ]
+    filtered_event_count: 0,
+    summary: "Showing 0 real market events from 1 persisted market events.",
+    events: []
   };
   const blockedOperations = {
     trading_day: "2026-06-13",
@@ -1268,8 +1104,10 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
     page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
   ).toBeVisible();
   const marketEventCenter = page.getByRole("article", { name: "市场事件中心" });
-  await expect(marketEventCenter.getByText("Mock 数据", { exact: true })).toBeVisible();
-  await expect(marketEventCenter.getByText("不可作为实盘 Alpha 依据")).toBeVisible();
+  await expect(marketEventCenter.getByText("暂无真实市场事件", { exact: true })).toBeVisible();
+  await expect(marketEventCenter.getByText("Showing 0 real market events from 1 persisted market events.")).toBeVisible();
+  await expect(marketEventCenter.getByText("系统演示数据不会在市场事件中心展示")).toBeVisible();
+  await expect(marketEventCenter.getByText("Mock 数据", { exact: true })).not.toBeVisible();
   await openPaperView(page, "候选与模拟");
   await expect(page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "filled", exact: true })).toBeVisible();
   await expect(
@@ -2368,14 +2206,6 @@ test("settings renders data source status", async ({ page }) => {
       json: {
         provider_mode: "hybrid",
         data_sources: [
-          {
-            name: "Mock",
-            mode: "mock",
-            available: true,
-            message: "Deterministic local fallback data is available.",
-            checked_at: "2026-06-12T00:00:00Z",
-            version: "local"
-          },
           {
             name: "SEC EDGAR",
             mode: "sec_edgar",
@@ -3530,13 +3360,13 @@ test("watchlist can query an arbitrary ticker and show unavailable fallback", as
           ticker: "NVDA",
           price: 125.75,
           currency: "USD",
-          source: "mock",
+          source: "openbb_yfinance",
           updated_at: "local",
           change: null,
           change_percent: null,
           volume: null,
-          is_fallback: true,
-          message: "本地 Mock fallback 数据，仅用于离线展示。"
+          is_fallback: false,
+          message: "OpenBB yfinance quote loaded."
         },
         fundamentals: {
           ticker: "NVDA",
@@ -3549,11 +3379,11 @@ test("watchlist can query an arbitrary ticker and show unavailable fallback", as
           profit_margin: null,
           operating_margin: null,
           debt_to_equity: null,
-          source: "mock",
+          source: "openbb_yfinance",
           period_ending: null,
           updated_at: "local",
-          is_fallback: true,
-          message: "本地 Mock fallback 基本面，仅用于离线展示。"
+          is_fallback: false,
+          message: "OpenBB fundamentals unavailable."
         },
         history: [],
         provider_mode: "hybrid",

@@ -13,6 +13,7 @@ from app.data.providers.base import (
     ProviderStatus,
     Quote,
 )
+from app.data.providers.mock import MockMarketDataProvider
 from app.domain.models import (
     CoreEventLog,
     PaperAccount,
@@ -56,10 +57,10 @@ class FixtureProvider(MarketDataProvider):
             ticker=normalized,
             price=self.prices.get(normalized),
             currency="USD",
-            source="fixture",
+            source="openbb_yfinance",
             updated_at="2026-06-13T00:00:00Z",
             is_fallback=False,
-            message="fixture quote",
+            message="real-market fixture quote",
         )
 
     def get_price_history(
@@ -83,7 +84,7 @@ class FixtureProvider(MarketDataProvider):
             profit_margin=None,
             operating_margin=None,
             debt_to_equity=None,
-            source="fixture",
+            source="openbb_yfinance",
             period_ending=None,
             updated_at="2026-06-13T00:00:00Z",
         )
@@ -105,8 +106,8 @@ class FixtureProvider(MarketDataProvider):
                 ticker=normalized,
                 title=f"{normalized} evidence {index}",
                 summary=f"{normalized} has fixture evidence {index}.",
-                source="fixture",
-                source_url="https://example.test/evidence",
+                source="sec_edgar",
+                source_url=f"https://www.sec.gov/edgar/browse/?CIK={normalized}",
                 observed_at="2026-06-13T00:00:00Z",
             )
             for index in range(1, counts.get(normalized, 0) + 1)
@@ -289,6 +290,18 @@ def test_daily_run_creates_account_candidates_and_review():
         assert any(entry.strategy_id == "deterministic_watchlist_v1" for entry in competition_entries)
 
 
+def test_daily_run_does_not_generate_candidates_from_mock_provider():
+    with make_session() as session:
+        summary = run_daily_paper_trading_loop(session, MockMarketDataProvider())
+
+        assert summary.candidates == []
+        assert summary.orders == []
+        assert summary.positions == []
+        assert summary.latest_review is not None
+        assert summary.latest_review.trade_count == 0
+        assert session.exec(select(CoreEventLog)).all() == []
+
+
 def test_daily_run_routes_moving_average_cross_through_paper_runtime():
     class TrendHistoryProvider(FixtureProvider):
         def get_price_history(
@@ -311,7 +324,7 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
                     low=close - 2,
                     close=close,
                     volume=1_000_000,
-                    source="fixture_history",
+                    source="openbb_yfinance",
                 )
                 for index, close in enumerate(closes)
             ]
@@ -358,7 +371,7 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
             if payload.get("metadata", {}).get("strategy_id") == "moving_average_cross"
         )
         assert moving_average_market_payload["evidence_items"][0]["title"] == "AAPL 20/50 日均线快照"
-        assert moving_average_market_payload["evidence_items"][0]["source"] == "fixture_history"
+        assert moving_average_market_payload["evidence_items"][0]["source"] == "openbb_yfinance"
         snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
         moving_average_snapshot = next(
             (snapshot for snapshot in snapshots if snapshot.strategy_id == "moving_average_cross"),
