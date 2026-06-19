@@ -253,6 +253,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - The Paper Trading workspace now opens with a purpose-based SPCX/INTC onboarding guide and a Registry-backed strategy source panel. The UI explicitly labels `deterministic_watchlist_v1` and `moving_average_cross` as controlled baseline research strategies, not proven profitable Alpha; each strategy still needs backtest evidence, paper samples, PnL, risk, and event-ledger attribution before promotion.
+- The Paper Trading workspace now opens with an operator observability console: concrete EventLedger topic flow and correlation id, AI/LangGraph/LLM analysis boundary, latest `trade_explanation` evidence, and a selectable OHLC candlestick panel for paper tickers such as SPCX and INTC.
 - Strategy attribution now reads `trade_explanation` events and links candidate `final_score` evidence to ticker-level observed PnL diagnostics.
 - Strategy attribution ticker diagnostics are sorted by observed PnL impact first, so review screens focus on the ticker that most affected results instead of alphabetical order.
 - Strategy Lab now labels whether candidate score direction and observed PnL are `aligned`, `inverted`, or still unresolved, making score/PnL divergence visible during review.
@@ -318,6 +319,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 模拟盘工作台现在进入页面先展示基于 SPCX/INTC 的按目的上手向导，并展示由 Strategy Registry 驱动的策略来源面板。页面会明确说明 `deterministic_watchlist_v1` 和 `moving_average_cross` 是受控研究基线策略，不是已经证明盈利的成熟 Alpha；策略晋级仍需要回测证据、模拟盘样本、盈亏、风控和事件账本归因共同证明。
+- 模拟盘工作台现在首屏展示运行可视化控制台：具体 EventLedger topic 流和 correlation id、AI/LangGraph/LLM 分析边界、最新 `trade_explanation` 证据，以及可切换 SPCX、INTC 等标的的 OHLC K线面板。
 - 策略归因现在会读取 `trade_explanation` 事件，并把候选 `final_score` 证据关联到 ticker 级观测盈亏诊断。
 - 策略归因的 ticker 诊断现在会优先按观测盈亏影响排序，因此复盘页面先展示最影响结果的标的，而不是按字母顺序展示。
 - 策略实验室现在会标记候选评分方向与观测盈亏是 `aligned`、`inverted` 还是仍待验证，让评分和盈亏背离在复盘时直接可见。
@@ -598,6 +600,7 @@ POST /api/mvp/paper-trading/daily-run
 GET  /api/mvp/paper-trading/action-plan
 POST /api/mvp/paper-trading/action-plan/execute-primary
 GET  /api/mvp/paper-trading/event-ledger
+GET  /api/mvp/market/history/{ticker}
 GET  /api/mvp/strategy-lab/alpha-gates
 GET  /api/mvp/strategy-lab/alpha-snapshots
 GET  /api/mvp/strategy-lab/evaluation

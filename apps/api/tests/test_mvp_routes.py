@@ -1528,16 +1528,17 @@ def test_mvp_research_route_rejects_whitespace_only_question():
 def test_mvp_research_cors_preflight_allows_loopback_web_origin():
     client = TestClient(create_app())
 
-    response = client.options(
-        "/api/mvp/research",
-        headers={
-            "Origin": "http://127.0.0.1:3000",
-            "Access-Control-Request-Method": "POST",
-        },
-    )
+    for origin in ("http://127.0.0.1:3000", "http://127.0.0.1:3100"):
+        response = client.options(
+            "/api/mvp/research",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+            },
+        )
 
-    assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == origin
 
 
 def test_trading_core_dry_run_returns_state_machine():

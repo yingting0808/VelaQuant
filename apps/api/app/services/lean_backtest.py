@@ -161,7 +161,7 @@ def _runtime_workspace_directory(runtime_root: Path, run_id: str) -> Path:
 
 
 def _lean_workspace_output_directory(workspace_dir: Path, run_id: str) -> Path:
-    return workspace_dir / "backtests" / run_id
+    return workspace_dir / "out"
 
 
 def _repo_root() -> Path:

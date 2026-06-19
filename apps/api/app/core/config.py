@@ -30,6 +30,8 @@ class Settings(BaseSettings):
         origins = [self.cors_origin]
         if self.cors_origin == "http://localhost:3000":
             origins.append("http://127.0.0.1:3000")
+            origins.append("http://localhost:3100")
+            origins.append("http://127.0.0.1:3100")
         return list(dict.fromkeys(origins))
 
 

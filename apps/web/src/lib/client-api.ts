@@ -3586,6 +3586,8 @@ export type MarketSnapshotPayload = {
   data_sources: ProviderStatusPayload[];
 };
 
+export type MarketHistoryInterval = "1d" | "1W" | "1M";
+
 function fallbackMarketSnapshot(ticker: string): MarketSnapshotPayload {
   const normalizedTicker = ticker.trim().toUpperCase() || "NVDA";
   return {
@@ -3692,6 +3694,28 @@ function isMarketSnapshotPayload(value: unknown): value is MarketSnapshotPayload
     Array.isArray(value.data_sources) &&
     value.data_sources.every(isProviderStatus)
   );
+}
+
+export async function getMarketHistory(
+  ticker: string,
+  interval: MarketHistoryInterval = "1d"
+): Promise<PriceHistoryBarPayload[]> {
+  const normalizedTicker = ticker.trim().toUpperCase() || "NVDA";
+  try {
+    const response = await fetch(
+      `${getPublicApiBaseUrl()}/api/mvp/market/history/${normalizedTicker}?interval=${interval}`,
+      {
+        cache: "no-store"
+      }
+    );
+    if (!response.ok) {
+      return [];
+    }
+    const payload: unknown = await response.json();
+    return Array.isArray(payload) && payload.every(isPriceHistoryBarPayload) ? payload : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshotPayload> {

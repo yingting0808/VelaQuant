@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { CalendarClock, Play, ShoppingCart, Wrench } from "lucide-react";
 import {
+  getAIStatus,
+  getMarketHistory,
   getPaperDailyReport,
   getPaperEventLedger,
   getPaperExecutionDiagnostics,
@@ -27,6 +29,7 @@ import {
   runPaperSimulationLab,
   runPaperTradingDailyLoop,
   submitPaperOrder,
+  type AIStatusPayload,
   type PaperEventLedgerPayload,
   type PaperCandidatePayload,
   type PaperDailyReportPayload,
@@ -47,7 +50,8 @@ import {
   type StrategyRegistryPayload,
   type AlphaGateProgressPayload,
   type AlphaValidationForecastPayload,
-  type PaperActionPlanPayload
+  type PaperActionPlanPayload,
+  type PriceHistoryBarPayload
 } from "@/lib/client-api";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -170,6 +174,176 @@ function nextSchedulerRunLabel(value: PaperSchedulerStatusPayload | null): strin
   return labels[value.next_run_execution_gate ?? ""] ?? "不会采样";
 }
 
+function normalizeTicker(value: string | null | undefined): string | null {
+  const ticker = value?.trim().toUpperCase();
+  return ticker ? ticker : null;
+}
+
+function compactId(value: string | null | undefined): string {
+  if (!value) {
+    return "无";
+  }
+  if (value.length <= 13) {
+    return value;
+  }
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
+function eventTopicLabel(value: string): string {
+  const labels: Record<string, string> = {
+    market_event: "MarketEvent 市场事件",
+    strategy_input: "StrategyInput 策略输入",
+    trade_intent: "TradeIntent 交易意图",
+    risk_decision: "RiskDecision 风控裁决",
+    order_state: "OrderState 订单状态",
+    trade_explanation: "TradeExplanation 解释",
+    execution_report: "ExecutionReport 执行回报"
+  };
+  return labels[value] ?? value;
+}
+
+function historyBarDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+}
+
+type NumericHistoryBar = PriceHistoryBarPayload & {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+function isNumericHistoryBar(value: PriceHistoryBarPayload): value is NumericHistoryBar {
+  return (
+    typeof value.open === "number" &&
+    Number.isFinite(value.open) &&
+    typeof value.high === "number" &&
+    Number.isFinite(value.high) &&
+    typeof value.low === "number" &&
+    Number.isFinite(value.low) &&
+    typeof value.close === "number" &&
+    Number.isFinite(value.close)
+  );
+}
+
+function historyChangePercent(bars: NumericHistoryBar[]): number | null {
+  if (bars.length < 2) {
+    return null;
+  }
+  const first = bars[0].close;
+  const last = bars[bars.length - 1].close;
+  if (first === 0) {
+    return null;
+  }
+  return (last - first) / first;
+}
+
+function MiniCandlestickChart({
+  averageCost,
+  bars,
+  ticker
+}: {
+  averageCost: number | null;
+  bars: PriceHistoryBarPayload[];
+  ticker: string;
+}) {
+  const chartBars = bars.filter(isNumericHistoryBar).slice(-60);
+  if (!chartBars.length) {
+    return (
+      <div className="kline-empty">
+        <strong>{ticker}</strong>
+        <span>暂无可绘制的 OHLC 历史行情。</span>
+      </div>
+    );
+  }
+
+  const width = 680;
+  const height = 260;
+  const left = 42;
+  const right = 18;
+  const top = 18;
+  const bottom = 34;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const lows = chartBars.map((bar) => bar.low);
+  const highs = chartBars.map((bar) => bar.high);
+  const minLow = Math.min(...lows);
+  const maxHigh = Math.max(...highs);
+  const padding = Math.max((maxHigh - minLow) * 0.08, maxHigh * 0.004, 0.5);
+  const minValue = minLow - padding;
+  const maxValue = maxHigh + padding;
+  const valueRange = Math.max(maxValue - minValue, 1);
+  const xStep = chartWidth / chartBars.length;
+  const candleWidth = Math.max(3, Math.min(12, xStep * 0.56));
+  const yForValue = (value: number) => top + ((maxValue - value) / valueRange) * chartHeight;
+  const averageCostY =
+    typeof averageCost === "number" && Number.isFinite(averageCost) && averageCost >= minValue && averageCost <= maxValue
+      ? yForValue(averageCost)
+      : null;
+  const lastBar = chartBars[chartBars.length - 1];
+
+  return (
+    <div className="kline-chart">
+      <svg aria-label={`${ticker} 最近 ${chartBars.length} 根日 K`} role="img" viewBox={`0 0 ${width} ${height}`}>
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = top + ratio * chartHeight;
+          const value = maxValue - ratio * valueRange;
+          return (
+            <g key={`grid-${ratio}`}>
+              <line className="kline-grid-line" x1={left} x2={width - right} y1={y} y2={y} />
+              <text className="kline-axis-label" x={8} y={y + 4}>
+                {value.toFixed(1)}
+              </text>
+            </g>
+          );
+        })}
+        {averageCostY !== null ? (
+          <g>
+            <line className="kline-cost-line" x1={left} x2={width - right} y1={averageCostY} y2={averageCostY} />
+            <text className="kline-cost-label" x={width - right - 108} y={averageCostY - 6}>
+              平均成本 {formatCurrency(averageCost ?? 0)}
+            </text>
+          </g>
+        ) : null}
+        {chartBars.map((bar, index) => {
+          const x = left + index * xStep + xStep / 2;
+          const openY = yForValue(bar.open);
+          const closeY = yForValue(bar.close);
+          const highY = yForValue(bar.high);
+          const lowY = yForValue(bar.low);
+          const isUp = bar.close >= bar.open;
+          return (
+            <g className={isUp ? "kline-candle up" : "kline-candle down"} key={`${bar.date}-${index}`}>
+              <title>
+                {bar.date} O {bar.open.toFixed(2)} H {bar.high.toFixed(2)} L {bar.low.toFixed(2)} C{" "}
+                {bar.close.toFixed(2)}
+              </title>
+              <line x1={x} x2={x} y1={highY} y2={lowY} />
+              <rect
+                height={Math.max(2, Math.abs(openY - closeY))}
+                rx="1"
+                width={candleWidth}
+                x={x - candleWidth / 2}
+                y={Math.min(openY, closeY)}
+              />
+            </g>
+          );
+        })}
+        <text className="kline-date-label" x={left} y={height - 10}>
+          {historyBarDate(chartBars[0].date)}
+        </text>
+        <text className="kline-date-label" textAnchor="end" x={width - right} y={height - 10}>
+          {historyBarDate(lastBar.date)}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 export function PaperTradingWorkspace() {
   const [summary, setSummary] = useState<PaperTradingSummaryPayload | null>(null);
   const [dailyReport, setDailyReport] = useState<PaperDailyReportPayload | null>(null);
@@ -189,8 +363,13 @@ export function PaperTradingWorkspace() {
   const [actionPlan, setActionPlan] = useState<PaperActionPlanPayload | null>(null);
   const [strategyReviews, setStrategyReviews] = useState<PaperStrategyReviewsPayload | null>(null);
   const [strategyRegistry, setStrategyRegistry] = useState<StrategyRegistryPayload | null>(null);
+  const [aiStatus, setAIStatus] = useState<AIStatusPayload | null>(null);
   const [repairResult, setRepairResult] = useState<PaperOperationsRepairPayload | null>(null);
   const [simulationResult, setSimulationResult] = useState<PaperSimulationPayload | null>(null);
+  const [selectedTicker, setSelectedTicker] = useState("SPCX");
+  const [marketHistory, setMarketHistory] = useState<PriceHistoryBarPayload[]>([]);
+  const [isLoadingMarketHistory, setIsLoadingMarketHistory] = useState(false);
+  const [marketHistoryMessage, setMarketHistoryMessage] = useState("正在读取行情。");
   const [message, setMessage] = useState("正在读取模拟盘。");
   const [isExecutingPrimaryAction, setIsExecutingPrimaryAction] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -216,6 +395,7 @@ export function PaperTradingWorkspace() {
       actionPlanPayload,
       strategyReviewsPayload,
       strategyRegistryPayload,
+      aiStatusPayload,
       runPayload,
       ledgerPayload
     ] = await Promise.all([
@@ -233,6 +413,7 @@ export function PaperTradingWorkspace() {
       getPaperActionPlan(),
       getPaperStrategyReviews(),
       getStrategyRegistry(),
+      getAIStatus(),
       getPaperRuns(),
       getPaperEventLedger()
     ]);
@@ -250,6 +431,7 @@ export function PaperTradingWorkspace() {
     setActionPlan(actionPlanPayload);
     setStrategyReviews(strategyReviewsPayload);
     setStrategyRegistry(strategyRegistryPayload);
+    setAIStatus(aiStatusPayload);
     setRuns(runPayload.runs);
     setEventLedger(ledgerPayload);
     setMessage(nextMessage ?? "模拟盘已同步。");
@@ -273,6 +455,7 @@ export function PaperTradingWorkspace() {
       getPaperActionPlan().then((payload) => active && setActionPlan(payload)),
       getPaperStrategyReviews().then((payload) => active && setStrategyReviews(payload)),
       getStrategyRegistry().then((payload) => active && setStrategyRegistry(payload)),
+      getAIStatus().then((payload) => active && setAIStatus(payload)),
       getPaperRuns().then((payload) => active && setRuns(payload.runs)),
       getPaperEventLedger().then((payload) => active && setEventLedger(payload))
     ];
@@ -309,6 +492,7 @@ export function PaperTradingWorkspace() {
         actionPlanPayload,
         strategyReviewsPayload,
         strategyRegistryPayload,
+        aiStatusPayload,
         runPayload,
         ledgerPayload
       ] =
@@ -326,6 +510,7 @@ export function PaperTradingWorkspace() {
         getPaperActionPlan(),
         getPaperStrategyReviews(),
         getStrategyRegistry(),
+        getAIStatus(),
         getPaperRuns(),
         getPaperEventLedger()
       ]);
@@ -343,6 +528,7 @@ export function PaperTradingWorkspace() {
       setActionPlan(actionPlanPayload);
       setStrategyReviews(strategyReviewsPayload);
       setStrategyRegistry(strategyRegistryPayload);
+      setAIStatus(aiStatusPayload);
       setRuns(runPayload.runs);
       setEventLedger(ledgerPayload);
       setMessage("今日模拟已完成。");
@@ -472,6 +658,71 @@ export function PaperTradingWorkspace() {
   const paperStrategyLabel = paperStrategies.length
     ? paperStrategies.map((entry) => entry.strategy_id).join(" / ")
     : "正在读取";
+  const runtimeTickerOptions = Array.from(
+    new Set(
+      [
+        ...positions.map((position) => position.ticker),
+        ...candidates.map((candidate) => candidate.ticker),
+        ...orders.map((order) => order.ticker),
+        replayChain?.ticker
+      ]
+        .map(normalizeTicker)
+        .filter((ticker): ticker is string => Boolean(ticker))
+    )
+  );
+  const tickerOptions = Array.from(new Set([...runtimeTickerOptions, "SPCX", "INTC"]));
+  const tickerOptionKey = tickerOptions.join("|");
+
+  useEffect(() => {
+    const options = tickerOptionKey.split("|").filter(Boolean);
+    if (options.length && !options.includes(selectedTicker)) {
+      setSelectedTicker(options[0]);
+    }
+  }, [selectedTicker, tickerOptionKey]);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingMarketHistory(true);
+    setMarketHistoryMessage(`正在读取 ${selectedTicker} 日线行情。`);
+    getMarketHistory(selectedTicker)
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+        setMarketHistory(payload);
+        setMarketHistoryMessage(
+          payload.length ? `${selectedTicker} 已同步 ${payload.length} 根日线。` : `${selectedTicker} 暂无历史行情。`
+        );
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingMarketHistory(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedTicker]);
+
+  const eventTopics = replayChain?.topics.length
+    ? replayChain.topics
+    : eventLedger?.latest_topic_counts.map((item) => item.topic) ?? [];
+  const numericMarketHistory = marketHistory.filter(isNumericHistoryBar);
+  const latestMarketBar = numericMarketHistory.length ? numericMarketHistory[numericMarketHistory.length - 1] : null;
+  const marketHistoryChange = historyChangePercent(numericMarketHistory);
+  const marketHistorySource = marketHistory.find((bar) => bar.source)?.source ?? "未同步";
+  const selectedPosition = positions.find((position) => position.ticker === selectedTicker) ?? null;
+  const selectedTickerUnrealizedPnl = selectedPosition?.unrealized_pnl ?? 0;
+  const llmStatusLabel = aiStatus?.research_llm.available
+    ? "LLM 可用"
+    : aiStatus?.research_llm.configured
+      ? "LLM 已配置待恢复"
+      : "LLM 未配置";
+  const aiExecutionBlocked =
+    aiStatus &&
+    !aiStatus.execution_path.ai_generates_trade_intent &&
+    !aiStatus.execution_path.ai_influences_risk &&
+    !aiStatus.execution_path.ai_calls_execution;
 
   return (
     <div className="module-view">
@@ -482,6 +733,168 @@ export function PaperTradingWorkspace() {
         </div>
         <div className="status-pill neutral">{readinessLabel(review?.readiness)}</div>
       </header>
+
+      <section className="data-panel workspace-panel operations-visibility-panel" aria-label="运行可视化">
+        <div className="panel-heading">
+          <div>
+            <h3>运行可视化</h3>
+            <p>把 Trading Core 事件链、AI/研究解释和模拟盘行情放在同一屏，方便先看发生了什么。</p>
+          </div>
+          <span className={ledgerIntegrityReady ? "status-pill success" : "status-pill warning"}>
+            {ledgerIntegrityReady ? "事件可追溯" : "事件待修复"}
+          </span>
+        </div>
+        <div className="operations-visibility-grid">
+          <article className="operations-observer-card" aria-label="具体事件流">
+            <div className="observer-card-heading">
+              <div>
+                <span>Event Ledger</span>
+                <strong>具体事件流</strong>
+              </div>
+              <span className="status-pill neutral">{eventLedger?.latest_run_event_count ?? 0} events</span>
+            </div>
+            <div className="event-trace-meta">
+              <span>run {compactId(eventLedger?.latest_run_id)}</span>
+              <span>corr {compactId(replayChain?.correlation_id)}</span>
+              <span>{replayChain?.ticker ?? "UNKNOWN"}</span>
+            </div>
+            <ol className="event-flow-list">
+              {eventTopics.length ? (
+                eventTopics.map((topic, index) => (
+                  <li key={`${topic}-${index}`}>
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{eventTopicLabel(topic)}</strong>
+                      <p>
+                        {topic === "trade_intent"
+                          ? "策略输出意图，后续必须经过风控。"
+                          : topic === "risk_decision"
+                            ? "RiskEngine 作为硬门禁裁决。"
+                            : topic === "order_state"
+                              ? `订单状态机：${replayChain?.order_states.join(" -> ") || "未记录"}`
+                              : topic === "trade_explanation"
+                                ? "记录候选/交易解释，用于复盘，不直接下单。"
+                                : "已写入 CoreEventLog，可按 correlation_id 追溯。"}
+                      </p>
+                    </div>
+                  </li>
+                ))
+              ) : (
+                <li>
+                  <span>0</span>
+                  <div>
+                    <strong>暂无运行事件</strong>
+                    <p>先运行今日模拟或等待调度完成后，这里会显示 MarketEvent 到 OrderState 的链路。</p>
+                  </div>
+                </li>
+              )}
+            </ol>
+            <div className="observer-footnote">
+              <strong>{topicSummary}</strong>
+              <p>账本警告 {ledgerWarnings.join(" / ") || "无"} · 链路警告 {chainWarnings.join(" / ") || "无"}</p>
+            </div>
+          </article>
+
+          <article className="operations-observer-card" aria-label="AI分析过程">
+            <div className="observer-card-heading">
+              <div>
+                <span>AI / Research</span>
+                <strong>AI分析过程</strong>
+              </div>
+              <span className={aiExecutionBlocked ? "status-pill success" : "status-pill warning"}>
+                {aiExecutionBlocked ? "不参与执行" : "需审计"}
+              </span>
+            </div>
+            <div className="ai-process-status">
+              <div>
+                <span>LangGraph</span>
+                <strong>{aiStatus?.langgraph.available ? "可用" : "未确认"}</strong>
+                <p>{aiStatus?.langgraph.message ?? "正在读取研究 workflow 状态。"}</p>
+              </div>
+              <div>
+                <span>Research LLM</span>
+                <strong>{llmStatusLabel}</strong>
+                <p>{aiStatus?.research_llm.message ?? "正在读取 LLM 配置状态。"}</p>
+              </div>
+              <div>
+                <span>执行权限</span>
+                <strong>{aiExecutionBlocked ? "只解释不交易" : "存在执行影响"}</strong>
+                <p>AI 不应生成 TradeIntent、影响 RiskEngine 或直接调用 ExecutionEngine。</p>
+              </div>
+            </div>
+            <div className="ai-explanation-card">
+              <span>最新解释事件</span>
+              <strong>
+                {tradeExplanation
+                  ? `${tradeExplanation.ticker ?? "UNKNOWN"} · ${tradeExplanation.decision ?? "decision_unknown"}`
+                  : "暂无 trade_explanation"}
+              </strong>
+              <p>{tradeExplanation?.explanation ?? "运行产生候选或订单后，解释事件会展示候选理由、证据和回测字段。"}</p>
+              <p>
+                策略 {tradeExplanation?.strategy_id ?? activeStrategy?.strategy_id ?? "未同步"} · 候选{" "}
+                {compactId(tradeExplanation?.candidate_id)}
+              </p>
+              <p>证据 {(tradeExplanation?.evidence ?? []).slice(0, 4).join(" / ") || "无"}</p>
+              <p>
+                回测收益{" "}
+                {typeof backtestReturn === "string" || typeof backtestReturn === "number" ? backtestReturn : "n/a"}
+                {candidateRankingScore ? ` · 排序分数 ${candidateRankingScore}` : ""}
+              </p>
+            </div>
+          </article>
+
+          <article className="operations-observer-card kline-observer-card" aria-label="模拟盘K线">
+            <div className="observer-card-heading">
+              <div>
+                <span>Paper Market</span>
+                <strong>模拟盘K线</strong>
+              </div>
+              <label className="ticker-selector">
+                <span>标的</span>
+                <select value={selectedTicker} onChange={(event) => setSelectedTicker(event.target.value)}>
+                  {tickerOptions.map((ticker) => (
+                    <option key={ticker} value={ticker}>
+                      {ticker}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <MiniCandlestickChart
+              averageCost={selectedPosition?.average_cost ?? null}
+              bars={marketHistory}
+              ticker={selectedTicker}
+            />
+            <div className="kline-stat-grid">
+              <div>
+                <span>最新收盘</span>
+                <strong>{latestMarketBar ? formatCurrency(latestMarketBar.close) : "-"}</strong>
+              </div>
+              <div>
+                <span>区间变化</span>
+                <strong>{marketHistoryChange === null ? "-" : percentFormatter.format(marketHistoryChange)}</strong>
+              </div>
+              <div>
+                <span>数据源</span>
+                <strong>{isLoadingMarketHistory ? "读取中" : marketHistorySource}</strong>
+              </div>
+              <div>
+                <span>模拟持仓</span>
+                <strong>{selectedPosition ? `${formatNumber(selectedPosition.quantity)} 股` : "未持仓"}</strong>
+              </div>
+              <div>
+                <span>平均成本</span>
+                <strong>{selectedPosition ? formatCurrency(selectedPosition.average_cost) : "-"}</strong>
+              </div>
+              <div>
+                <span>未实现PnL</span>
+                <strong>{selectedPosition ? formatCurrency(selectedTickerUnrealizedPnl) : "-"}</strong>
+              </div>
+            </div>
+            <p className="kline-message">{marketHistoryMessage}</p>
+          </article>
+        </div>
+      </section>
 
       <section className="data-panel workspace-panel user-flow-panel" aria-label="SPCX INTC 上手向导">
         <div className="panel-heading">

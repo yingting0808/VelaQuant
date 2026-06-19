@@ -1139,6 +1139,242 @@ tbody tr:last-child td {
   padding: 12px 16px;
 }
 
+.operations-visibility-panel {
+  border-color: #bfd3e8;
+}
+
+.operations-visibility-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.15fr);
+}
+
+.operations-observer-card {
+  background: #ffffff;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.observer-card-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.observer-card-heading span,
+.event-trace-meta span,
+.ai-process-status span,
+.ai-explanation-card span,
+.ticker-selector span,
+.kline-stat-grid span {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.observer-card-heading strong,
+.ai-explanation-card strong,
+.kline-stat-grid strong {
+  color: #111827;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.event-trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.event-trace-meta span {
+  background: #eef2f6;
+  border: 1px solid #d7dee8;
+  border-radius: 999px;
+  color: #172033;
+  padding: 4px 8px;
+}
+
+.event-flow-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.event-flow-list li {
+  align-items: flex-start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 26px minmax(0, 1fr);
+}
+
+.event-flow-list li > span {
+  align-items: center;
+  background: #172033;
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  margin-top: 2px;
+  width: 24px;
+}
+
+.event-flow-list strong,
+.event-flow-list p,
+.observer-footnote strong,
+.observer-footnote p,
+.ai-process-status p,
+.ai-explanation-card p,
+.kline-message {
+  margin: 0;
+}
+
+.event-flow-list strong {
+  color: #111827;
+}
+
+.event-flow-list p,
+.observer-footnote p,
+.ai-process-status p,
+.ai-explanation-card p,
+.kline-message {
+  color: #566176;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.observer-footnote {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.ai-process-status {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-process-status > div,
+.ai-explanation-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.ticker-selector {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.ticker-selector select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #111827;
+  font-weight: 800;
+  min-height: 34px;
+  padding: 4px 30px 4px 10px;
+}
+
+.kline-chart {
+  background: #f8fafc;
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kline-chart svg {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.kline-grid-line {
+  stroke: #d8e1ec;
+  stroke-width: 1;
+}
+
+.kline-axis-label,
+.kline-date-label,
+.kline-cost-label {
+  fill: #667085;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.kline-cost-line {
+  stroke: #b45309;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.4;
+}
+
+.kline-cost-label {
+  fill: #92400e;
+}
+
+.kline-candle line,
+.kline-candle rect {
+  vector-effect: non-scaling-stroke;
+}
+
+.kline-candle.up line,
+.kline-candle.up rect {
+  fill: #dcfce7;
+  stroke: #047857;
+}
+
+.kline-candle.down line,
+.kline-candle.down rect {
+  fill: #fee2e2;
+  stroke: #b42318;
+}
+
+.kline-empty {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #566176;
+  display: grid;
+  gap: 4px;
+  min-height: 220px;
+  padding: 16px;
+  text-align: center;
+}
+
+.kline-empty strong {
+  color: #111827;
+}
+
+.kline-stat-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.kline-stat-grid > div {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px;
+}
+
 .strategy-evidence-note strong,
 .strategy-evidence-note span {
   margin: 0;
@@ -1345,9 +1581,11 @@ tbody tr:last-child td {
 @media (max-width: 900px) {
   .strategy-grid,
   .strategy-origin-grid,
+  .operations-visibility-grid,
   .user-flow-grid,
   .parameter-grid,
   .backtest-metrics,
+  .kline-stat-grid,
   .scheduler-grid,
   .workspace-form,
   .watchlist-form,
