@@ -1446,6 +1446,32 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.readable-event-details {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.readable-event-details > div {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+}
+
+.readable-event-details span {
+  color: #667085;
+  font-size: 0.73rem;
+  font-weight: 900;
+}
+
+.readable-event-summary {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 9px;
+}
+
 .readable-evidence-list {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -1519,6 +1545,12 @@ tbody tr:last-child td {
   padding: 10px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 980px) {
+  .readable-event-details {
+    grid-template-columns: 1fr;
+  }
 }
 
 .market-event-row {

@@ -90,72 +90,31 @@ export function StrategyLabStatusPanel() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      getStrategyLabStatus(),
-      getStrategyEvaluation(),
-      getStrategyAttribution(),
-      getStrategyRegistry(),
-      getStrategyCompetition(),
-      getStrategyCompetitionSnapshots(),
-      getStrategyLifecycle(),
-      getStrategyLifecycleAudit(),
-      getTradingSystemReadiness(),
-      getStrategyAlphaValidation(),
-      getAlphaValidationSnapshots(),
-      getStrategyVersionControl(),
-      getStrategyRuntime(),
-      getStrategyExecutionAccounts(),
-      getShadowReviewPacket(),
-      getShadowObservations(),
-      getShadowObservationHealth(),
-      getShadowValidation(),
-      getShadowDailyReport(),
-      getLiveSmallReviewPacket()
-    ]).then(([
-        statusPayload,
-        evaluationPayload,
-        attributionPayload,
-        registryPayload,
-        competitionPayload,
-        competitionSnapshotsPayload,
-        lifecyclePayload,
-        lifecycleAuditPayload,
-        systemReadinessPayload,
-        alphaPayload,
-        alphaSnapshotsPayload,
-        versionPayload,
-        runtimePayload,
-        accountsPayload,
-        shadowReviewPayload,
-        shadowObservationsPayload,
-        shadowObservationHealthPayload,
-        shadowValidationPayload,
-        shadowDailyReportPayload,
-        liveSmallReviewPayload
-      ]) => {
-        if (active) {
-          setStatus(statusPayload);
-          setEvaluation(evaluationPayload);
-          setAttribution(attributionPayload);
-          setRegistry(registryPayload);
-          setStrategyCompetition(competitionPayload);
-          setStrategyCompetitionSnapshots(competitionSnapshotsPayload);
-          setLifecycle(lifecyclePayload);
-          setLifecycleAudit(lifecycleAuditPayload);
-          setSystemReadiness(systemReadinessPayload);
-          setAlphaValidation(alphaPayload);
-          setAlphaSnapshots(alphaSnapshotsPayload);
-          setVersionControl(versionPayload);
-          setRuntime(runtimePayload);
-          setExecutionAccounts(accountsPayload);
-          setShadowReview(shadowReviewPayload);
-          setShadowObservations(shadowObservationsPayload);
-          setShadowObservationHealth(shadowObservationHealthPayload);
-          setShadowValidation(shadowValidationPayload);
-          setShadowDailyReport(shadowDailyReportPayload);
-          setLiveSmallReview(liveSmallReviewPayload);
-        }
-      });
+    const setIfActive = <T,>(setter: (payload: T) => void) => (payload: T) => {
+      if (active) {
+        setter(payload);
+      }
+    };
+    void getStrategyLabStatus().then(setIfActive(setStatus));
+    void getStrategyEvaluation().then(setIfActive(setEvaluation));
+    void getStrategyAttribution().then(setIfActive(setAttribution));
+    void getStrategyRegistry().then(setIfActive(setRegistry));
+    void getStrategyCompetition().then(setIfActive(setStrategyCompetition));
+    void getStrategyCompetitionSnapshots().then(setIfActive(setStrategyCompetitionSnapshots));
+    void getStrategyLifecycle().then(setIfActive(setLifecycle));
+    void getStrategyLifecycleAudit().then(setIfActive(setLifecycleAudit));
+    void getTradingSystemReadiness().then(setIfActive(setSystemReadiness));
+    void getStrategyAlphaValidation().then(setIfActive(setAlphaValidation));
+    void getAlphaValidationSnapshots().then(setIfActive(setAlphaSnapshots));
+    void getStrategyVersionControl().then(setIfActive(setVersionControl));
+    void getStrategyRuntime().then(setIfActive(setRuntime));
+    void getStrategyExecutionAccounts().then(setIfActive(setExecutionAccounts));
+    void getShadowReviewPacket().then(setIfActive(setShadowReview));
+    void getShadowObservations().then(setIfActive(setShadowObservations));
+    void getShadowObservationHealth().then(setIfActive(setShadowObservationHealth));
+    void getShadowValidation().then(setIfActive(setShadowValidation));
+    void getShadowDailyReport().then(setIfActive(setShadowDailyReport));
+    void getLiveSmallReviewPacket().then(setIfActive(setLiveSmallReview));
     return () => {
       active = false;
     };
@@ -165,7 +124,8 @@ export function StrategyLabStatusPanel() {
   const readiness = evaluation?.readiness ?? "insufficient_sample";
   const activeRegistryEntry = registry?.entries.find((item) => item.strategy_id === registry.active_strategy_id) ?? null;
   const registryEntries = registry?.entries.slice(0, 4) ?? [];
-  const competitionEntries = strategyCompetition?.entries.slice(0, 4) ?? [];
+  const displayedStrategyCompetition = strategyCompetition ?? strategyCompetitionSnapshots?.latest ?? null;
+  const competitionEntries = displayedStrategyCompetition?.entries.slice(0, 4) ?? [];
   const activeVersion = versionControl?.versions.find((item) => item.is_active) ?? null;
   const runtimeEntries = runtime?.entries.slice(0, 4) ?? [];
   const accounts = executionAccounts?.accounts ?? [];
@@ -623,11 +583,11 @@ export function StrategyLabStatusPanel() {
         <div className="panel-heading">
           <div>
             <h3>策略竞争层</h3>
-            <p>{strategyCompetition?.summary ?? "正在读取策略池排名和资金分配建议。"}</p>
+            <p>{displayedStrategyCompetition?.summary ?? "正在读取策略池排名和资金分配建议。"}</p>
           </div>
           <div className="panel-heading-actions">
-            <span className={strategyCompetition?.competition_ready ? "status-pill success" : "status-pill warning"}>
-              {strategyCompetition?.status ?? "checking"}
+            <span className={displayedStrategyCompetition?.competition_ready ? "status-pill success" : "status-pill warning"}>
+              {displayedStrategyCompetition?.status ?? "checking"}
             </span>
             <button
               className="ghost-action"
@@ -644,14 +604,14 @@ export function StrategyLabStatusPanel() {
         <div className="module-list compact-list">
           <article className="module-row">
             <div>
-              <strong>策略池 {strategyCompetition?.strategy_count ?? 0}</strong>
+              <strong>策略池 {displayedStrategyCompetition?.strategy_count ?? 0}</strong>
               <p>
-                可分配 {strategyCompetition?.allocatable_strategy_count ?? 0} · 选中{" "}
-                {strategyCompetition?.selected_strategy_id ?? "无"}
+                可分配 {displayedStrategyCompetition?.allocatable_strategy_count ?? 0} · 选中{" "}
+                {displayedStrategyCompetition?.selected_strategy_id ?? "无"}
               </p>
             </div>
-            <span className={strategyCompetition?.competition_ready ? "state-ok" : "state-warn"}>
-              {strategyCompetition?.trading_day ?? "unknown"}
+            <span className={displayedStrategyCompetition?.competition_ready ? "state-ok" : "state-warn"}>
+              {displayedStrategyCompetition?.trading_day ?? "unknown"}
             </span>
           </article>
           <article className="module-row">
@@ -677,6 +637,10 @@ export function StrategyLabStatusPanel() {
                 </p>
                 <p>
                   {entry.recommended_action} · {entry.blockers.join(" / ") || "no blockers"}
+                </p>
+                <p>
+                  成交 {entry.filled_order_count}/30 · 还差 {entry.filled_order_remaining} 笔 · 排名分{" "}
+                  {formatNumber(entry.ranking_score)}
                 </p>
               </div>
               <span className={entry.eligible_for_allocation ? "state-ok" : "state-warn"}>

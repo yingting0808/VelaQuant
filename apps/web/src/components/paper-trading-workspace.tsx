@@ -265,6 +265,12 @@ function payloadEvidenceItems(payload: Record<string, unknown>): ReadableEvidenc
     }));
 }
 
+function eventEvidenceItems(payload: Record<string, unknown>): ReadableEvidenceItem[] {
+  const directItems = payloadEvidenceItems(payload);
+  const marketEventItems = payloadEvidenceItems(nestedRecord(payload, "market_event"));
+  return [...directItems, ...marketEventItems];
+}
+
 function traceEvidenceItems(event: PaperMarketEventsPayload["events"][number] | null): ReadableEvidenceItem[] {
   return (event?.evidence_items ?? []).map((item) => ({
     title: item.title ?? "未命名证据",
@@ -281,6 +287,147 @@ function payloadEvidenceCountLabel(payload: Record<string, unknown>): string | n
     return null;
   }
   return evidence.find((item): item is string => typeof item === "string" && item.startsWith("evidence_count=")) ?? null;
+}
+
+function firstAvailableText(...values: (string | null | undefined)[]): string | null {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
+}
+
+function evidenceSourceSummary(items: ReadableEvidenceItem[]): string | null {
+  if (!items.length) {
+    return null;
+  }
+  const sources = Array.from(new Set(items.map((item) => item.source).filter(Boolean)));
+  const titles = items.map((item) => item.title).filter(Boolean).slice(0, 2);
+  return [`来源 ${sources.join(", ") || "unknown"}`, titles.length ? `内容 ${titles.join(" / ")}` : null]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function eventReadableSource(topic: string, payload: Record<string, unknown>): string {
+  const metadata = nestedRecord(payload, "metadata");
+  const marketEvent = nestedRecord(payload, "market_event");
+  const marketMetadata = nestedRecord(marketEvent, "metadata");
+  const evidenceItems = eventEvidenceItems(payload);
+  const evidenceSummary = evidenceSourceSummary(evidenceItems);
+  const source = firstAvailableText(
+    payloadText(metadata, "source"),
+    payloadText(metadata, "price_source"),
+    payloadText(payload, "source"),
+    payloadText(marketMetadata, "source"),
+    payloadText(marketMetadata, "price_source"),
+    evidenceItems[0]?.source
+  );
+
+  if (topic === "market_event") {
+    return evidenceSummary ?? `来源 ${source ?? "未标注"} · MarketEvent 是进入策略前的结构化市场事实`;
+  }
+  if (topic === "strategy_input") {
+    return evidenceSummary ?? `来源 MarketEvent · 策略只读取事件和组合状态，不直接访问外部数据源`;
+  }
+  if (topic === "trade_intent") {
+    return "来源 StrategyRegistry + StrategyEngine · 由已注册策略把事件转换为交易意图";
+  }
+  if (topic === "risk_decision") {
+    return "来源 Trading Core RiskEngine · 对交易意图执行硬风控门禁";
+  }
+  if (topic === "order_state") {
+    return "来源 ExecutionEngine / Paper Broker Adapter · 记录模拟订单状态机";
+  }
+  if (topic === "trade_explanation") {
+    return evidenceSummary ?? "来源 TradeExplanation 事件 · 记录候选、回测、证据标签和解释";
+  }
+  return `来源 ${source ?? "系统运行事件"}`;
+}
+
+function eventReadableContent(topic: string, payload: Record<string, unknown>): string {
+  const metadata = nestedRecord(payload, "metadata");
+  const evidenceItems = eventEvidenceItems(payload);
+  if (topic === "market_event") {
+    const fastSma = payloadNumber(metadata, "fast_sma");
+    const slowSma = payloadNumber(metadata, "slow_sma");
+    const quotePrice = payloadNumber(metadata, "quote_price");
+    const barCount = payloadNumber(metadata, "history_bar_count");
+    const evidenceText = evidenceItems.map((item) => item.summary).filter(Boolean).join(" / ");
+    return (
+      evidenceText ||
+      [
+        payloadText(payload, "summary") ?? "市场事件已写入账本。",
+        fastSma !== null && slowSma !== null ? `快线 ${formatNumber(fastSma)}，慢线 ${formatNumber(slowSma)}` : null,
+        quotePrice !== null ? `参考价 ${formatCurrency(quotePrice)}` : null,
+        barCount !== null ? `历史 K 线 ${formatNumber(barCount)} 根` : null
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    );
+  }
+  if (topic === "strategy_input") {
+    const marketEvent = nestedRecord(payload, "market_event");
+    const portfolio = nestedRecord(payload, "portfolio");
+    const positionCount = Array.isArray(portfolio.positions) ? portfolio.positions.length : null;
+    return [
+      payloadText(marketEvent, "summary") ?? "策略收到上游 MarketEvent。",
+      payloadNumber(portfolio, "cash") !== null ? `现金 ${formatCurrency(payloadNumber(portfolio, "cash") ?? 0)}` : null,
+      payloadNumber(portfolio, "equity") !== null ? `权益 ${formatCurrency(payloadNumber(portfolio, "equity") ?? 0)}` : null,
+      positionCount !== null ? `持仓 ${positionCount} 个` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (topic === "trade_intent") {
+    return eventReadableSummary(topic, payload) || "策略未生成可执行方向。";
+  }
+  if (topic === "risk_decision") {
+    return eventReadableSummary(topic, payload) || "风控结果已记录。";
+  }
+  if (topic === "order_state") {
+    return eventReadableSummary(topic, payload) || "订单状态已记录。";
+  }
+  if (topic === "trade_explanation") {
+    const backtest = nestedRecord(payload, "backtest");
+    return [
+      payloadText(payload, "explanation") ?? "解释事件已写入。",
+      payloadText(backtest, "total_net_profit") ? `回测收益 ${payloadText(backtest, "total_net_profit")}` : null,
+      payloadText(backtest, "sharpe_ratio") ? `Sharpe ${payloadText(backtest, "sharpe_ratio")}` : null,
+      payloadText(backtest, "total_trades") ? `交易 ${payloadText(backtest, "total_trades")} 笔` : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return eventReadableSummary(topic, payload);
+}
+
+function eventReadableOutcome(topic: string, payload: Record<string, unknown>): string {
+  if (topic === "market_event") {
+    const sentiment = payloadText(payload, "sentiment");
+    const confidence = payloadNumber(payload, "confidence");
+    const impact = payloadNumber(payload, "impact_score");
+    return [
+      sentiment ? `情绪 ${sentiment}` : null,
+      confidence !== null ? `置信度 ${percentFormatter.format(confidence)}` : null,
+      impact !== null ? `影响分 ${percentFormatter.format(impact)}` : null
+    ]
+      .filter(Boolean)
+      .join(" · ") || "等待策略判断";
+  }
+  if (topic === "strategy_input") {
+    return "已交给 StrategyEngine 判断是否生成 TradeIntent";
+  }
+  if (topic === "trade_intent") {
+    return payloadText(payload, "side")
+      ? `进入风控：${payloadText(payload, "side")} ${payloadText(payload, "ticker") ?? ""}`.trim()
+      : "未产生方向";
+  }
+  if (topic === "risk_decision") {
+    return `风控${riskDecisionLabel(payloadText(payload, "status") ?? payloadText(payload, "code"))}`;
+  }
+  if (topic === "order_state") {
+    return `订单${orderStateLabel(payloadText(payload, "state") ?? payloadText(payload, "current_state"))}`;
+  }
+  if (topic === "trade_explanation") {
+    return payloadText(payload, "decision") ? `解释类型 ${payloadText(payload, "decision")}` : "解释已记录";
+  }
+  return "事件已记录";
 }
 
 function eventReadableTitle(topic: string, payload: Record<string, unknown>): string {
@@ -1117,11 +1264,25 @@ export function PaperTradingWorkspace() {
                         </small>
                       </div>
                     </div>
-                    <p>{eventReadableSummary(event.topic, event.payload)}</p>
-                    {payloadEvidenceItems(event.payload).length ? (
+                    <div className="readable-event-details">
+                      <div>
+                        <span>证据来自哪里</span>
+                        <p>{eventReadableSource(event.topic, event.payload)}</p>
+                      </div>
+                      <div>
+                        <span>具体内容</span>
+                        <p>{eventReadableContent(event.topic, event.payload)}</p>
+                      </div>
+                      <div>
+                        <span>触发结果</span>
+                        <p>{eventReadableOutcome(event.topic, event.payload)}</p>
+                      </div>
+                    </div>
+                    <p className="readable-event-summary">{eventReadableSummary(event.topic, event.payload)}</p>
+                    {eventEvidenceItems(event.payload).length ? (
                       <div className="readable-evidence-list">
                         <span>证据来源与内容</span>
-                        {payloadEvidenceItems(event.payload).map((item, index) => (
+                        {eventEvidenceItems(event.payload).map((item, index) => (
                           <div key={`${event.event_id}-evidence-${index}`} className="readable-evidence-item">
                             <strong>{item.title}</strong>
                             <p>{item.summary}</p>

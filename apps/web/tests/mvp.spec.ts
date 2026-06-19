@@ -10,6 +10,7 @@ import {
   type PaperDailyReportPayload,
   type PaperEventLedgerPayload,
   type PaperExecutionDiagnosticsPayload,
+  type PaperMarketEventsPayload,
   type PaperOperationsHistoryPayload,
   type PaperOperationsStatusPayload,
   type PaperRiskLimitApplyPayload,
@@ -323,6 +324,174 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
         }
       ]
     }
+  };
+  const paperMarketEvents: PaperMarketEventsPayload = {
+    total_event_count: 1,
+    filtered_event_count: 1,
+    summary: "Market event center has 1 event.",
+    events: [
+      {
+        event_id: "market-event-nvda",
+        run_id: "paper-run-today",
+        trading_day: "2026-06-13",
+        published_at: "2026-06-13T00:01:00Z",
+        correlation_id: "core-chain",
+        ticker: "NVDA",
+        strategy_id: "deterministic_watchlist_v1",
+        event_type: "news",
+        summary: "NVDA 3 条证据支持继续跟踪。",
+        confidence: 0.9,
+        impact_score: 0.72,
+        source: "mock_provider",
+        topics: ["market_event", "strategy_input", "trade_intent", "risk_decision", "order_state", "trade_explanation"],
+        trade_intent_side: "buy",
+        trade_intent_reason: "NVDA positive news event: 3 supporting evidence items.",
+        risk_decision: "approved",
+        risk_reason: "within paper risk limits",
+        order_state: "filled",
+        explanation: "NVDA promoted by real backtest evidence.",
+        evidence: ["evidence_count=3", "source=mock_provider", "final_score=1034.97"],
+        evidence_items: [
+          {
+            ticker: "NVDA",
+            title: "NVDA provider evidence 1",
+            summary: "Provider says NVDA has fixture evidence 1.",
+            source: "mock_provider",
+            source_url: "https://example.test/nvda-evidence",
+            observed_at: "2026-06-13T00:00:00Z",
+            form: null,
+            filing_date: null,
+            accession_number: null
+          }
+        ],
+        chain_events: [
+          {
+            event_id: "market-event-nvda",
+            topic: "market_event",
+            sequence: 1,
+            causation_id: null,
+            payload: {
+              ticker: "NVDA",
+              event_type: "news",
+              summary: "NVDA 3 条证据支持继续跟踪。",
+              sentiment: "positive",
+              confidence: 0.9,
+              impact_score: 0.72,
+              evidence_items: [
+                {
+                  ticker: "NVDA",
+                  title: "NVDA provider evidence 1",
+                  summary: "Provider says NVDA has fixture evidence 1.",
+                  source: "mock_provider",
+                  source_url: "https://example.test/nvda-evidence",
+                  observed_at: "2026-06-13T00:00:00Z"
+                }
+              ],
+              metadata: {
+                strategy_id: "deterministic_watchlist_v1",
+                source: "mock_provider",
+                quote_price: 50,
+                evidence_count: 3
+              }
+            }
+          },
+          {
+            event_id: "strategy-input-nvda",
+            topic: "strategy_input",
+            sequence: 2,
+            causation_id: "market-event-nvda",
+            payload: {
+              market_event: {
+                ticker: "NVDA",
+                summary: "NVDA 3 条证据支持继续跟踪。",
+                evidence_items: [
+                  {
+                    ticker: "NVDA",
+                    title: "NVDA provider evidence 1",
+                    summary: "Provider says NVDA has fixture evidence 1.",
+                    source: "mock_provider",
+                    source_url: "https://example.test/nvda-evidence",
+                    observed_at: "2026-06-13T00:00:00Z"
+                  }
+                ],
+                metadata: {
+                  source: "mock_provider"
+                }
+              },
+              portfolio: {
+                cash: 100000,
+                equity: 100000,
+                positions: []
+              }
+            }
+          },
+          {
+            event_id: "intent-nvda",
+            topic: "trade_intent",
+            sequence: 3,
+            causation_id: "strategy-input-nvda",
+            payload: {
+              ticker: "NVDA",
+              side: "buy",
+              notional: 2000,
+              reason: "NVDA positive news event: 3 supporting evidence items."
+            }
+          },
+          {
+            event_id: "risk-nvda",
+            topic: "risk_decision",
+            sequence: 4,
+            causation_id: "intent-nvda",
+            payload: {
+              ticker: "NVDA",
+              status: "approved",
+              code: "approved",
+              reason: "within paper risk limits"
+            }
+          },
+          {
+            event_id: "order-nvda",
+            topic: "order_state",
+            sequence: 5,
+            causation_id: "risk-nvda",
+            payload: {
+              ticker: "NVDA",
+              state: "filled",
+              quantity: 40,
+              fill_price: 50
+            }
+          },
+          {
+            event_id: "explain-nvda",
+            topic: "trade_explanation",
+            sequence: 6,
+            causation_id: "intent-nvda",
+            payload: {
+              ticker: "NVDA",
+              strategy_id: "deterministic_watchlist_v1",
+              decision: "candidate",
+              explanation: "NVDA promoted by real backtest evidence.",
+              evidence: ["evidence_count=3", "source=mock_provider", "final_score=1034.97"],
+              evidence_items: [
+                {
+                  ticker: "NVDA",
+                  title: "NVDA provider evidence 1",
+                  summary: "Provider says NVDA has fixture evidence 1.",
+                  source: "mock_provider",
+                  source_url: "https://example.test/nvda-evidence",
+                  observed_at: "2026-06-13T00:00:00Z"
+                }
+              ],
+              backtest: {
+                total_net_profit: "38.60%",
+                sharpe_ratio: "1.42",
+                total_trades: "12"
+              }
+            }
+          }
+        ]
+      }
+    ]
   };
   const blockedOperations = {
     trading_day: "2026-06-13",
@@ -810,6 +979,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   });
   await page.route("**/api/mvp/paper-trading/event-ledger", async (route) => {
     await route.fulfill({ contentType: "application/json", json: ledger });
+  });
+  await page.route("**/api/mvp/paper-trading/market-events?**", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: paperMarketEvents });
   });
   await page.route("**/api/mvp/paper-trading/operations", async (route) => {
     await route.fulfill({ contentType: "application/json", json: operations });
@@ -2488,6 +2660,7 @@ test("strategy lab renders readiness status", async ({ page }) => {
         promotion_gate: "eligible_for_shadow",
         sample_size: 42,
         filled_order_count: 40,
+        filled_order_remaining: 0,
         observed_pnl: 125,
         primary_regime: "range_market",
         signal_quality_score: 0.7,
@@ -2511,6 +2684,7 @@ test("strategy lab renders readiness status", async ({ page }) => {
         promotion_gate: "not_connected_to_paper_runtime",
         sample_size: 0,
         filled_order_count: 0,
+        filled_order_remaining: 30,
         observed_pnl: 0,
         primary_regime: "backtest_only",
         signal_quality_score: 0,
@@ -3107,9 +3281,11 @@ test("strategy lab renders readiness status", async ({ page }) => {
   await expect(competitionPanel.getByText("deterministic_watchlist_v1 · paper_core · paper")).toBeVisible();
   await expect(competitionPanel.getByText("allocation 100.00%")).toBeVisible();
   await expect(competitionPanel.getByText("allocate_paper_capital")).toBeVisible();
+  await expect(competitionPanel.getByText("成交 40/30 · 还差 0 笔 · 排名分 80.00")).toBeVisible();
   await expect(competitionPanel.getByText("#2 MovingAverageCross")).toBeVisible();
   await expect(competitionPanel.getByText("not_connected_to_paper_runtime")).toBeVisible();
   await expect(competitionPanel.getByText("keep_in_lab")).toBeVisible();
+  await expect(competitionPanel.getByText("成交 0/30 · 还差 30 笔 · 排名分 0.00")).toBeVisible();
   await competitionPanel.getByRole("button", { name: "记录竞争快照" }).click();
   await expect(competitionPanel.getByText("已记录 2026-06-14 策略竞争快照")).toBeVisible();
   const lifecyclePanel = page.getByRole("region", { name: "策略生命周期" });

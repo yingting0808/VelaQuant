@@ -34,6 +34,7 @@ class StrategyCompetitionEntryPayload(BaseModel):
     promotion_gate: str
     sample_size: int
     filled_order_count: int
+    filled_order_remaining: int
     observed_pnl: float
     primary_regime: str
     signal_quality_score: float
@@ -203,6 +204,7 @@ def _competition_entries(entries: list[StrategyRegistryEntry]) -> list[StrategyC
             promotion_gate=entry.promotion_gate,
             sample_size=entry.sample_size,
             filled_order_count=entry.filled_order_count,
+            filled_order_remaining=_filled_order_remaining(entry.filled_order_count),
             observed_pnl=round(entry.observed_pnl, 2),
             primary_regime=entry.primary_regime,
             signal_quality_score=round(entry.signal_quality_score, 4),
@@ -232,6 +234,10 @@ def _blockers(entry: StrategyRegistryEntry) -> list[str]:
     if not entry.supports_hot_swap:
         blockers.append("hot_swap_not_supported")
     return blockers
+
+
+def _filled_order_remaining(filled_order_count: int) -> int:
+    return max(0, MIN_COMPETITION_FILLED_ORDERS - filled_order_count)
 
 
 def _recommended_action(entry: StrategyRegistryEntry) -> str:
@@ -344,6 +350,7 @@ def _entry_payload(entry: StrategyCompetitionEntry) -> StrategyCompetitionEntryP
         promotion_gate=entry.promotion_gate,
         sample_size=entry.sample_size,
         filled_order_count=entry.filled_order_count,
+        filled_order_remaining=_filled_order_remaining(entry.filled_order_count),
         observed_pnl=round(entry.observed_pnl, 2),
         primary_regime=entry.primary_regime,
         signal_quality_score=round(entry.signal_quality_score, 4),

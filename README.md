@@ -245,6 +245,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Each daily paper run now records `StrategyAlphaSnapshot` evidence for every registered paper runtime strategy, currently `deterministic_watchlist_v1` and `moving_average_cross`, so Alpha gate evidence is no longer limited to the default strategy.
 - Alpha validation now computes runtime expectancy from each strategy's own closed paper trades instead of reusing account-level review expectancy, so strategy competition is not credited with another strategy's PnL.
 - Strategy Registry now consumes registered runtime Alpha evidence for connected paper strategies, so Strategy Competition can see actual paper review days and filled-order counts instead of leaving connected catalog strategies at zero samples.
+- Strategy Competition entries now expose `filled_order_remaining`, making each strategy's sample gap explicit. The Strategy Lab UI shows filled orders as `current/30` plus the remaining count, so operators can see that a connected strategy such as `moving_average_cross` still needs paper fills before it can compete for allocation.
 - Strategy Competition marks positive catalog backtests as `connect_to_paper_runtime` work, while keeping negative or flat backtests in the lab and still blocking all catalog strategies from allocation until they are connected to the paper runtime and hot-swap path.
 - Daily paper candidate selection records every generated candidate as a `trade_explanation` core event; when backtest evidence exists it includes backtest metrics, otherwise it records evidence count, quote source, diversification context, and the candidate ranking score breakdown.
 - Daily paper candidates now persist and return `strategy_id`; manual buys launched from a candidate carry that same strategy id into the paper order payload, preserving candidate -> order -> Alpha attribution.
@@ -318,6 +319,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 每次每日 paper run 现在都会为所有已注册 paper runtime 策略分别记录 `StrategyAlphaSnapshot` 证据，目前包括 `deterministic_watchlist_v1` 和 `moving_average_cross`，因此 Alpha 门禁证据不再只覆盖默认策略。
 - Alpha 验证现在会用各策略自己的已闭环模拟交易计算运行期望，不再复用账户级复盘 expectancy，因此策略竞争不会把其他策略的盈亏算到自己名下。
 - Strategy Registry 现在会消费已注册 runtime 策略的 Alpha 证据，因此 Strategy Competition 可以看到已接入 paper 策略的真实复盘天数和成交订单数，不再把已接入的目录策略显示为 0 样本。
+- Strategy Competition 条目现在会返回 `filled_order_remaining`，明确展示每个策略还差多少成交样本。Strategy Lab UI 会显示 `当前/30` 和剩余笔数，因此操作者能看到 `moving_average_cross` 这类已接入策略仍需 paper 成交样本，不能直接参与分配。
 - Strategy Competition 会把正收益目录回测标记为 `connect_to_paper_runtime` 工作项；负收益或持平回测继续留在 lab，且所有目录策略在接入 paper runtime 和热切换路径前仍禁止进入资金分配。
 - 每日 paper 候选筛选会把每一个生成候选记录为 `trade_explanation` core event；有回测证据时写入回测指标，没有回测时写入证据数量、报价源、分散度上下文和候选排序分数拆解。
 - 每日 paper 候选现在会持久化并返回 `strategy_id`；从候选发起的手动模拟买入会把同一个策略 ID 带入 paper order payload，保留候选 -> 订单 -> Alpha 归因链。

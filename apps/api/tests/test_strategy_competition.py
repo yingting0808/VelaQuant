@@ -62,6 +62,7 @@ def test_strategy_competition_allocates_only_executable_paper_strategies():
     catalog_entry = next(item for item in payload.entries if item.strategy_id == "moving_average_cross")
     assert catalog_entry.eligible_for_allocation is False
     assert "not_connected_to_paper_runtime" in catalog_entry.blockers
+    assert catalog_entry.filled_order_remaining == 30
 
 
 def test_strategy_competition_marks_promising_backtests_for_paper_runtime_connection():
@@ -99,6 +100,7 @@ def test_strategy_competition_marks_promising_backtests_for_paper_runtime_connec
     assert catalog_entry.recommended_action == "connect_to_paper_runtime"
     assert "not_connected_to_paper_runtime" in catalog_entry.blockers
     assert "hot_swap_not_supported" in catalog_entry.blockers
+    assert catalog_entry.filled_order_remaining == 30
     assert payload.selected_strategy_id == "deterministic_watchlist_v1"
 
 

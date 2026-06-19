@@ -249,6 +249,7 @@ export type StrategyCompetitionEntryPayload = {
   promotion_gate: string;
   sample_size: number;
   filled_order_count: number;
+  filled_order_remaining: number;
   observed_pnl: number;
   primary_regime: string;
   signal_quality_score: number;
@@ -1585,6 +1586,7 @@ const fallbackStrategyCompetition: StrategyCompetitionPayload = {
       promotion_gate: "blocked",
       sample_size: 0,
       filled_order_count: 0,
+      filled_order_remaining: 30,
       observed_pnl: 0,
       primary_regime: "insufficient_data",
       signal_quality_score: 0,
@@ -2771,6 +2773,7 @@ function isStrategyCompetitionEntryPayload(value: unknown): value is StrategyCom
     typeof value.promotion_gate === "string" &&
     typeof value.sample_size === "number" &&
     typeof value.filled_order_count === "number" &&
+    typeof value.filled_order_remaining === "number" &&
     typeof value.observed_pnl === "number" &&
     typeof value.primary_regime === "string" &&
     typeof value.signal_quality_score === "number" &&
