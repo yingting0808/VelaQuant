@@ -999,7 +999,7 @@ export function PaperTradingWorkspace() {
           <strong>{formatCurrency(account?.cash ?? 0)}</strong>
         </div>
         <div className="metric-card">
-          <div className="metric-label">期望值</div>
+          <div className="metric-label">账户复盘期望</div>
           <strong>{formatCurrency(review?.expectancy ?? 0)}</strong>
         </div>
       </section>
@@ -1128,7 +1128,7 @@ export function PaperTradingWorkspace() {
         </div>
         <div className="import-result">
           <strong>
-            期望 {formatCurrency(dailyReport?.latest_expectancy ?? 0)} · 连续正期望{" "}
+            策略Alpha期望 {formatCurrency(dailyReport?.latest_expectancy ?? 0)} · 连续正期望{" "}
             {dailyReport?.consecutive_positive_expectancy_days ?? 0} 天
           </strong>
           <p>

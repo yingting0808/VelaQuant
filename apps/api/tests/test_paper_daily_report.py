@@ -319,6 +319,44 @@ def test_paper_daily_report_includes_latest_daily_pnl(monkeypatch):
         assert report.daily_return == 0.0028
 
 
+def test_paper_daily_report_uses_strategy_alpha_expectancy_not_account_review(monkeypatch):
+    monkeypatch.setattr(paper_operations, "current_market_trading_day", lambda: "2026-06-13")
+    monkeypatch.setattr("app.services.alpha_validation._has_real_market_backtest", lambda strategy_id: True)
+
+    with make_session() as session:
+        provider = FixtureProvider()
+        submit_paper_order(session, provider, PaperOrderCreate(ticker="AAPL", side="buy", quantity=2))
+        account = session.exec(select(PaperAccount)).one()
+        session.add(
+            PaperReview(
+                account_id=account.id,
+                team_id=account.team_id,
+                trading_day="2026-06-13",
+                equity=101000,
+                cash=99000,
+                realized_pnl=1000,
+                unrealized_pnl=0,
+                trade_count=4,
+                win_rate=1,
+                average_win=250,
+                average_loss=0,
+                expectancy=250,
+                notes="account-level review is positive but strategy has no closed trade",
+                created_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        report = get_paper_daily_report(session, provider)
+
+        assert report.daily_pnl == 0
+        assert report.latest_expectancy == 0
+        assert report.average_expectancy == 0
+        assert report.consecutive_positive_expectancy_days == 0
+        assert "latest_positive_expectancy" in report.alpha_blockers
+        assert "latest expectancy 0.00" in report.summary
+
+
 def make_session() -> Session:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)

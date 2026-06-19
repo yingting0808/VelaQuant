@@ -114,9 +114,9 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         dismissed_candidate_count=candidate_status_counts["dismissed"],
         order_count=len(trading_summary.orders),
         open_position_count=len(trading_summary.positions),
-        latest_expectancy=review_trend.latest_expectancy,
-        average_expectancy=review_trend.average_expectancy,
-        consecutive_positive_expectancy_days=review_trend.consecutive_positive_expectancy_days,
+        latest_expectancy=alpha_validation.latest_expectancy,
+        average_expectancy=alpha_validation.average_expectancy,
+        consecutive_positive_expectancy_days=alpha_validation.consecutive_positive_expectancy_days,
         event_ledger_ready=event_ledger.replay_ready,
         alpha_ready=alpha_validation.alpha_ready,
         alpha_blockers=alpha_validation.blockers,
@@ -126,7 +126,7 @@ def get_paper_daily_report(session: Session, provider: MarketDataProvider) -> Pa
         summary=_summary(
             health_status=operations.health_status,
             run_state=operations.run_state,
-            latest_expectancy=review_trend.latest_expectancy,
+            latest_expectancy=alpha_validation.latest_expectancy,
             alpha_ready=alpha_validation.alpha_ready,
         ),
     )
