@@ -253,6 +253,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - Strategy attribution now prefers order-linked `candidate_id` when matching candidate scores to observed PnL, falling back to ticker-level matching only for older records without candidate linkage.
 - EventLedger replay now exposes `trade_explanation` details in the API and Paper Trading workspace, including decision, strategy id, explanation, evidence, and backtest return.
 - `GET /api/mvp/paper-trading/market-events` now exposes a user-facing Market Event Center over persisted `CoreEventLog` data. Operators can filter by ticker, then see the `MarketEvent` summary, strategy id, confidence, impact score, source, downstream `TradeIntent`, `RiskDecision`, `OrderState`, explanation, evidence, and `correlation_id`.
+- Market events now persist structured `evidence_items` on the event payload itself. Evidence-scored events store provider research evidence, while `moving_average_cross` stores a 20/50 SMA snapshot with source and observed time, so the UI can show where the event came from before users open raw JSON.
 - The Paper Trading workspace now displays the strategy source for each candidate, so operators can see which registry-controlled strategy generated a tradable paper signal before submitting a mock order.
 - The Paper Trading workspace now surfaces the `final_score` candidate ranking evidence as a readable ranking score in the Event Ledger review card.
 - The Paper Trading workspace now opens with a purpose-based SPCX/INTC onboarding guide and a Registry-backed strategy source panel. The UI explicitly labels `deterministic_watchlist_v1` and `moving_average_cross` as controlled baseline research strategies, not proven profitable Alpha; each strategy still needs backtest evidence, paper samples, PnL, risk, and event-ledger attribution before promotion.
@@ -323,6 +324,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 策略归因现在会优先使用订单关联的 `candidate_id` 匹配候选评分与观测盈亏；只有老数据没有候选关联时才退回 ticker 级匹配。
 - EventLedger replay 现在会在 API 和模拟盘工作台展示 `trade_explanation` 明细，包括决策、策略 ID、解释、证据和回测收益。
 - `GET /api/mvp/paper-trading/market-events` 现在会基于已落库的 `CoreEventLog` 暴露面向用户的市场事件中心。运行人员可以按 ticker 筛选，并看到 `MarketEvent` 摘要、策略 ID、置信度、影响分、来源、后续 `TradeIntent`、`RiskDecision`、`OrderState`、解释、证据和 `correlation_id`。
+- MarketEvent 现在会把结构化 `evidence_items` 直接写入事件 payload。证据评分事件会保存 provider 投研证据，`moving_average_cross` 会保存 20/50 日均线快照、行情源和观察时间，因此 UI 在用户展开原始 JSON 前就能说明事件来源。
 - 模拟盘工作台现在会显示每个候选的策略来源，因此操作者在提交模拟订单前可以看到该可交易信号来自哪个 Registry 控制的策略。
 - 模拟盘工作台现在会把 `final_score` 候选排序证据显示为事件账本复盘卡里的可读排序分数。
 - 模拟盘工作台现在进入页面先展示基于 SPCX/INTC 的按目的上手向导，并展示由 Strategy Registry 驱动的策略来源面板。页面会明确说明 `deterministic_watchlist_v1` 和 `moving_average_cross` 是受控研究基线策略，不是已经证明盈利的成熟 Alpha；策略晋级仍需要回测证据、模拟盘样本、盈亏、风控和事件账本归因共同证明。

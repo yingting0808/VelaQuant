@@ -226,6 +226,9 @@ def test_market_event_traces_filter_by_ticker_and_expose_downstream_chain():
             correlation_id="corr-intc",
             payload_json=(
                 '{"ticker":"INTC","event_type":"price_action","summary":"INTC fast SMA crossed above slow SMA.",'
+                '"evidence_items":[{"ticker":"INTC","title":"INTC moving average snapshot",'
+                '"summary":"Fast SMA 31.20 is above slow SMA 30.70.","source":"mock_market_data",'
+                '"source_url":"mock://market-data/INTC","observed_at":"2026-06-12T20:30:00Z"}],'
                 '"confidence":0.74,"impact_score":0.66,"metadata":{"strategy_id":"moving_average_cross",'
                 '"fast_sma":31.2,"slow_sma":30.7,"source":"mock_market_data"}}'
             ),
@@ -329,6 +332,10 @@ def test_market_event_traces_filter_by_ticker_and_expose_downstream_chain():
         assert trace.risk_decision == "approved"
         assert trace.risk_reason == "within paper risk limits"
         assert trace.order_state == "filled"
+        assert trace.evidence_items[0]["title"] == "INTC moving average snapshot"
+        assert trace.evidence_items[0]["summary"] == "Fast SMA 31.20 is above slow SMA 30.70."
+        assert trace.evidence_items[0]["source"] == "mock_market_data"
+        assert trace.evidence_items[0]["source_url"] == "mock://market-data/INTC"
         assert trace.explanation == "INTC entered because momentum evidence passed the strategy gate."
         assert trace.evidence == ["fast_sma_above_slow_sma", "source=mock_market_data"]
         assert [event.topic for event in trace.chain_events] == trace.topics

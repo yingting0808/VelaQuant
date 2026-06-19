@@ -107,6 +107,7 @@ class MarketEventTrace(BaseModel):
     order_state: str | None = None
     explanation: str | None = None
     evidence: list[str] = Field(default_factory=list)
+    evidence_items: list[dict[str, str | None]] = Field(default_factory=list)
     chain_events: list[MarketEventTraceEvent] = Field(default_factory=list)
 
 
@@ -518,6 +519,8 @@ def _market_event_trace(
         order_state=_optional_str(order_payload.get("state")) or _optional_str(order_payload.get("current_state")),
         explanation=explanation.explanation if explanation else None,
         evidence=explanation.evidence if explanation else [],
+        evidence_items=_evidence_items_payload(payload.get("evidence_items"))
+        or (explanation.evidence_items if explanation else []),
         chain_events=[
             MarketEventTraceEvent(
                 event_id=item.event_id,

@@ -352,6 +352,13 @@ def test_daily_run_routes_moving_average_cross_through_paper_runtime():
             and metadata.get("fast_sma") > metadata.get("slow_sma")
             for event in market_events
         )
+        moving_average_market_payload = next(
+            payload
+            for payload in (json.loads(event.payload_json) for event in market_events)
+            if payload.get("metadata", {}).get("strategy_id") == "moving_average_cross"
+        )
+        assert moving_average_market_payload["evidence_items"][0]["title"] == "AAPL 20/50 日均线快照"
+        assert moving_average_market_payload["evidence_items"][0]["source"] == "fixture_history"
         snapshots = session.exec(select(StrategyAlphaSnapshot)).all()
         moving_average_snapshot = next(
             (snapshot for snapshot in snapshots if snapshot.strategy_id == "moving_average_cross"),
@@ -542,6 +549,26 @@ def test_daily_run_records_trade_explanations_for_candidates_without_backtests(m
             "accession_number": None,
         }
         assert nvda_payload["backtest"] == {}
+        market_event_payloads = [
+            json.loads(event.payload_json)
+            for event in session.exec(
+                select(CoreEventLog)
+                .where(CoreEventLog.topic == "market_event")
+                .order_by(CoreEventLog.sequence)
+            ).all()
+        ]
+        nvda_market_event_payload = next(payload for payload in market_event_payloads if payload["ticker"] == "NVDA")
+        assert nvda_market_event_payload["evidence_items"][0] == {
+            "ticker": "NVDA",
+            "title": "NVDA evidence 1",
+            "summary": "NVDA has fixture evidence 1.",
+            "source": "fixture",
+            "source_url": "https://example.test/evidence",
+            "observed_at": "2026-06-13T00:00:00Z",
+            "form": None,
+            "filing_date": None,
+            "accession_number": None,
+        }
         nvda_event = next(event for event in explanation_events if json.loads(event.payload_json)["ticker"] == "NVDA")
         trade_intent_event = session.exec(
             select(CoreEventLog)

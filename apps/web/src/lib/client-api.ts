@@ -1257,6 +1257,17 @@ export type MarketEventTracePayload = {
   order_state: string | null;
   explanation: string | null;
   evidence: string[];
+  evidence_items: {
+    ticker: string | null;
+    title: string | null;
+    summary: string | null;
+    source: string | null;
+    source_url: string | null;
+    observed_at: string | null;
+    form: string | null;
+    filing_date: string | null;
+    accession_number: string | null;
+  }[];
 };
 
 export type PaperMarketEventsPayload = {
@@ -5114,7 +5125,21 @@ function isMarketEventTracePayload(value: unknown): value is MarketEventTracePay
     (typeof value.order_state === "string" || value.order_state === null) &&
     (typeof value.explanation === "string" || value.explanation === null) &&
     Array.isArray(value.evidence) &&
-    value.evidence.every((item) => typeof item === "string")
+    value.evidence.every((item) => typeof item === "string") &&
+    Array.isArray(value.evidence_items) &&
+    value.evidence_items.every(
+      (item) =>
+        isRecord(item) &&
+        (typeof item.ticker === "string" || item.ticker === null) &&
+        (typeof item.title === "string" || item.title === null) &&
+        (typeof item.summary === "string" || item.summary === null) &&
+        (typeof item.source === "string" || item.source === null) &&
+        (typeof item.source_url === "string" || item.source_url === null) &&
+        (typeof item.observed_at === "string" || item.observed_at === null) &&
+        (typeof item.form === "string" || item.form === null) &&
+        (typeof item.filing_date === "string" || item.filing_date === null) &&
+        (typeof item.accession_number === "string" || item.accession_number === null)
+    )
   );
 }
 

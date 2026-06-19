@@ -758,6 +758,7 @@ def _generate_candidates(
                 strategy_id=binding.strategy_id,
                 ticker=ticker,
                 quote_price=float(quote.price),
+                evidence_items=evidence,
                 evidence_count=evidence_count,
                 diversification_bonus=diversification_bonus,
                 provider=provider,
@@ -1259,6 +1260,7 @@ def _backtest_metric_summary(item: StrategyCandidateBacktestItem) -> str:
 def _market_event_from_evidence(
     ticker: str,
     quote_price: float,
+    evidence_items: list[EvidenceItem],
     evidence_count: int,
     diversification_bonus: float,
 ) -> MarketEvent:
@@ -1273,6 +1275,7 @@ def _market_event_from_evidence(
         sentiment=sentiment,
         confidence=round(min(0.95, 0.45 + score), 2),
         impact_score=round(min(0.9, 0.35 + evidence_count * 0.15 + diversification_bonus), 2),
+        evidence_items=[_evidence_item_payload(evidence_item) for evidence_item in evidence_items],
         metadata={
             "evidence_count": evidence_count,
             "quote_price": round(quote_price, 6),
@@ -1286,6 +1289,7 @@ def _market_event_for_strategy(
     strategy_id: str,
     ticker: str,
     quote_price: float,
+    evidence_items: list[EvidenceItem],
     evidence_count: int,
     diversification_bonus: float,
     provider: MarketDataProvider,
@@ -1299,6 +1303,7 @@ def _market_event_for_strategy(
     return _market_event_from_evidence(
         ticker=ticker,
         quote_price=quote_price,
+        evidence_items=evidence_items,
         evidence_count=evidence_count,
         diversification_bonus=diversification_bonus,
     )
@@ -1323,11 +1328,12 @@ def _market_event_from_moving_average_cross(
     slow_sma = sum(closes[-MOVING_AVERAGE_SLOW_PERIOD:]) / MOVING_AVERAGE_SLOW_PERIOD
     is_bullish = fast_sma > slow_sma
     source = next((bar.source for bar in reversed(bars) if bar.source), "unknown")
+    observed_at = utc_now()
     return MarketEvent(
         source=EventSource.market_data,
         event_type=MarketEventType.price_move,
         ticker=ticker,
-        occurred_at=utc_now(),
+        occurred_at=observed_at,
         summary=(
             f"{ticker} 20日均线 {fast_sma:.2f} "
             f"{'高于' if is_bullish else '未高于'} 50日均线 {slow_sma:.2f}。"
@@ -1335,6 +1341,19 @@ def _market_event_from_moving_average_cross(
         sentiment=Sentiment.positive if is_bullish else Sentiment.neutral,
         confidence=0.82 if is_bullish else 0.55,
         impact_score=0.68 if is_bullish else 0.45,
+        evidence_items=[
+            {
+                "ticker": ticker,
+                "title": f"{ticker} 20/50 日均线快照",
+                "summary": f"20日均线 {fast_sma:.2f}，50日均线 {slow_sma:.2f}，收盘样本 {len(closes)} 根。",
+                "source": source,
+                "source_url": None,
+                "observed_at": observed_at.isoformat(),
+                "form": None,
+                "filing_date": None,
+                "accession_number": None,
+            }
+        ],
         metadata={
             "strategy_id": MOVING_AVERAGE_CROSS_STRATEGY_ID,
             "quote_price": round(quote_price, 6),

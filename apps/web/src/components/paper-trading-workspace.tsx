@@ -265,6 +265,16 @@ function payloadEvidenceItems(payload: Record<string, unknown>): ReadableEvidenc
     }));
 }
 
+function traceEvidenceItems(event: PaperMarketEventsPayload["events"][number] | null): ReadableEvidenceItem[] {
+  return (event?.evidence_items ?? []).map((item) => ({
+    title: item.title ?? "未命名证据",
+    summary: item.summary ?? "无摘要",
+    source: item.source ?? "unknown",
+    source_url: item.source_url ?? "",
+    observed_at: item.observed_at ?? "未知时间"
+  }));
+}
+
 function payloadEvidenceCountLabel(payload: Record<string, unknown>): string | null {
   const evidence = payload.evidence;
   if (!Array.isArray(evidence)) {
@@ -911,6 +921,7 @@ export function PaperTradingWorkspace() {
     : eventLedger?.latest_topic_counts.map((item) => item.topic) ?? [];
   const selectedMarketEvents = marketEvents?.events ?? [];
   const latestMarketEvent = selectedMarketEvents[0] ?? null;
+  const latestMarketEventEvidenceItems = traceEvidenceItems(latestMarketEvent);
   const marketEventTopics = latestMarketEvent?.topics ?? [];
   const marketEventSummary =
     marketEvents?.summary ?? `${selectedTicker} 暂无市场事件；先运行模拟盘或等待调度采样。`;
@@ -1073,6 +1084,23 @@ export function PaperTradingWorkspace() {
               <span>解释与证据</span>
               <p>{latestMarketEvent?.explanation ?? latestMarketEvent?.trade_intent_reason ?? "暂无解释；产生候选或订单后会写入 trade_explanation。"}</p>
               <p>{latestMarketEvent?.evidence.join(" / ") || "暂无证据标签"}</p>
+            </div>
+            <div className="readable-evidence-list market-event-source-list">
+              <span>本事件依据</span>
+              {latestMarketEventEvidenceItems.length ? (
+                latestMarketEventEvidenceItems.map((item, index) => (
+                  <div key={`${latestMarketEvent?.event_id}-source-${index}`} className="readable-evidence-item">
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                    <small>
+                      来源 {item.source} · 观察时间 {item.observed_at}
+                      {item.source_url ? ` · ${item.source_url}` : ""}
+                    </small>
+                  </div>
+                ))
+              ) : (
+                <p>这条历史市场事件没有保存结构化来源明细；可在下方具体事件内容中查看 payload，新的模拟盘事件会优先写入本事件依据。</p>
+              )}
             </div>
             <div className="market-event-payloads">
               <span>具体事件内容</span>

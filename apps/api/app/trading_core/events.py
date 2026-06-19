@@ -45,6 +45,7 @@ class MarketEvent(BaseModel):
     sentiment: Sentiment = Sentiment.neutral
     confidence: float = Field(ge=0, le=1)
     impact_score: float = Field(ge=0, le=1)
+    evidence_items: list[dict[str, str | None]] = Field(default_factory=list)
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
     @field_validator("ticker")
