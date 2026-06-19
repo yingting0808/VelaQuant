@@ -1253,6 +1253,8 @@ export type MarketEventTracePayload = {
   confidence: number | null;
   impact_score: number | null;
   source: string | null;
+  evidence_quality: "unknown" | "real_market_data" | "mock_data" | "deterministic_research_series" | "mixed";
+  uses_real_market_evidence: boolean;
   topics: string[];
   trade_intent_side: string | null;
   trade_intent_reason: string | null;
@@ -5125,6 +5127,11 @@ function isMarketEventTracePayload(value: unknown): value is MarketEventTracePay
     (typeof value.confidence === "number" || value.confidence === null) &&
     (typeof value.impact_score === "number" || value.impact_score === null) &&
     (typeof value.source === "string" || value.source === null) &&
+    typeof value.evidence_quality === "string" &&
+    ["unknown", "real_market_data", "mock_data", "deterministic_research_series", "mixed"].includes(
+      value.evidence_quality
+    ) &&
+    typeof value.uses_real_market_evidence === "boolean" &&
     Array.isArray(value.topics) &&
     value.topics.every((item) => typeof item === "string") &&
     (typeof value.trade_intent_side === "string" || value.trade_intent_side === null) &&

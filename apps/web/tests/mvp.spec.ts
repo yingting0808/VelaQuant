@@ -347,6 +347,8 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
         confidence: 0.9,
         impact_score: 0.72,
         source: "mock_provider",
+        evidence_quality: "mock_data",
+        uses_real_market_evidence: false,
         topics: ["market_event", "strategy_input", "trade_intent", "risk_decision", "order_state", "trade_explanation"],
         trade_intent_side: "buy",
         trade_intent_reason: "NVDA positive news event: 3 supporting evidence items.",
@@ -1265,6 +1267,9 @@ test("paper trading workbench runs daily loop and simulates a buy", async ({ pag
   await expect(
     page.getByRole("region", { name: "事件账本" }).getByText("new → validated → risk_approved → sent → filled")
   ).toBeVisible();
+  const marketEventCenter = page.getByRole("article", { name: "市场事件中心" });
+  await expect(marketEventCenter.getByText("Mock 数据", { exact: true })).toBeVisible();
+  await expect(marketEventCenter.getByText("不可作为实盘 Alpha 依据")).toBeVisible();
   await openPaperView(page, "候选与模拟");
   await expect(page.getByRole("region", { name: "模拟订单" }).getByRole("cell", { name: "filled", exact: true })).toBeVisible();
   await expect(

@@ -336,6 +336,8 @@ def test_market_event_traces_filter_by_ticker_and_expose_downstream_chain():
         assert trace.evidence_items[0]["summary"] == "Fast SMA 31.20 is above slow SMA 30.70."
         assert trace.evidence_items[0]["source"] == "mock_market_data"
         assert trace.evidence_items[0]["source_url"] == "mock://market-data/INTC"
+        assert trace.evidence_quality == "mock_data"
+        assert trace.uses_real_market_evidence is False
         assert trace.explanation == "INTC entered because momentum evidence passed the strategy gate."
         assert trace.evidence == ["fast_sma_above_slow_sma", "source=mock_market_data"]
         assert [event.topic for event in trace.chain_events] == trace.topics

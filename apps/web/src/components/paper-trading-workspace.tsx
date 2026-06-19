@@ -304,6 +304,38 @@ function evidenceSourceSummary(items: ReadableEvidenceItem[]): string | null {
     .join(" · ");
 }
 
+function evidenceQualityLabel(value: PaperMarketEventsPayload["events"][number]["evidence_quality"] | undefined): string {
+  const labels: Record<string, string> = {
+    deterministic_research_series: "确定性研究序列",
+    mixed: "混合证据",
+    mock_data: "Mock 数据",
+    real_market_data: "真实市场数据",
+    unknown: "未知"
+  };
+  return labels[value ?? "unknown"] ?? value ?? "未知";
+}
+
+function evidenceQualityDetail(event: PaperMarketEventsPayload["events"][number] | null): string {
+  if (!event) {
+    return "暂无事件证据质量。";
+  }
+  if (event.evidence_quality === "real_market_data") {
+    return "可进入模拟盘 Alpha 证据池，仍需回测、样本量和复盘验证。";
+  }
+  if (event.evidence_quality === "mixed") {
+    return event.uses_real_market_evidence
+      ? "包含真实市场证据，但混有 Mock 或研究序列，不能单独作为实盘 Alpha 依据。"
+      : "来源混合且未确认真实市场证据，不能作为实盘 Alpha 依据。";
+  }
+  if (event.evidence_quality === "mock_data") {
+    return "不可作为实盘 Alpha 依据，只能用于开发、联调和模拟流程检查。";
+  }
+  if (event.evidence_quality === "deterministic_research_series") {
+    return "不可作为实盘 Alpha 依据，只能用于确定性研究回放。";
+  }
+  return "来源质量未确认，必须人工复核后才能纳入 Alpha 证据。";
+}
+
 function eventReadableSource(topic: string, payload: Record<string, unknown>): string {
   const metadata = nestedRecord(payload, "metadata");
   const marketEvent = nestedRecord(payload, "market_event");
@@ -1217,6 +1249,10 @@ export function PaperTradingWorkspace() {
                 <span>来源</span>
                 <strong>{latestMarketEvent?.source ?? "未标注"}</strong>
               </div>
+              <div>
+                <span>证据质量</span>
+                <strong>{evidenceQualityLabel(latestMarketEvent?.evidence_quality)}</strong>
+              </div>
             </div>
             <div className="market-event-chain">
               {marketEventTopics.length ? (
@@ -1231,6 +1267,10 @@ export function PaperTradingWorkspace() {
               <span>解释与证据</span>
               <p>{latestMarketEvent?.explanation ?? latestMarketEvent?.trade_intent_reason ?? "暂无解释；产生候选或订单后会写入 trade_explanation。"}</p>
               <p>{latestMarketEvent?.evidence.join(" / ") || "暂无证据标签"}</p>
+              <p>
+                证据质量 {evidenceQualityLabel(latestMarketEvent?.evidence_quality)} ·{" "}
+                {evidenceQualityDetail(latestMarketEvent)}
+              </p>
             </div>
             <div className="readable-evidence-list market-event-source-list">
               <span>本事件依据</span>

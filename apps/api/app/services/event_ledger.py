@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,6 +9,8 @@ from sqlmodel import Session, select
 from app.domain.models import CoreEventLog, PaperRun
 from app.services.market_calendar import current_market_trading_day
 from app.services.workspace import get_or_create_default_workspace
+
+EvidenceQuality = Literal["unknown", "real_market_data", "mock_data", "deterministic_research_series", "mixed"]
 
 
 class EventLedgerTopicCount(BaseModel):
@@ -99,6 +102,8 @@ class MarketEventTrace(BaseModel):
     confidence: float | None
     impact_score: float | None
     source: str | None
+    evidence_quality: EvidenceQuality = "unknown"
+    uses_real_market_evidence: bool = False
     topics: list[str]
     trade_intent_side: str | None = None
     trade_intent_reason: str | None = None
@@ -498,6 +503,11 @@ def _market_event_trace(
     trade_intent_payload = _latest_topic_payload(chain, "trade_intent")
     risk_payload = _latest_topic_payload(chain, "risk_decision")
     order_payload = _latest_topic_payload(chain, "order_state")
+    evidence_items = _evidence_items_payload(payload.get("evidence_items")) or (
+        explanation.evidence_items if explanation else []
+    )
+    evidence_sources = _trace_evidence_sources(payload, evidence_items, explanation)
+    evidence_quality = _evidence_quality(evidence_sources)
     return MarketEventTrace(
         event_id=event.event_id,
         run_id=event.run_id,
@@ -511,6 +521,8 @@ def _market_event_trace(
         confidence=_optional_float(payload.get("confidence")),
         impact_score=_optional_float(payload.get("impact_score")),
         source=_optional_str(metadata.get("source")) or _optional_str(payload.get("source")),
+        evidence_quality=evidence_quality,
+        uses_real_market_evidence=_has_real_market_evidence(evidence_sources),
         topics=[item.topic for item in chain],
         trade_intent_side=_optional_str(trade_intent_payload.get("side")),
         trade_intent_reason=_optional_str(trade_intent_payload.get("reason")),
@@ -519,8 +531,7 @@ def _market_event_trace(
         order_state=_optional_str(order_payload.get("state")) or _optional_str(order_payload.get("current_state")),
         explanation=explanation.explanation if explanation else None,
         evidence=explanation.evidence if explanation else [],
-        evidence_items=_evidence_items_payload(payload.get("evidence_items"))
-        or (explanation.evidence_items if explanation else []),
+        evidence_items=evidence_items,
         chain_events=[
             MarketEventTraceEvent(
                 event_id=item.event_id,
@@ -532,6 +543,73 @@ def _market_event_trace(
             for item in chain
         ],
     )
+
+
+def _trace_evidence_sources(
+    payload: dict,
+    evidence_items: list[dict[str, str | None]],
+    explanation: EventLedgerTradeExplanation | None,
+) -> list[str]:
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    sources: list[str] = []
+    for value in [
+        payload.get("source"),
+        metadata.get("source"),
+        metadata.get("price_source"),
+        metadata.get("data_source"),
+        metadata.get("quote_source"),
+    ]:
+        if isinstance(value, str) and value.strip():
+            sources.append(value)
+    for item in evidence_items:
+        for key in ("source", "source_url"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                sources.append(value)
+    if explanation:
+        for item in explanation.evidence:
+            if not isinstance(item, str):
+                continue
+            if item.startswith("source=") or item.startswith("quote_source=") or item.startswith("data_source="):
+                sources.append(item.split("=", 1)[1])
+    return sources
+
+
+def _evidence_quality(sources: list[str]) -> EvidenceQuality:
+    if not sources:
+        return "unknown"
+    has_real = any(_is_real_market_source(source) for source in sources)
+    has_mock = any(_is_mock_source(source) for source in sources)
+    has_deterministic = any(_is_deterministic_source(source) for source in sources)
+    active_kinds = sum(1 for value in (has_real, has_mock, has_deterministic) if value)
+    if active_kinds > 1:
+        return "mixed"
+    if has_real:
+        return "real_market_data"
+    if has_mock:
+        return "mock_data"
+    if has_deterministic:
+        return "deterministic_research_series"
+    return "unknown"
+
+
+def _has_real_market_evidence(sources: list[str]) -> bool:
+    return any(_is_real_market_source(source) for source in sources)
+
+
+def _is_real_market_source(source: str) -> bool:
+    normalized = source.strip().lower()
+    return normalized.startswith(("openbb_", "alpaca", "polygon", "sec_edgar")) or normalized == "mixed_real_market_data"
+
+
+def _is_mock_source(source: str) -> bool:
+    normalized = source.strip().lower()
+    return normalized.startswith("mock") or normalized.startswith("mock://") or ":mock" in normalized
+
+
+def _is_deterministic_source(source: str) -> bool:
+    return source.strip().lower() == "deterministic_research_series"
 
 
 def _latest_topic_payload(events: list[CoreEventLog], topic: str) -> dict:
