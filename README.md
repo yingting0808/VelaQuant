@@ -222,6 +222,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - After the current trading day's Alpha snapshot is recorded, the paper action plan switches to `hold_until_next_session` so the default path waits for the scheduler instead of rewriting the same snapshot.
 - The `hold_until_next_session` action now includes Alpha sampling forecast and the next actionable scheduler sample, so waiting states still show how many paper sessions remain and when the next useful sample is expected.
 - The `hold_until_next_session` action now also surfaces triggered exit samples expected on the next paper run, using the same order-projected as-of position view as the Daily Report so closed-trade sample progress is visible from the default action plan.
+- Paper Action Plan items now expose structured `projected_gate_impacts`, so the UI can show concrete next-run Alpha progress such as `closed trades +2, remaining 3 -> 1` instead of burying that information in evidence strings.
 - Latest incremental verification on 2026-06-19: executing the default `continue_paper_validation` action persisted registered-strategy Alpha snapshots for trading day `2026-06-17` (`deterministic_watchlist_v1` and `moving_average_cross`) and advanced the next primary action to `hold_until_next_session`.
 - The Daily Report now exposes the next effective paper sample separately from the next raw cron trigger through `scheduler_next_actionable_run_at`, `scheduler_next_actionable_trading_day`, `estimated_sessions_to_alpha_ready`, and `limiting_alpha_gate`, so operators can see when the next candidate/order sample will actually be collected.
 - The Daily Report now separates total generated candidates from actionable, ordered, and dismissed candidates through `actionable_candidate_count`, `ordered_candidate_count`, and `dismissed_candidate_count`, so paper operators can distinguish tradable signals from filtered research outputs.
@@ -291,6 +292,7 @@ Runtime-verified on Docker Compose as of 2026-06-15:
 - 当前交易日 Alpha 快照记录完成后，paper action plan 会切换到 `hold_until_next_session`，默认路径等待调度器，不再重复改写同一张快照。
 - `hold_until_next_session` 动作现在会带上 Alpha 样本预测和下一次有效调度采样，因此等待状态也能显示还需要多少次 paper sessions、下一次有效样本预计何时发生。
 - `hold_until_next_session` 动作现在也会展示下一次 paper run 预计触发的退出样本，并复用 Daily Report 同一套基于订单投影的 as-of 持仓口径，因此默认行动计划里也能看到闭环交易样本会如何推进。
+- Paper Action Plan 现在会返回结构化 `projected_gate_impacts`，因此 Web UI 可以直接展示下一次运行预计推进哪些 Alpha 门禁，例如 `闭环交易 +2 笔，剩余 3 到 1 笔`，不再把这类关键信息藏在 evidence 字符串里。
 - 2026-06-19 最新增量验证：执行默认 `continue_paper_validation` 动作后，系统已为交易日 `2026-06-17` 写入已注册策略的 Alpha 快照（`deterministic_watchlist_v1` 和 `moving_average_cross`），下一主动作已切换为 `hold_until_next_session`。
 - Daily Report 现在会把“下一次有效 paper 采样”和“下一次原始 cron 触发”分开展示，通过 `scheduler_next_actionable_run_at`、`scheduler_next_actionable_trading_day`、`estimated_sessions_to_alpha_ready` 和 `limiting_alpha_gate` 说明下一批候选/订单样本实际何时采集。
 - Daily Report 现在会把总生成候选、可下单候选、已下单候选和已过滤候选分开，通过 `actionable_candidate_count`、`ordered_candidate_count` 和 `dismissed_candidate_count` 区分真实可交易信号与被过滤的研究输出。

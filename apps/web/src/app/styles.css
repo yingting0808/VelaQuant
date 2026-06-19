@@ -1845,6 +1845,23 @@ tbody tr:last-child td {
   margin: 4px 0 0;
 }
 
+.action-impact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.action-impact-list span {
+  background: #ecfdf3;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 0.76rem;
+  font-weight: 900;
+  padding: 4px 8px;
+}
+
 @media (max-width: 760px) {
   .market-grid {
     grid-template-columns: 1fr;

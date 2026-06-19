@@ -1993,6 +1993,18 @@ export function PaperTradingWorkspace() {
                   </td>
                   <td>
                     {item.detail}
+                    {item.projected_gate_impacts?.length ? (
+                      <div className="action-impact-list">
+                        {item.projected_gate_impacts.map((impact) => (
+                          <span key={`${item.action_code}-${impact.gate}`}>
+                            {impact.label} +{formatNumber(impact.projected_increment)}
+                            {impact.unit}，剩余 {formatNumber(impact.current_remaining)} 到{" "}
+                            {formatNumber(impact.projected_remaining)}
+                            {impact.unit}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <p className="table-note">{item.evidence.join(" / ") || "无"}</p>
                   </td>
                 </tr>

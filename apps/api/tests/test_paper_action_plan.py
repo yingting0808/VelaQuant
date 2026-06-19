@@ -275,6 +275,16 @@ def test_paper_action_plan_hold_includes_triggered_exit_sample_forecast():
     assert "下次运行预计补 3 笔闭环交易样本" in plan.items[0].detail
     assert "closed_trade_gap_after_next_exit_run=1" in plan.items[0].evidence
     assert "triggered_exit_sample_count=3" in plan.items[0].evidence
+    assert plan.items[0].projected_gate_impacts == [
+        {
+            "gate": "closed_trade_sample",
+            "label": "闭环交易",
+            "projected_increment": 3.0,
+            "current_remaining": 4.0,
+            "projected_remaining": 1.0,
+            "unit": "笔",
+        }
+    ]
 
 
 def test_triggered_exit_sample_count_projects_from_orders_when_position_table_is_stale():

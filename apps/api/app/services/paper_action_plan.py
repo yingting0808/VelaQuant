@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.data.providers.mock import MockMarketDataProvider
@@ -37,6 +37,7 @@ class PaperActionPlanItem(BaseModel):
     title: str
     detail: str
     evidence: list[str]
+    projected_gate_impacts: list[dict[str, float | str]] = Field(default_factory=list)
 
 
 class PaperActionPlanPayload(BaseModel):
@@ -264,6 +265,10 @@ def build_paper_action_plan(
                         triggered_exit_sample_count=triggered_exit_sample_count,
                     ),
                 ],
+                projected_gate_impacts=_hold_until_next_session_projected_gate_impacts(
+                    closed_trade_gate=closed_trade_gate,
+                    triggered_exit_sample_count=triggered_exit_sample_count,
+                ),
             )
         )
     elif open_gates:
@@ -436,3 +441,24 @@ def _hold_until_next_session_evidence(
             remaining_after_next_exit_run = max(0, closed_trade_gate.remaining - triggered_exit_sample_count)
             evidence.append(f"closed_trade_gap_after_next_exit_run={remaining_after_next_exit_run:g}")
     return evidence
+
+
+def _hold_until_next_session_projected_gate_impacts(
+    *,
+    closed_trade_gate: AlphaGateProgressItem | None,
+    triggered_exit_sample_count: int,
+) -> list[dict[str, float | str]]:
+    if closed_trade_gate is None or triggered_exit_sample_count <= 0:
+        return []
+    projected_increment = float(triggered_exit_sample_count)
+    current_remaining = float(closed_trade_gate.remaining)
+    return [
+        {
+            "gate": closed_trade_gate.gate,
+            "label": closed_trade_gate.label,
+            "projected_increment": projected_increment,
+            "current_remaining": current_remaining,
+            "projected_remaining": max(0.0, current_remaining - projected_increment),
+            "unit": closed_trade_gate.unit,
+        }
+    ]

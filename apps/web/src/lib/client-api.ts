@@ -1104,6 +1104,14 @@ export type PaperActionPlanItemPayload = {
   title: string;
   detail: string;
   evidence: string[];
+  projected_gate_impacts?: {
+    gate: string;
+    label: string;
+    projected_increment: number;
+    current_remaining: number;
+    projected_remaining: number;
+    unit: string;
+  }[];
 };
 
 export type PaperActionPlanPayload = {
@@ -4857,7 +4865,19 @@ function isPaperActionPlanItemPayload(value: unknown): value is PaperActionPlanI
     typeof value.title === "string" &&
     typeof value.detail === "string" &&
     Array.isArray(value.evidence) &&
-    value.evidence.every((item) => typeof item === "string")
+    value.evidence.every((item) => typeof item === "string") &&
+    (value.projected_gate_impacts === undefined ||
+      (Array.isArray(value.projected_gate_impacts) &&
+        value.projected_gate_impacts.every(
+          (item) =>
+            isRecord(item) &&
+            typeof item.gate === "string" &&
+            typeof item.label === "string" &&
+            typeof item.projected_increment === "number" &&
+            typeof item.current_remaining === "number" &&
+            typeof item.projected_remaining === "number" &&
+            typeof item.unit === "string"
+        )))
   );
 }
 
