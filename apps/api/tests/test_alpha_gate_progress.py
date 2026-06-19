@@ -12,6 +12,7 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
             "consecutive_positive_expectancy",
             "filled_order_sample",
             "closed_trade_sample",
+            "real_market_event_evidence",
             "real_market_backtest",
             "average_positive_expectancy",
             "drawdown_limit",
@@ -21,6 +22,7 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
         filled_order_count=12,
         closed_trade_count=4,
         event_chain_count=20,
+        real_market_event_chain_count=0,
         has_real_market_backtest=False,
         latest_expectancy=1.5,
         average_expectancy=-0.2,
@@ -31,7 +33,7 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
     progress = build_alpha_gate_progress(alpha)
 
     assert progress.alpha_ready is False
-    assert progress.total_gates == 10
+    assert progress.total_gates == 11
     assert progress.passed_gates == 3
     assert progress.items[0].gate == "review_day_sample"
     assert progress.items[0].current == 3
@@ -46,11 +48,15 @@ def test_alpha_gate_progress_quantifies_remaining_validation_gaps():
     assert backtest.passed is False
     assert backtest.current == 0
     assert backtest.required == 1
+    real_event = [item for item in progress.items if item.gate == "real_market_event_evidence"][0]
+    assert real_event.passed is False
+    assert real_event.current == 0
+    assert real_event.required == 1
     score_pnl = [item for item in progress.items if item.gate == "score_pnl_inversion_review"][0]
     assert score_pnl.passed is True
     assert score_pnl.current == 0
     assert score_pnl.required == 0
-    assert "3/10" in progress.summary
+    assert "3/11" in progress.summary
 
 
 def test_alpha_gate_progress_tracks_score_pnl_inversion_quality_gate():
@@ -64,6 +70,7 @@ def test_alpha_gate_progress_tracks_score_pnl_inversion_quality_gate():
         filled_order_count=34,
         closed_trade_count=12,
         event_chain_count=160,
+        real_market_event_chain_count=160,
         has_real_market_backtest=True,
         latest_expectancy=12.5,
         average_expectancy=8.2,
@@ -76,8 +83,8 @@ def test_alpha_gate_progress_tracks_score_pnl_inversion_quality_gate():
 
     score_pnl = [item for item in progress.items if item.gate == "score_pnl_inversion_review"][0]
     assert progress.alpha_ready is False
-    assert progress.total_gates == 10
-    assert progress.passed_gates == 9
+    assert progress.total_gates == 11
+    assert progress.passed_gates == 10
     assert score_pnl.label == "评分盈亏反向"
     assert score_pnl.current == 2
     assert score_pnl.required == 0

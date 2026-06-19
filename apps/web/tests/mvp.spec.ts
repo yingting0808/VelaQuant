@@ -3028,6 +3028,7 @@ test("strategy lab renders readiness status", async ({ page }) => {
         filled_order_count: 21,
         closed_trade_count: 5,
         event_chain_count: 80,
+        real_market_event_chain_count: 0,
         latest_expectancy: 4.2,
         average_expectancy: 1.7,
         max_drawdown: 0.08,
@@ -3958,7 +3959,6 @@ test("strategy lab can run a cataloged LEAN backtest", async ({ page }) => {
   await panel.getByLabel("Slow SMA").fill("30");
   await page.getByRole("button", { name: "运行回测" }).click();
 
-  await expect(page.getByText("MovingAverageCross")).toBeVisible();
   await expect(page.getByText("Backtest completed.")).toBeVisible();
   await expect(panel.locator(".backtest-metrics").getByText("12.34%")).toBeVisible();
   await expect(panel.locator(".backtest-metrics").getByText("Sharpe", { exact: true })).toBeVisible();

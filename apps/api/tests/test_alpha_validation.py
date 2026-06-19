@@ -95,6 +95,7 @@ def test_alpha_validation_marks_stable_positive_paper_sample_ready():
         ],
         orders=_orders(filled=34, closed=12),
         event_chain_count=160,
+        real_market_event_chain_count=160,
         has_real_market_backtest=True,
     )
 
@@ -103,6 +104,27 @@ def test_alpha_validation_marks_stable_positive_paper_sample_ready():
     assert payload.blockers == []
     assert payload.consecutive_positive_expectancy_days == 5
     assert payload.closed_trade_count == 12
+
+
+def test_alpha_validation_blocks_when_runtime_events_are_not_real_market_evidence():
+    payload = build_alpha_validation(
+        reviews=[
+            _review("2026-06-08", expectancy=0.8, equity=100100),
+            _review("2026-06-09", expectancy=1.1, equity=100250),
+            _review("2026-06-10", expectancy=1.3, equity=100460),
+            _review("2026-06-11", expectancy=1.0, equity=100620),
+            _review("2026-06-12", expectancy=1.5, equity=100900),
+        ],
+        orders=_orders(filled=34, closed=12),
+        event_chain_count=160,
+        real_market_event_chain_count=0,
+        has_real_market_backtest=True,
+    )
+
+    assert payload.alpha_ready is False
+    assert payload.validation_level == "collecting"
+    assert payload.real_market_event_chain_count == 0
+    assert "real_market_event_evidence" in payload.blockers
 
 
 def test_alpha_validation_blocks_when_score_pnl_inversion_needs_review():
@@ -315,6 +337,7 @@ def test_alpha_validation_reads_runtime_real_market_backtest_gate(monkeypatch):
                         published_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc),
                     )
                 )
+        _real_market_event(session, team.id, sequence=1000, published_at=datetime(2026, 6, 13, 21, 0, tzinfo=timezone.utc))
         session.commit()
         monkeypatch.setattr("app.services.alpha_validation._has_real_market_backtest", lambda strategy_id: True)
 
@@ -382,6 +405,14 @@ def test_alpha_validation_reads_runtime_score_pnl_inversion_gate(monkeypatch):
                     published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
                 )
             )
+        _real_market_event(
+            session,
+            team.id,
+            run_id=run.id,
+            sequence=999,
+            correlation_id="real-market-score-pnl",
+            published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
+        )
         session.add(
             CoreEventLog(
                 team_id=team.id,
@@ -472,6 +503,14 @@ def test_alpha_validation_excludes_after_hours_reviewed_score_pnl_inversion_from
                     published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
                 )
             )
+        _real_market_event(
+            session,
+            team.id,
+            run_id=run.id,
+            sequence=999,
+            correlation_id="real-market-reviewed",
+            published_at=datetime(2026, 6, 5, 21, 0, tzinfo=timezone.utc),
+        )
         session.add(
             CoreEventLog(
                 team_id=team.id,
@@ -850,6 +889,35 @@ def _orders(*, filled: int, closed: int) -> list[PaperOrder]:
             )
         )
     return orders
+
+
+def _real_market_event(
+    session: Session,
+    team_id,
+    *,
+    sequence: int,
+    published_at: datetime,
+    run_id=None,
+    correlation_id: str = "real-market-correlation",
+) -> None:
+    session.add(
+        CoreEventLog(
+            team_id=team_id,
+            run_id=run_id,
+            event_id=f"{correlation_id}:market_event",
+            topic="market_event",
+            sequence=sequence,
+            correlation_id=correlation_id,
+            payload_json=(
+                '{"ticker":"AAPL","summary":"AAPL real market event",'
+                '"metadata":{"price_source":"openbb_yfinance"},'
+                '"evidence_items":[{"ticker":"AAPL","title":"AAPL real market snapshot",'
+                '"summary":"OpenBB/yfinance price history produced the event.",'
+                '"source":"openbb_yfinance","source_url":null,"observed_at":"2026-06-05T21:00:00Z"}]}'
+            ),
+            published_at=published_at,
+        )
+    )
 
 
 def _backtest_result(*, strategy_id: str, status: str, uses_real_market_data: bool):

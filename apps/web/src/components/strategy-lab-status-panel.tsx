@@ -1383,6 +1383,17 @@ export function StrategyLabStatusPanel() {
           </article>
           <article className="module-row">
             <div>
+              <strong>真实事件证据链 {alphaValidation?.real_market_event_chain_count ?? 0}</strong>
+              <p>
+                只有纯真实市场数据事件可满足该门禁；Mock 或混合事件仍可追溯，但不能单独证明 Alpha。
+              </p>
+            </div>
+            <span className={(alphaValidation?.real_market_event_chain_count ?? 0) > 0 ? "state-ok" : "state-warn"}>
+              {(alphaValidation?.real_market_event_chain_count ?? 0) > 0 ? "已通过" : "待补"}
+            </span>
+          </article>
+          <article className="module-row">
+            <div>
               <strong>快照账本 {alphaSnapshots?.snapshot_count ?? 0} 天</strong>
               <p>
                 正期望 {alphaSnapshots?.positive_expectancy_snapshot_count ?? 0} · Ready{" "}

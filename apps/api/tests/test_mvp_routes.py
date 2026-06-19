@@ -624,6 +624,7 @@ def test_mvp_strategy_lab_alpha_validation_route_returns_gate(monkeypatch):
         filled_order_count=12,
         closed_trade_count=4,
         event_chain_count=120,
+        real_market_event_chain_count=12,
         latest_expectancy=1.1,
         average_expectancy=0.6,
         max_drawdown=0.02,

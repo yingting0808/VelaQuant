@@ -36,6 +36,7 @@ class AlphaValidationPayload(BaseModel):
     filled_order_count: int
     closed_trade_count: int
     event_chain_count: int
+    real_market_event_chain_count: int = 0
     has_real_market_backtest: bool
     latest_expectancy: float
     average_expectancy: float
@@ -69,7 +70,7 @@ def get_alpha_validation(
         and order.submitted_at.date().isoformat() <= as_of_trading_day
     ]
     strategy_reviews = _strategy_expectancy_reviews(reviews, orders)
-    event_chain_count = _event_chain_count_as_of(session, team_id, as_of_trading_day)
+    event_chain_count, real_market_event_chain_count = _event_chain_counts_as_of(session, team_id, as_of_trading_day)
     score_pnl_inversion_count = _score_pnl_inversion_count_as_of(
         session,
         team_id=team_id,
@@ -80,6 +81,7 @@ def get_alpha_validation(
         reviews=strategy_reviews,
         orders=orders,
         event_chain_count=event_chain_count,
+        real_market_event_chain_count=real_market_event_chain_count,
         has_real_market_backtest=_has_real_market_backtest(strategy_id),
         strategy_id=strategy_id,
         score_pnl_inversion_count=score_pnl_inversion_count,
@@ -131,6 +133,7 @@ def build_alpha_validation(
     reviews: list[PaperReview],
     orders: list[PaperOrder],
     event_chain_count: int,
+    real_market_event_chain_count: int | None = None,
     has_real_market_backtest: bool = False,
     strategy_id: str = "deterministic_watchlist_v1",
     score_pnl_inversion_count: int = 0,
@@ -146,12 +149,16 @@ def build_alpha_validation(
         2,
     ) if sorted_reviews else 0.0
     max_drawdown = _max_drawdown(sorted_reviews)
+    effective_real_market_event_chain_count = (
+        event_chain_count if real_market_event_chain_count is None else real_market_event_chain_count
+    )
     blockers = _blockers(
         review_day_count=review_day_count,
         consecutive_positive_days=consecutive_positive_days,
         filled_order_count=len(filled_orders),
         closed_trade_count=len(closed_orders),
         event_chain_count=event_chain_count,
+        real_market_event_chain_count=effective_real_market_event_chain_count,
         has_real_market_backtest=has_real_market_backtest,
         latest_expectancy=latest_expectancy,
         average_expectancy=average_expectancy,
@@ -172,6 +179,7 @@ def build_alpha_validation(
         filled_order_count=len(filled_orders),
         closed_trade_count=len(closed_orders),
         event_chain_count=event_chain_count,
+        real_market_event_chain_count=effective_real_market_event_chain_count,
         has_real_market_backtest=has_real_market_backtest,
         latest_expectancy=latest_expectancy,
         average_expectancy=average_expectancy,
@@ -203,6 +211,7 @@ def _blockers(
     filled_order_count: int,
     closed_trade_count: int,
     event_chain_count: int,
+    real_market_event_chain_count: int,
     has_real_market_backtest: bool,
     latest_expectancy: float,
     average_expectancy: float,
@@ -220,6 +229,8 @@ def _blockers(
         blockers.append("closed_trade_sample")
     if event_chain_count <= 0:
         blockers.append("event_ledger_populated")
+    if real_market_event_chain_count <= 0:
+        blockers.append("real_market_event_evidence")
     if not has_real_market_backtest:
         blockers.append("real_market_backtest")
     if latest_expectancy <= 0:
@@ -278,7 +289,7 @@ def _summary(alpha_ready: bool, validation_level: AlphaValidationLevel, blockers
     return f"Paper alpha validation is collecting evidence; blockers: {', '.join(blockers) or 'none'}."
 
 
-def _event_chain_count_as_of(session: Session, team_id: UUID, as_of_trading_day: str) -> int:
+def _event_chain_counts_as_of(session: Session, team_id: UUID, as_of_trading_day: str) -> tuple[int, int]:
     eligible_run_ids = {
         run.id
         for run in session.exec(
@@ -294,12 +305,50 @@ def _event_chain_count_as_of(session: Session, team_id: UUID, as_of_trading_day:
         if event.run_id in eligible_run_ids
         or (event.run_id is None and event.published_at.date().isoformat() <= as_of_trading_day)
     ]
-    return len(
-        {
-            event.correlation_id
-            for event in filter_strategy_trade_events(eligible_events)
-        }
-    )
+    filtered_events = filter_strategy_trade_events(eligible_events)
+    event_chain_ids = {event.correlation_id for event in filtered_events}
+    real_market_chain_ids = {
+        event.correlation_id
+        for event in filtered_events
+        if event.topic == "market_event" and _is_real_market_event_payload(event.payload_json)
+    }
+    return len(event_chain_ids), len(real_market_chain_ids)
+
+
+def _is_real_market_event_payload(payload_json: str) -> bool:
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    sources = _event_payload_sources(payload)
+    if not sources:
+        return False
+    return all(_is_real_market_source(source) for source in sources)
+
+
+def _event_payload_sources(payload: dict) -> list[str]:
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    sources: list[str] = []
+    for value in [metadata.get("source"), metadata.get("price_source"), metadata.get("data_source"), metadata.get("quote_source")]:
+        if isinstance(value, str) and value.strip():
+            sources.append(value)
+    evidence_items = payload.get("evidence_items")
+    if isinstance(evidence_items, list):
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source")
+            if isinstance(source, str) and source.strip():
+                sources.append(source)
+    return sources
+
+
+def _is_real_market_source(source: str) -> bool:
+    normalized = source.strip().lower()
+    return normalized.startswith(("openbb_", "alpaca", "polygon", "sec_edgar")) or normalized == "mixed_real_market_data"
 
 
 def _score_pnl_inversion_count_as_of(

@@ -386,6 +386,7 @@ export type StrategyAlphaValidationPayload = {
   filled_order_count: number;
   closed_trade_count: number;
   event_chain_count: number;
+  real_market_event_chain_count: number;
   latest_expectancy: number;
   average_expectancy: number;
   max_drawdown: number;
@@ -1688,6 +1689,7 @@ const fallbackStrategyAlphaValidation: StrategyAlphaValidationPayload = {
   filled_order_count: 0,
   closed_trade_count: 0,
   event_chain_count: 0,
+  real_market_event_chain_count: 0,
   latest_expectancy: 0,
   average_expectancy: 0,
   max_drawdown: 0,
@@ -2943,11 +2945,13 @@ function isStrategyAlphaValidationPayload(value: unknown): value is StrategyAlph
     typeof value.validation_level === "string" &&
     Array.isArray(value.blockers) &&
     value.blockers.every((item) => typeof item === "string") &&
+    typeof value.has_real_market_backtest === "boolean" &&
     typeof value.review_day_count === "number" &&
     typeof value.consecutive_positive_expectancy_days === "number" &&
     typeof value.filled_order_count === "number" &&
     typeof value.closed_trade_count === "number" &&
     typeof value.event_chain_count === "number" &&
+    typeof value.real_market_event_chain_count === "number" &&
     typeof value.latest_expectancy === "number" &&
     typeof value.average_expectancy === "number" &&
     typeof value.max_drawdown === "number" &&

@@ -65,6 +65,7 @@ def build_alpha_gate_progress(alpha: AlphaValidationPayload) -> AlphaGateProgres
         _at_least("filled_order_sample", "成交订单", alpha.filled_order_count, MIN_FILLED_ORDERS, "笔"),
         _at_least("closed_trade_sample", "闭环交易", alpha.closed_trade_count, MIN_CLOSED_TRADES, "笔"),
         _at_least("event_ledger_populated", "事件账本", alpha.event_chain_count, 1, "条"),
+        _at_least("real_market_event_evidence", "真实事件证据", alpha.real_market_event_chain_count, 1, "条"),
         _at_least(
             "real_market_backtest",
             "真实历史回测",
